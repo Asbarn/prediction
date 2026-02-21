@@ -34,12 +34,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Log output is structured JSON with tracing spans, log levels, and correlation ID infrastructure ready for downstream use
   4. Shared domain types (Venue, Instrument, MarketSnapshot, Decimal price/probability wrappers, Timestamp, error types) compile and are importable by downstream modules
   5. Graceful shutdown on SIGINT/SIGTERM flushes pending writes and completes in-flight computations before exit
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: Project scaffold and shared domain types
-- [ ] 01-02: Configuration system and structured logging
-- [ ] 01-03: Graceful shutdown and binary entrypoint
+- [ ] 01-01-PLAN.md -- Project scaffold with dependencies, shared domain types, and error types
+- [ ] 01-02-PLAN.md -- Configuration loading system and dual-output structured logging
+- [ ] 01-03-PLAN.md -- Graceful shutdown, config hot-reload, binary entrypoint, and integration tests
 
 ### Phase 2: Deribit Feed and Data Pipeline
 **Goal**: The system connects to Deribit, maintains a live order book, publishes normalized MarketSnapshot events through a bounded async channel, records every raw message to JSONL, and supports a mock data source for testing -- proving the entire data pipeline end-to-end with a single venue.
@@ -187,7 +187,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Not started | - |
+| 1. Foundation | 0/3 | Planned | - |
 | 2. Deribit Feed and Data Pipeline | 0/5 | Not started | - |
 | 3. Feed Infrastructure | 0/5 | Not started | - |
 | 4. Multi-Venue Feeds | 0/3 | Not started | - |
