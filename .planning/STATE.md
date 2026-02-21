@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 1 of 9 (Foundation)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: Executing
-Last activity: 2026-02-21 -- Completed 01-01 (project scaffold, domain types, error types)
+Last activity: 2026-02-21 -- Completed 01-02 (config loading, dual-output logging)
 
-Progress: [#.........] 11%
+Progress: [##........] 22%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 9min
-- Total execution time: 0.15 hours
+- Total plans completed: 2
+- Average duration: 7.5min
+- Total execution time: 0.25 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-foundation | 1/3 | 9min | 9min |
+| 01-foundation | 2/3 | 15min | 7.5min |
 
 **Recent Trend:**
-- Last 5 plans: 9min
-- Trend: baseline
+- Last 5 plans: 9min, 6min
+- Trend: improving
 
 *Updated after each plan completion*
 
@@ -47,6 +47,9 @@ Recent decisions affecting current work:
 - [Roadmap]: Prediction market arb before cross-asset -- validates pipeline end-to-end with simpler probability-vs-probability math before adding Black-76
 - [01-01]: Added uuid serde feature flag -- required for TraceId serialization, not in original research spec
 - [01-01]: 16 smoke tests covering all domain types, error severity, serde roundtrips
+- [01-02]: load_credentials() returns Credentials directly (not Result) -- all fields optional in Phase 1
+- [01-02]: Logging filter strings scoped to crate (prediction={level}) for independent per-layer filtering
+- [01-02]: URL validation uses simple prefix checking rather than full URL parser
 
 ### Pending Todos
 
@@ -62,5 +65,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-21
-Stopped at: Completed 01-01-PLAN.md (project scaffold, domain types, error types)
-Resume file: .planning/phases/01-foundation/01-01-SUMMARY.md
+Stopped at: Completed 01-02-PLAN.md (config loading, dual-output logging)
+Resume file: .planning/phases/01-foundation/01-02-SUMMARY.md
