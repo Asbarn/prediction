@@ -1,6 +1,8 @@
-use prediction::types::*;
+use prediction::config;
 use prediction::error::*;
+use prediction::types::*;
 use rust_decimal::Decimal;
+use std::path::Path;
 
 #[test]
 fn types_are_importable() {
@@ -180,4 +182,161 @@ fn venue_serde_roundtrip() {
     assert_eq!(json, r#""deribit""#);
     let parsed: Venue = serde_json::from_str(&json).expect("deserialize Venue");
     assert_eq!(parsed, Venue::Deribit);
+}
+
+// --- Config loading tests ---
+
+#[test]
+fn config_loads_from_example_dir() {
+    let config = config::load_config(Path::new("config")).expect("load example config");
+    assert_eq!(config.system.logging.log_dir, "logs");
+    assert_eq!(config.system.staleness.threshold_ms, 5000);
+    assert_eq!(config.system.signals.min_spread_bps, 100);
+    assert_eq!(config.events.events.len(), 1);
+    assert_eq!(config.events.events[0].id, "BTC-100K-2025-06-30");
+    assert_eq!(config.venues.deribit.ws_url, "wss://www.deribit.com/ws/api/v2");
+    assert_eq!(config.venues.polymarket.chain_id, 137);
+}
+
+#[test]
+fn config_read_error_on_missing_dir() {
+    let err = config::load_config(Path::new("nonexistent")).unwrap_err();
+    match err {
+        ConfigError::ReadFile { file, .. } => assert_eq!(file, "config.toml"),
+        other => panic!("expected ReadFile, got: {other}"),
+    }
+}
+
+#[test]
+fn config_parse_error_includes_line_column() {
+    // Write a temporary invalid TOML file and try to parse it
+    let tmp_dir = std::env::temp_dir().join("prediction_test_invalid_toml");
+    std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+
+    // Write invalid config.toml (missing closing quote)
+    std::fs::write(
+        tmp_dir.join("config.toml"),
+        "[logging]\nlog_dir = \"logs\nstdout_level = \"info\"\n",
+    )
+    .expect("write invalid toml");
+    std::fs::write(tmp_dir.join("events.toml"), "events = []\n").expect("write events");
+    std::fs::write(tmp_dir.join("venues.toml"), "").expect("write venues");
+
+    let err = config::load_config(&tmp_dir).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("config.toml"),
+        "error should reference the file: {msg}"
+    );
+    // toml 0.8 errors include line/column info
+    assert!(
+        msg.contains("line") || msg.contains("TOML parse error"),
+        "error should include parse details: {msg}"
+    );
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn config_validation_rejects_zero_threshold() {
+    let tmp_dir = std::env::temp_dir().join("prediction_test_zero_threshold");
+    std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+
+    std::fs::write(
+        tmp_dir.join("config.toml"),
+        "[logging]\nlog_dir = \"logs\"\nstdout_level = \"info\"\nfile_level = \"debug\"\n\n\
+         [staleness]\nthreshold_ms = 0\n\n\
+         [signals]\nmin_spread_bps = 100\ncooldown_ms = 5000\n",
+    )
+    .expect("write config");
+    std::fs::write(
+        tmp_dir.join("events.toml"),
+        "[[events]]\nid = \"test\"\nasset = \"BTC\"\nstrike = \"100000\"\n\
+         direction = \"above\"\nexpiry = \"2025-06-30\"\n\n\
+         [events.venues.deribit]\ninstrument = \"BTC-27JUN25-100000-C\"\n",
+    )
+    .expect("write events");
+    std::fs::write(
+        tmp_dir.join("venues.toml"),
+        "[deribit]\nws_url = \"wss://deribit.com/ws\"\nrate_limit_per_second = 20\n\
+         heartbeat_interval_ms = 10000\n\n\
+         [polymarket]\nws_url = \"wss://poly.com/ws\"\nrest_url = \"https://poly.com\"\n\
+         chain_id = 137\n\n\
+         [kalshi]\nrest_url = \"https://kalshi.com\"\nws_url = \"wss://kalshi.com/ws\"\n",
+    )
+    .expect("write venues");
+
+    let err = config::load_config(&tmp_dir).unwrap_err();
+    match &err {
+        ConfigError::Validation { message, .. } => {
+            assert!(
+                message.contains("threshold_ms"),
+                "should mention threshold_ms: {message}"
+            );
+        }
+        other => panic!("expected Validation error, got: {other}"),
+    }
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn config_validation_rejects_event_without_venues() {
+    let tmp_dir = std::env::temp_dir().join("prediction_test_no_venues");
+    std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+
+    std::fs::write(
+        tmp_dir.join("config.toml"),
+        "[logging]\nlog_dir = \"logs\"\nstdout_level = \"info\"\nfile_level = \"debug\"\n\n\
+         [staleness]\nthreshold_ms = 5000\n\n\
+         [signals]\nmin_spread_bps = 100\ncooldown_ms = 5000\n",
+    )
+    .expect("write config");
+    // Event with NO venue mappings
+    std::fs::write(
+        tmp_dir.join("events.toml"),
+        "[[events]]\nid = \"test\"\nasset = \"BTC\"\nstrike = \"100000\"\n\
+         direction = \"above\"\nexpiry = \"2025-06-30\"\n\n\
+         [events.venues]\n",
+    )
+    .expect("write events");
+    std::fs::write(
+        tmp_dir.join("venues.toml"),
+        "[deribit]\nws_url = \"wss://deribit.com/ws\"\nrate_limit_per_second = 20\n\
+         heartbeat_interval_ms = 10000\n\n\
+         [polymarket]\nws_url = \"wss://poly.com/ws\"\nrest_url = \"https://poly.com\"\n\
+         chain_id = 137\n\n\
+         [kalshi]\nrest_url = \"https://kalshi.com\"\nws_url = \"wss://kalshi.com/ws\"\n",
+    )
+    .expect("write venues");
+
+    let err = config::load_config(&tmp_dir).unwrap_err();
+    match &err {
+        ConfigError::Validation { message, .. } => {
+            assert!(
+                message.contains("no venue mappings"),
+                "should mention missing venues: {message}"
+            );
+        }
+        other => panic!("expected Validation error, got: {other}"),
+    }
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn credentials_debug_redacts_secrets() {
+    let creds = config::Credentials {
+        deribit_api_key: Some("secret_key".to_string()),
+        deribit_api_secret: None,
+        polymarket_private_key: Some("0xprivate".to_string()),
+        kalshi_email: None,
+        kalshi_password: None,
+    };
+    let debug = format!("{creds:?}");
+    assert!(!debug.contains("secret_key"), "should not expose key: {debug}");
+    assert!(!debug.contains("0xprivate"), "should not expose key: {debug}");
+    assert!(debug.contains("***"), "should show redacted marker: {debug}");
+    assert!(debug.contains("None"), "should show None for absent: {debug}");
 }

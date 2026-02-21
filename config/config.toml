@@ -1,0 +1,12 @@
+[logging]
+log_dir = "logs"
+stdout_level = "info"
+file_level = "debug"
+
+[staleness]
+threshold_ms = 5000
+max_skew_ms = 2000
+
+[signals]
+min_spread_bps = 100    # 1% minimum spread
+cooldown_ms = 5000      # Don't re-signal same event within 5s

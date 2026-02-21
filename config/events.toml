@@ -1,0 +1,16 @@
+[[events]]
+id = "BTC-100K-2025-06-30"
+asset = "BTC"
+strike = "100000"
+direction = "above"
+expiry = "2025-06-30"
+
+[events.venues.deribit]
+instrument = "BTC-27JUN25-100000-C"
+
+[events.venues.polymarket]
+condition_id = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+token_id = "12345"
+
+[events.venues.kalshi]
+ticker = "KXBTCD-25JUN30-T100000"
