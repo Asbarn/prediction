@@ -1,7 +1,7 @@
 # Requirements: Prediction Market Arbitrage System
 
 **Defined:** 2026-02-21
-**Core Value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities — with every false signal caught before it costs money.
+**Core Value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
 
 ## v1 Requirements
 
@@ -86,7 +86,7 @@ Deferred to future release. Tracked but not in current roadmap.
 - **EXEC-01**: Order execution engine placing orders on both venues concurrently via tokio::join!
 - **EXEC-02**: Venue-specific executor adapters implementing common VenueExecutor trait (Deribit, Polymarket, Kalshi)
 - **EXEC-03**: Venue authentication for private/trading endpoints (API keys, wallet signing for Polymarket)
-- **EXEC-04**: Order state machine per arb trade: Pending → PartialFill → Filled → Settled with timeout transitions
+- **EXEC-04**: Order state machine per arb trade: Pending -> PartialFill -> Filled -> Settled with timeout transitions
 - **EXEC-05**: Leg risk manager: retry with adjusted price on second-leg failure, evaluate hedging vs unwinding, configurable max one-leg exposure
 
 ### Risk Management
@@ -111,14 +111,14 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Feature | Reason |
 |---------|--------|
-| Live order execution | v2 — must prove signal quality through paper trading first |
+| Live order execution | v2 -- must prove signal quality through paper trading first |
 | AI/ML signal prediction | Overfitting risk on small dataset; arbs are event-driven not pattern-driven |
 | Multi-chain/DEX arbitrage | Fundamentally different problem domain (AMM math, MEV, block-time execution) |
 | Web dashboard / custom frontend | Use Grafana + Prometheus; zero custom frontend code |
 | Sub-millisecond latency optimization | Arb windows are minutes-to-hours; bottleneck is pricing accuracy, not speed |
 | Simultaneous support for many prediction markets | Start with Poly + Kalshi + Deribit; add venues only when these are solid |
 | Full portfolio management | Different product; single-strategy focus for now |
-| State persistence / restart reconciliation | v2 — paper trading can afford cold restarts |
+| State persistence / restart reconciliation | v2 -- paper trading can afford cold restarts |
 
 ## Traceability
 
@@ -126,56 +126,56 @@ Deferred to future release. Tracked but not in current roadmap.
 |-------------|-------|--------|
 | FEED-01 | Phase 2 | Pending |
 | FEED-02 | Phase 2 | Pending |
-| FEED-03 | Phase 3 | Pending |
-| FEED-04 | Phase 3 | Pending |
-| FEED-05 | Phase 3 | Pending |
+| FEED-03 | Phase 4 | Pending |
+| FEED-04 | Phase 4 | Pending |
+| FEED-05 | Phase 4 | Pending |
 | FEED-06 | Phase 2 | Pending |
 | FEED-07 | Phase 2 | Pending |
 | FEED-08 | Phase 2 | Pending |
-| RELY-01 | Phase 2 | Pending |
-| RELY-02 | Phase 2 | Pending |
-| RELY-03 | Phase 2 | Pending |
-| RELY-04 | Phase 3 | Pending |
-| RELY-05 | Phase 2 | Pending |
+| RELY-01 | Phase 3 | Pending |
+| RELY-02 | Phase 3 | Pending |
+| RELY-03 | Phase 3 | Pending |
+| RELY-04 | Phase 4 | Pending |
+| RELY-05 | Phase 3 | Pending |
 | RELY-06 | Phase 1 | Pending |
-| EVNT-01 | Phase 3 | Pending |
-| EVNT-02 | Phase 3 | Pending |
-| EVNT-03 | Phase 3 | Pending |
-| EVNT-04 | Phase 3 | Pending |
-| EVNT-05 | Phase 3 | Pending |
-| PRIC-01 | Phase 5 | Pending |
-| PRIC-02 | Phase 5 | Pending |
-| PRIC-03 | Phase 5 | Pending |
-| PRIC-04 | Phase 5 | Pending |
-| PRIC-05 | Phase 5 | Pending |
-| PRIC-06 | Phase 5 | Pending |
-| PRIC-07 | Phase 5 | Pending |
-| SGNL-01 | Phase 5 | Pending |
-| SGNL-02 | Phase 4 | Pending |
-| SGNL-03 | Phase 4 | Pending |
-| SGNL-04 | Phase 4 | Pending |
-| SGNL-05 | Phase 5 | Pending |
-| SGNL-06 | Phase 5 | Pending |
-| SGNL-07 | Phase 4 | Pending |
-| SGNL-08 | Phase 4 | Pending |
-| TIME-01 | Phase 2 | Pending |
-| TIME-02 | Phase 2 | Pending |
-| TIME-03 | Phase 2 | Pending |
+| EVNT-01 | Phase 5 | Pending |
+| EVNT-02 | Phase 5 | Pending |
+| EVNT-03 | Phase 5 | Pending |
+| EVNT-04 | Phase 5 | Pending |
+| EVNT-05 | Phase 5 | Pending |
+| PRIC-01 | Phase 7 | Pending |
+| PRIC-02 | Phase 7 | Pending |
+| PRIC-03 | Phase 7 | Pending |
+| PRIC-04 | Phase 7 | Pending |
+| PRIC-05 | Phase 7 | Pending |
+| PRIC-06 | Phase 7 | Pending |
+| PRIC-07 | Phase 7 | Pending |
+| SGNL-01 | Phase 8 | Pending |
+| SGNL-02 | Phase 6 | Pending |
+| SGNL-03 | Phase 6 | Pending |
+| SGNL-04 | Phase 6 | Pending |
+| SGNL-05 | Phase 8 | Pending |
+| SGNL-06 | Phase 8 | Pending |
+| SGNL-07 | Phase 6 | Pending |
+| SGNL-08 | Phase 6 | Pending |
+| TIME-01 | Phase 3 | Pending |
+| TIME-02 | Phase 3 | Pending |
+| TIME-03 | Phase 3 | Pending |
 | OBSV-01 | Phase 1 | Pending |
 | OBSV-02 | Phase 1 | Pending |
-| OBSV-03 | Phase 4 | Pending |
-| OBSV-04 | Phase 4 | Pending |
-| OBSV-05 | Phase 6 | Pending |
-| OBSV-06 | Phase 6 | Pending |
+| OBSV-03 | Phase 6 | Pending |
+| OBSV-04 | Phase 6 | Pending |
+| OBSV-05 | Phase 9 | Pending |
+| OBSV-06 | Phase 9 | Pending |
 | TEST-01 | Phase 2 | Pending |
-| TEST-02 | Phase 6 | Pending |
-| TEST-03 | Phase 6 | Pending |
+| TEST-02 | Phase 9 | Pending |
+| TEST-03 | Phase 9 | Pending |
 
 **Coverage:**
-- v1 requirements: 45 total
-- Mapped to phases: 45
-- Unmapped: 0 ✓
+- v1 requirements: 46 total
+- Mapped to phases: 46
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-21*
-*Last updated: 2026-02-21 after initial definition*
+*Last updated: 2026-02-21 after roadmap creation (9-phase structure)*
