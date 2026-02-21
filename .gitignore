@@ -1,4 +1,6 @@
 /target
+/logs
+*.log
 *.swp
 *.swo
 *~

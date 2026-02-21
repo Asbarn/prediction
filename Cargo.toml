@@ -38,4 +38,4 @@ derive_more = { version = "2", features = ["full"] }
 
 # Config hot-reload
 notify = "8"
-notify-debouncer-mini = "0.5"
+notify-debouncer-mini = "0.7"
