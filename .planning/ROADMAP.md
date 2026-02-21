@@ -12,7 +12,7 @@ This roadmap delivers a production-grade cross-venue arbitrage signal generator 
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - Project skeleton with shared types, configuration, structured logging, and graceful shutdown
+- [x] **Phase 1: Foundation** - Project skeleton with shared types, configuration, structured logging, and graceful shutdown
 - [ ] **Phase 2: Deribit Feed and Data Pipeline** - End-to-end data path from Deribit WebSocket through normalization bus to JSONL recording, with mock data abstraction
 - [ ] **Phase 3: Feed Infrastructure** - Reliability layer with automatic reconnection, heartbeat monitoring, staleness detection, rate limiting, and timestamp tracking
 - [ ] **Phase 4: Multi-Venue Feeds** - Polymarket and Kalshi feed integration with graceful degradation on feed loss
@@ -37,9 +37,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md -- Project scaffold with dependencies, shared domain types, and error types
-- [ ] 01-02-PLAN.md -- Configuration loading system and dual-output structured logging
-- [ ] 01-03-PLAN.md -- Graceful shutdown, config hot-reload, binary entrypoint, and integration tests
+- [x] 01-01-PLAN.md -- Project scaffold with dependencies, shared domain types, and error types
+- [x] 01-02-PLAN.md -- Configuration loading system and dual-output structured logging
+- [x] 01-03-PLAN.md -- Graceful shutdown, config hot-reload, binary entrypoint, and integration tests
 
 ### Phase 2: Deribit Feed and Data Pipeline
 **Goal**: The system connects to Deribit, maintains a live order book, publishes normalized MarketSnapshot events through a bounded async channel, records every raw message to JSONL, and supports a mock data source for testing -- proving the entire data pipeline end-to-end with a single venue.
@@ -187,7 +187,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Planned | - |
+| 1. Foundation | 3/3 | Complete | 2026-02-22 |
 | 2. Deribit Feed and Data Pipeline | 0/5 | Not started | - |
 | 3. Feed Infrastructure | 0/5 | Not started | - |
 | 4. Multi-Venue Feeds | 0/3 | Not started | - |

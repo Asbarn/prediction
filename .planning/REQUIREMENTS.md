@@ -25,7 +25,7 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 - [ ] **RELY-03**: Staleness detection rejects any data older than a configurable threshold (default 5s) per instrument per venue
 - [ ] **RELY-04**: Feed drops degrade gracefully — remaining feeds continue operating, affected instruments marked unavailable, degraded state surfaced in metrics
 - [ ] **RELY-05**: Per-venue rate limiters enforce API rate limits (Deribit 20 req/s private, Kalshi tiered, Polymarket gas-aware) baked into feed and future execution layers
-- [ ] **RELY-06**: System shuts down gracefully on SIGINT/SIGTERM — clean WS disconnect, flush pending writes, complete in-flight computations
+- [x] **RELY-06**: System shuts down gracefully on SIGINT/SIGTERM — clean WS disconnect, flush pending writes, complete in-flight computations
 
 ### Event Mapping
 
@@ -64,8 +64,8 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 
 ### Observability
 
-- [ ] **OBSV-01**: All parameters configurable via TOML: strike filters, staleness thresholds, fee assumptions, signal thresholds, log rotation, venue credentials
-- [ ] **OBSV-02**: Structured logging via `tracing` with JSON output, including correlation IDs linking signals to their constituent market data
+- [x] **OBSV-01**: All parameters configurable via TOML: strike filters, staleness thresholds, fee assumptions, signal thresholds, log rotation, venue credentials
+- [x] **OBSV-02**: Structured logging via `tracing` with JSON output, including correlation IDs linking signals to their constituent market data
 - [ ] **OBSV-03**: Prometheus metrics exporter with key metrics: spread by event (histogram), signal count, fill rate proxy, feed-to-signal latency, feed health, margin utilization proxy
 - [ ] **OBSV-04**: Paper trade P&L tracking: hypothetical entry/exit at signal time, per-signal P&L assuming fill at quoted price, daily/weekly aggregates
 - [ ] **OBSV-05**: HTTP `/health` endpoint reporting: per-feed connection status, last update time per feed, active event count, system uptime
@@ -137,7 +137,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | RELY-03 | Phase 3 | Pending |
 | RELY-04 | Phase 4 | Pending |
 | RELY-05 | Phase 3 | Pending |
-| RELY-06 | Phase 1 | Pending |
+| RELY-06 | Phase 1 | Complete |
 | EVNT-01 | Phase 5 | Pending |
 | EVNT-02 | Phase 5 | Pending |
 | EVNT-03 | Phase 5 | Pending |
@@ -161,8 +161,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | TIME-01 | Phase 3 | Pending |
 | TIME-02 | Phase 3 | Pending |
 | TIME-03 | Phase 3 | Pending |
-| OBSV-01 | Phase 1 | Pending |
-| OBSV-02 | Phase 1 | Pending |
+| OBSV-01 | Phase 1 | Complete |
+| OBSV-02 | Phase 1 | Complete |
 | OBSV-03 | Phase 6 | Pending |
 | OBSV-04 | Phase 6 | Pending |
 | OBSV-05 | Phase 9 | Pending |
