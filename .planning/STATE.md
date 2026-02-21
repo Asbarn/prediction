@@ -9,29 +9,29 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 
 ## Current Position
 
-Phase: 1 of 9 (Foundation)
-Plan: 2 of 3 in current phase
-Status: Executing
-Last activity: 2026-02-21 -- Completed 01-02 (config loading, dual-output logging)
+Phase: 1 of 9 (Foundation) -- COMPLETE
+Plan: 3 of 3 in current phase (all complete)
+Status: Phase Complete
+Last activity: 2026-02-22 -- Completed 01-03 (binary entrypoint, shutdown, config hot-reload)
 
-Progress: [##........] 22%
+Progress: [###.......] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 7.5min
-- Total execution time: 0.25 hours
+- Total plans completed: 3
+- Average duration: 8min
+- Total execution time: 0.4 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-foundation | 2/3 | 15min | 7.5min |
+| 01-foundation | 3/3 | 24min | 8min |
 
 **Recent Trend:**
-- Last 5 plans: 9min, 6min
-- Trend: improving
+- Last 5 plans: 9min, 6min, 9min
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -50,6 +50,9 @@ Recent decisions affecting current work:
 - [01-02]: load_credentials() returns Credentials directly (not Result) -- all fields optional in Phase 1
 - [01-02]: Logging filter strings scoped to crate (prediction={level}) for independent per-layer filtering
 - [01-02]: URL validation uses simple prefix checking rather than full URL parser
+- [01-03]: ConfigReloader returns (ConfigReloader, Receiver) -- Sender moved into watcher thread, not clonable
+- [01-03]: Upgraded notify-debouncer-mini 0.5->0.7 to resolve notify 7/8 version conflict
+- [01-03]: Shutdown handler: Ctrl+C + SIGTERM only, no SIGHUP -- file watcher handles config reload cross-platform
 
 ### Pending Todos
 
@@ -64,6 +67,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-21
-Stopped at: Completed 01-02-PLAN.md (config loading, dual-output logging)
-Resume file: .planning/phases/01-foundation/01-02-SUMMARY.md
+Last session: 2026-02-22
+Stopped at: Completed 01-03-PLAN.md (binary entrypoint, shutdown, config hot-reload) -- Phase 1 COMPLETE
+Resume file: .planning/phases/01-foundation/01-03-SUMMARY.md
