@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 3: Feed Infrastructure
+**Current focus:** Phase 4: Multi-Venue Feeds
 
 ## Current Position
 
-Phase: 3 of 9 (Feed Infrastructure)
+Phase: 4 of 9 (Multi-Venue Feeds)
 Plan: 3 of 3 in current phase
 Status: Phase Complete
-Last activity: 2026-02-22 -- Completed 03-03 (reconnection supervisor, rate limiter, pipeline wiring)
+Last activity: 2026-02-22 -- Completed 04-03 (multi-venue pipeline assembly, health tracker, main.rs integration)
 
-Progress: [##########] 100% (Phase 3 complete)
+Progress: [##########] 100% (Phase 4 complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 13
 - Average duration: 9min
-- Total execution time: 1.4 hours
+- Total execution time: 1.8 hours
 
 **By Phase:**
 
@@ -30,10 +30,12 @@ Progress: [##########] 100% (Phase 3 complete)
 | 01-foundation | 3/3 | 24min | 8min |
 | 02-deribit-feed | 4/4 | 33min | 8min |
 | 03-feed-infrastructure | 3/3 | 32min | 11min |
+| 04-multi-venue-feeds | 3/3 | 13min | 4min |
 
 **Recent Trend:**
-- Last 5 plans: 7min, 8min, 10min, 14min, 8min
+- Last 5 plans: 10min, 14min, 8min, ~0min*, 13min
 - Trend: stable
+- *04-01 and 04-02 ran out of quota before SUMMARY creation but code is committed
 
 *Updated after each plan completion*
 
@@ -85,6 +87,10 @@ Recent decisions affecting current work:
 - [03-03]: Backoff reset on first message received (not on connection success) prevents burn-through with accept-then-close servers
 - [03-03]: Rate limiter is Optional on DeribitClient (None for Mock/Replay, Some for Live via supervisor)
 - [03-03]: Heartbeat test_request responses exempt from rate limiting per research pitfall 6
+- [04-03]: Fan-in forwarding task pattern: processors keep (Processor, Receiver) API, forwarding tasks pipe to shared sender
+- [04-03]: Kalshi graceful degradation: missing credentials log warning and skip, no crash
+- [04-03]: Private key loading: KALSHI_PRIVATE_KEY env var priority, falls back to config file path
+- [04-03]: Per-venue recording directories (recordings/deribit, recordings/polymarket, recordings/kalshi)
 
 ### Pending Todos
 
@@ -92,13 +98,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 4]: Polymarket has two separate WS endpoints (CLOB and RTDS) with different semantics -- needs research during planning
-- [Phase 4]: Kalshi uses RSA-PSS auth which requires the `rsa` crate -- needs research during planning
 - [Phase 7]: statrs 0.18 requires Rust 1.87+ -- verify toolchain or implement Normal CDF manually
 - [Phase 7]: Risk premium calibration needs 2-4 weeks of parallel data collection before signals are meaningful
 
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 03-03-PLAN.md (reconnection supervisor, rate limiter, pipeline wiring) -- Phase 3 complete
-Resume file: .planning/phases/03-feed-infrastructure/03-03-SUMMARY.md
+Stopped at: Completed 04-03-PLAN.md (multi-venue pipeline, health tracker, main.rs) -- Phase 4 complete
+Resume file: .planning/phases/04-multi-venue-feeds/04-03-SUMMARY.md
