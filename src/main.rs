@@ -1,7 +1,13 @@
-use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::sync::Arc;
+
+use clap::{Parser, Subcommand};
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use prediction::config::DiscoveryConfig;
+use prediction::events::lifecycle::ContractLifecycleManager;
+use prediction::events::registry::EventRegistry;
 use prediction::feed::pipeline::{self, DataMode};
 
 #[derive(Parser)]
@@ -86,6 +92,8 @@ async fn main() -> anyhow::Result<()> {
                 )?;
 
             // Determine data mode from CLI flags
+            let is_live = cli.replay.is_none() && !cli.mock;
+
             let mode = if let Some(ref path) = cli.replay {
                 tracing::info!(
                     path = %path.display(),
@@ -117,6 +125,11 @@ async fn main() -> anyhow::Result<()> {
                 DataMode::Live
             };
 
+            // Build the shared EventRegistry
+            let event_registry = Arc::new(RwLock::new(
+                EventRegistry::from_config(&config.events),
+            ));
+
             // Start the multi-venue pipeline
             let recording_dir = PathBuf::from("recordings");
             let mut snapshot_rx = pipeline::run_multi_venue_pipeline(
@@ -125,8 +138,37 @@ async fn main() -> anyhow::Result<()> {
                 &config.credentials,
                 recording_dir,
                 shutdown_token.clone(),
+                Some(event_registry.clone()),
             )
             .await?;
+
+            // Start ContractLifecycleManager in Live mode only
+            // (Mock/Replay modes don't need REST polling)
+            if is_live {
+                let discovery_config = config
+                    .events
+                    .discovery
+                    .clone()
+                    .unwrap_or_else(DiscoveryConfig::default);
+                let risk_weights = config
+                    .events
+                    .risk_weights
+                    .clone()
+                    .unwrap_or_default();
+                let lifecycle_cancel = shutdown_token.child_token();
+                let lifecycle_manager = ContractLifecycleManager::new(
+                    event_registry.clone(),
+                    cli.config_dir.join("events.toml"),
+                    discovery_config,
+                    config.events.expiry_thresholds.clone(),
+                    risk_weights,
+                    config.venues.clone(),
+                    config.credentials.clone(),
+                    lifecycle_cancel,
+                );
+                tokio::spawn(lifecycle_manager.run());
+                tracing::info!("ContractLifecycleManager started");
+            }
 
             // Simple consumer: log snapshots to prove pipeline works end-to-end
             let consumer_cancel = shutdown_token.clone();

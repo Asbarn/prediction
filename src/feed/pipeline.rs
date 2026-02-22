@@ -17,11 +17,13 @@
 //! ```
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::{Credentials, VenuesConfig, DeribitConfig};
+use crate::events::registry::EventRegistry;
 use crate::feed::deribit::normalize::DeribitProcessor;
 use crate::feed::deribit::supervisor::DeribitSupervisor;
 use crate::feed::kalshi::auth::load_kalshi_private_key;
@@ -58,6 +60,9 @@ const FAN_IN_BUFFER: usize = 1024;
 ///
 /// In Mock/Replay modes, delegates to single-venue Deribit behavior.
 ///
+/// The `event_registry` parameter threads the shared registry through for
+/// future snapshot annotation (Phase 6). Currently a pass-through.
+///
 /// Missing credentials for a venue (e.g., Kalshi) produce a warning and that
 /// venue is skipped -- remaining venues continue operating.
 pub async fn run_multi_venue_pipeline(
@@ -66,6 +71,7 @@ pub async fn run_multi_venue_pipeline(
     credentials: &Credentials,
     recording_dir: PathBuf,
     cancel: CancellationToken,
+    _event_registry: Option<Arc<RwLock<EventRegistry>>>,
 ) -> anyhow::Result<mpsc::Receiver<MarketSnapshot>> {
     match mode {
         DataMode::Live => {
