@@ -220,6 +220,18 @@ pub struct DiscoveryConfig {
     pub kalshi_series_tickers: Vec<String>,
 }
 
+impl DiscoveryConfig {
+    /// Return the minimum poll interval across all venues.
+    ///
+    /// Used by the lifecycle manager as its tick interval; individual venues
+    /// are polled only when their own interval has elapsed.
+    pub fn min_poll_interval_secs(&self) -> u64 {
+        self.deribit_poll_interval_secs
+            .min(self.kalshi_poll_interval_secs)
+            .min(self.polymarket_poll_interval_secs)
+    }
+}
+
 impl Default for DiscoveryConfig {
     fn default() -> Self {
         Self {
