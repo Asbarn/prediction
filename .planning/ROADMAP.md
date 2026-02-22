@@ -13,7 +13,7 @@ This roadmap delivers a production-grade cross-venue arbitrage signal generator 
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Project skeleton with shared types, configuration, structured logging, and graceful shutdown
-- [ ] **Phase 2: Deribit Feed and Data Pipeline** - End-to-end data path from Deribit WebSocket through normalization bus to JSONL recording, with mock data abstraction
+- [x] **Phase 2: Deribit Feed and Data Pipeline** - End-to-end data path from Deribit WebSocket through normalization bus to JSONL recording, with mock data abstraction
 - [ ] **Phase 3: Feed Infrastructure** - Reliability layer with automatic reconnection, heartbeat monitoring, staleness detection, rate limiting, and timestamp tracking
 - [ ] **Phase 4: Multi-Venue Feeds** - Polymarket and Kalshi feed integration with graceful degradation on feed loss
 - [ ] **Phase 5: Event Mapping** - Cross-venue instrument registry with settlement basis risk scoring and contract lifecycle management
@@ -54,10 +54,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Feed traits, Deribit message types, channel routing, and WebSocket client
-- [ ] 02-02-PLAN.md -- Order book state management and MarketSnapshot normalization pipeline
-- [ ] 02-03-PLAN.md -- JSONL recording pipeline with daily rotation and non-blocking writes
-- [ ] 02-04-PLAN.md -- Mock data layer (replay + synthetic), pipeline assembly, and main.rs integration
+- [x] 02-01-PLAN.md -- Feed traits, Deribit message types, channel routing, and WebSocket client
+- [x] 02-02-PLAN.md -- Order book state management and MarketSnapshot normalization pipeline
+- [x] 02-03-PLAN.md -- JSONL recording pipeline with daily rotation and non-blocking writes
+- [x] 02-04-PLAN.md -- Mock data layer (replay + synthetic), pipeline assembly, and main.rs integration
 
 ### Phase 3: Feed Infrastructure
 **Goal**: The Deribit feed operates reliably in production conditions -- surviving connection drops, detecting dead connections vs quiet markets, rejecting stale data, respecting API rate limits, and tracking latency characteristics for every message.
@@ -187,7 +187,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete | 2026-02-22 |
-| 2. Deribit Feed and Data Pipeline | 0/4 | Not started | - |
+| 2. Deribit Feed and Data Pipeline | 4/4 | Complete | 2026-02-22 |
 | 3. Feed Infrastructure | 0/5 | Not started | - |
 | 4. Multi-Venue Feeds | 0/3 | Not started | - |
 | 5. Event Mapping | 0/3 | Not started | - |
