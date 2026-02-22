@@ -79,37 +79,58 @@ impl Recorder for RecordingService {
 
 /// Background task that reads from the channel and writes to the JSONL file.
 ///
-/// On cancellation, drains all remaining messages from the channel and flushes
-/// the writer to ensure no buffered data is lost during graceful shutdown.
+/// Uses periodic flush (1-second interval) instead of flush-per-write for
+/// higher throughput. On cancellation, drains all remaining messages from
+/// the channel and performs a final flush to ensure no data is lost.
 async fn recording_task(
     mut rx: mpsc::Receiver<RecordLine>,
     mut writer: JsonlWriter,
     venue: Venue,
     cancel: CancellationToken,
 ) {
+    let mut flush_interval = tokio::time::interval(std::time::Duration::from_secs(1));
+    let mut messages_since_flush: u64 = 0;
+
     loop {
         tokio::select! {
+            biased;
+
+            _ = cancel.cancelled() => {
+                // Drain remaining messages before exit
+                while let Ok(line) = rx.try_recv() {
+                    let _ = writer.write_line_no_flush(&line).await;
+                }
+                let _ = writer.flush().await;
+                tracing::info!(
+                    venue = %venue,
+                    "recording service shut down, all buffered lines flushed"
+                );
+                break;
+            }
+
             msg = rx.recv() => {
                 match msg {
                     Some(line) => {
-                        if let Err(e) = writer.write_line(&line).await {
+                        if let Err(e) = writer.write_line_no_flush(&line).await {
                             tracing::error!(error = %e, "failed to write recording line");
                         }
+                        messages_since_flush += 1;
                     }
                     None => {
-                        // All senders dropped -- drain and exit
+                        // All senders dropped -- final flush and exit
+                        let _ = writer.flush().await;
                         break;
                     }
                 }
             }
-            _ = cancel.cancelled() => {
-                // Drain remaining messages before exit
-                while let Ok(line) = rx.try_recv() {
-                    let _ = writer.write_line(&line).await;
+
+            _ = flush_interval.tick() => {
+                if messages_since_flush > 0 {
+                    if let Err(e) = writer.flush().await {
+                        tracing::error!(error = %e, "periodic flush failed");
+                    }
+                    messages_since_flush = 0;
                 }
-                let _ = writer.flush().await;
-                tracing::info!(venue = %venue, "recording service shut down, all buffered lines flushed");
-                break;
             }
         }
     }

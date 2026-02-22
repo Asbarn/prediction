@@ -11,7 +11,10 @@ use crate::types::Venue;
 ///
 /// Each venue gets its own subdirectory, and files rotate daily with the
 /// naming pattern `{base_dir}/{venue}/{date}.jsonl`. The writer uses
-/// buffered I/O and flushes on every write for correctness in Phase 2.
+/// buffered I/O. Two write modes are available:
+///
+/// - [`write_line`](Self::write_line): flush after every write (safe, slower)
+/// - [`write_line_no_flush`](Self::write_line_no_flush): no flush (use with periodic flush for throughput)
 pub struct JsonlWriter {
     base_dir: PathBuf,
     venue: Venue,
@@ -32,9 +35,12 @@ impl JsonlWriter {
         }
     }
 
-    /// Write a single record line to the JSONL file.
+    /// Write a single record line to the JSONL file (flush-per-write variant).
     ///
     /// Automatically rotates to a new file when the date changes.
+    /// Flushes after every write for maximum data safety. Use
+    /// [`write_line_no_flush`](Self::write_line_no_flush) with periodic flush
+    /// for higher throughput.
     pub async fn write_line(&mut self, line: &RecordLine) -> std::io::Result<()> {
         let today = Utc::now().format("%Y-%m-%d").to_string();
 
@@ -48,9 +54,30 @@ impl JsonlWriter {
         if let Some(ref mut w) = self.writer {
             w.write_all(json.as_bytes()).await?;
             w.write_all(b"\n").await?;
-            // Flush on every write for correctness in Phase 2.
-            // Optimize with periodic flushing in Phase 3 if needed.
             w.flush().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Write a single record line without flushing.
+    ///
+    /// Used with periodic flush for higher throughput. The caller is
+    /// responsible for calling [`flush`](Self::flush) at regular intervals
+    /// (e.g., every 1 second) and on shutdown.
+    pub async fn write_line_no_flush(&mut self, line: &RecordLine) -> std::io::Result<()> {
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+
+        if self.current_date != today || self.writer.is_none() {
+            self.rotate(&today).await?;
+        }
+
+        let json = serde_json::to_string(line)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        if let Some(ref mut w) = self.writer {
+            w.write_all(json.as_bytes()).await?;
+            w.write_all(b"\n").await?;
         }
 
         Ok(())
