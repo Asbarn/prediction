@@ -69,14 +69,12 @@ Plans:
   3. Any market data older than the configurable staleness threshold (default 5s) is rejected with a log entry, never passed downstream
   4. API rate limits (Deribit 20 req/s private) are enforced by a per-venue rate limiter, preventing throttling or ban
   5. Every logged data point includes both local receipt timestamp and exchange-reported timestamp, and per-feed latency characteristics (exchange_ts vs local_ts delta) are tracked in metrics
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: Automatic reconnection with exponential backoff and jitter
-- [ ] 03-02: Heartbeat monitoring and stale connection detection
-- [ ] 03-03: Per-instrument staleness gate
-- [ ] 03-04: Per-venue rate limiter
-- [ ] 03-05: Timestamp tracking and latency metrics
+- [ ] 03-01-PLAN.md -- Config extensions (reconnect, staleness), heartbeat message types, bidirectional WS client with heartbeat protocol
+- [ ] 03-02-PLAN.md -- Per-instrument staleness gate, latency metrics via metrics crate, periodic flush for recording writer
+- [ ] 03-03-PLAN.md -- Reconnection supervisor with exponential backoff, per-venue rate limiter, pipeline integration
 
 ### Phase 4: Multi-Venue Feeds
 **Goal**: Polymarket and Kalshi feeds are operational alongside Deribit, all publishing normalized MarketSnapshot events through the same channel, with the system continuing to function when any individual feed drops.
@@ -188,7 +186,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete | 2026-02-22 |
 | 2. Deribit Feed and Data Pipeline | 4/4 | Complete | 2026-02-22 |
-| 3. Feed Infrastructure | 0/5 | Not started | - |
+| 3. Feed Infrastructure | 0/3 | Not started | - |
 | 4. Multi-Venue Feeds | 0/3 | Not started | - |
 | 5. Event Mapping | 0/3 | Not started | - |
 | 6. Prediction Market Spreads | 0/5 | Not started | - |
