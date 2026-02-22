@@ -39,3 +39,10 @@ derive_more = { version = "2", features = ["full"] }
 # Config hot-reload
 notify = "8"
 notify-debouncer-mini = "0.7"
+
+# WebSocket
+tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+
+# Mock data generation
+rand = "0.8"
