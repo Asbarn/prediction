@@ -5,32 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 1: Foundation
+**Current focus:** Phase 2: Deribit Feed
 
 ## Current Position
 
-Phase: 1 of 9 (Foundation) -- COMPLETE
-Plan: 3 of 3 in current phase (all complete)
-Status: Phase Complete
-Last activity: 2026-02-22 -- Completed 01-03 (binary entrypoint, shutdown, config hot-reload)
+Phase: 2 of 9 (Deribit Feed)
+Plan: 1 of 4 in current phase
+Status: In Progress
+Last activity: 2026-02-22 -- Completed 02-01 (feed traits, Deribit message types, WS client)
 
-Progress: [###.......] 33%
+Progress: [####......] 44%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
+- Total plans completed: 4
 - Average duration: 8min
-- Total execution time: 0.4 hours
+- Total execution time: 0.6 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | 24min | 8min |
+| 02-deribit-feed | 1/4 | 9min | 9min |
 
 **Recent Trend:**
-- Last 5 plans: 9min, 6min, 9min
+- Last 5 plans: 9min, 6min, 9min, 9min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -53,6 +54,10 @@ Recent decisions affecting current work:
 - [01-03]: ConfigReloader returns (ConfigReloader, Receiver) -- Sender moved into watcher thread, not clonable
 - [01-03]: Upgraded notify-debouncer-mini 0.5->0.7 to resolve notify 7/8 version conflict
 - [01-03]: Shutdown handler: Ctrl+C + SIGTERM only, no SIGHUP -- file watcher handles config reload cross-platform
+- [02-01]: RawDataSource returns mpsc::Receiver<RawMessage> from start() -- avoids RPITIT lifetime complexity
+- [02-01]: f64 at serde boundary -- Decimal conversion deferred to normalization layer (Plan 02)
+- [02-01]: BookData bids/asks as Vec<[f64; 2]> -- matches grouped channel snapshot format
+- [02-01]: Testnet URL in venues.toml default config for safe development
 
 ### Pending Todos
 
@@ -68,5 +73,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 01-03-PLAN.md (binary entrypoint, shutdown, config hot-reload) -- Phase 1 COMPLETE
-Resume file: .planning/phases/01-foundation/01-03-SUMMARY.md
+Stopped at: Completed 02-01-PLAN.md (feed traits, Deribit message types, WS client)
+Resume file: .planning/phases/02-deribit-feed/02-01-SUMMARY.md
