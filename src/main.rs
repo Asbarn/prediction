@@ -2,6 +2,8 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
+use prediction::feed::pipeline::{self, DataMode};
+
 #[derive(Parser)]
 #[command(name = "prediction")]
 #[command(about = "Cross-venue prediction market arbitrage signal generator")]
@@ -10,6 +12,18 @@ pub struct Cli {
     /// Directory containing config.toml, events.toml, venues.toml
     #[arg(long, default_value = "config")]
     pub config_dir: PathBuf,
+
+    /// Run with synthetic mock data (no live connection)
+    #[arg(long)]
+    pub mock: bool,
+
+    /// Replay from a JSONL recording file
+    #[arg(long, value_name = "FILE")]
+    pub replay: Option<PathBuf>,
+
+    /// Replay speed multiplier (0=instant, 1=realtime, 10=fast)
+    #[arg(long, default_value = "1.0")]
+    pub speed: f64,
 
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -68,8 +82,69 @@ async fn main() -> anyhow::Result<()> {
             let (_config_reloader, _config_rx) =
                 prediction::config::reload::ConfigReloader::start(
                     cli.config_dir.clone(),
-                    config,
+                    config.clone(),
                 )?;
+
+            // Determine data mode from CLI flags
+            let mode = if let Some(ref path) = cli.replay {
+                tracing::info!(
+                    path = %path.display(),
+                    speed = cli.speed,
+                    "starting in replay mode"
+                );
+                DataMode::Replay {
+                    path: path.clone(),
+                    speed: cli.speed,
+                }
+            } else if cli.mock {
+                tracing::info!("starting in mock mode (synthetic data)");
+                DataMode::Mock
+            } else {
+                tracing::info!("starting in live mode");
+                DataMode::Live
+            };
+
+            // Start the pipeline
+            let recording_dir = PathBuf::from("recordings");
+            let mut snapshot_rx = pipeline::run_pipeline(
+                mode,
+                &config.venues.deribit,
+                recording_dir,
+                shutdown_token.clone(),
+            )
+            .await?;
+
+            // Simple consumer: log snapshots to prove pipeline works end-to-end
+            let consumer_cancel = shutdown_token.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = consumer_cancel.cancelled() => {
+                            tracing::info!("snapshot consumer shutting down");
+                            break;
+                        }
+                        snapshot = snapshot_rx.recv() => {
+                            match snapshot {
+                                Some(snap) => {
+                                    tracing::info!(
+                                        venue = %snap.venue,
+                                        instrument = %snap.instrument_id,
+                                        bid = ?snap.bid,
+                                        ask = ?snap.ask,
+                                        stale = snap.is_stale,
+                                        seq = snap.sequence,
+                                        "MarketSnapshot"
+                                    );
+                                }
+                                None => {
+                                    tracing::info!("snapshot channel closed");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
             // Wait for shutdown signal
             shutdown_token.cancelled().await;
