@@ -1,4 +1,5 @@
 pub mod deribit;
+pub mod health;
 pub mod kalshi;
 pub mod mock;
 pub mod pipeline;
