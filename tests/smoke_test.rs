@@ -134,9 +134,22 @@ fn market_snapshot_constructs() {
         ask: Some(Price::new(Decimal::new(105, 0))),
         bid_size: Some(Notional::new(Decimal::new(10, 0))),
         ask_size: Some(Notional::new(Decimal::new(5, 0))),
+        depth_bids: vec![],
+        depth_asks: vec![],
+        bid_probability: None,
+        ask_probability: None,
+        last_price: None,
+        mark_price: None,
+        index_price: None,
+        mark_iv: None,
+        open_interest: None,
+        volume_24h: None,
+        greeks: None,
+        exchange_timestamp: None,
         timestamp: DualTimestamp::now(),
         sequence: 42,
         trace_id: TraceId::new(),
+        is_stale: false,
     };
     assert_eq!(snap.venue, Venue::Deribit);
     assert_eq!(snap.sequence, 42);
