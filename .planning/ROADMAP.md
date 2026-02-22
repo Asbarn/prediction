@@ -51,14 +51,13 @@ Plans:
   3. Every raw WebSocket message is recorded to line-delimited JSON with local receive timestamp and venue identifier
   4. Normalized MarketSnapshot events (venue, instrument, bid/ask probability, depth, timestamps, sequence numbers) flow through a bounded async channel to downstream consumers
   5. The full pipeline runs identically against a mock data source (trait-based abstraction) without any live venue connection, enabling development and testing offline
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 02-01: Deribit WebSocket client with JSON-RPC 2.0 parsing
-- [ ] 02-02: Order book maintenance with incremental delta application
-- [ ] 02-03: Normalization bus and MarketSnapshot channel
-- [ ] 02-04: Raw message recording to JSONL
-- [ ] 02-05: Mock data layer trait abstraction
+- [ ] 02-01-PLAN.md -- Feed traits, Deribit message types, channel routing, and WebSocket client
+- [ ] 02-02-PLAN.md -- Order book state management and MarketSnapshot normalization pipeline
+- [ ] 02-03-PLAN.md -- JSONL recording pipeline with daily rotation and non-blocking writes
+- [ ] 02-04-PLAN.md -- Mock data layer (replay + synthetic), pipeline assembly, and main.rs integration
 
 ### Phase 3: Feed Infrastructure
 **Goal**: The Deribit feed operates reliably in production conditions -- surviving connection drops, detecting dead connections vs quiet markets, rejecting stale data, respecting API rate limits, and tracking latency characteristics for every message.
@@ -188,7 +187,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete | 2026-02-22 |
-| 2. Deribit Feed and Data Pipeline | 0/5 | Not started | - |
+| 2. Deribit Feed and Data Pipeline | 0/4 | Not started | - |
 | 3. Feed Infrastructure | 0/5 | Not started | - |
 | 4. Multi-Venue Feeds | 0/3 | Not started | - |
 | 5. Event Mapping | 0/3 | Not started | - |
