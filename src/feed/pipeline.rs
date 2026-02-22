@@ -80,6 +80,7 @@ pub async fn run_pipeline(
         raw_rx,
         Some(recording_svc.sender()),
         cancel.clone(),
+        config.staleness_threshold_ms,
     );
 
     // 4. Spawn processor task

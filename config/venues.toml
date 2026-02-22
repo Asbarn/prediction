@@ -1,8 +1,15 @@
 [deribit]
 ws_url = "wss://test.deribit.com/ws/api/v2"  # Testnet for dev
 rate_limit_per_second = 20
-heartbeat_interval_ms = 10000
+heartbeat_interval_ms = 10000  # Deribit minimum is 10s
+staleness_threshold_ms = 5000  # Data older than 5s marked stale (RELY-03)
 instruments = ["BTC-27JUN25-100000-C"]
+
+# Reconnection backoff configuration
+[deribit.reconnect]
+initial_backoff_ms = 1000      # Start at 1s
+max_backoff_ms = 60000         # Cap at 60s
+randomization_factor = 0.5     # +/- 50% jitter
 
 [polymarket]
 ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"

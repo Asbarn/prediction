@@ -14,6 +14,8 @@ fn test_deribit_config() -> DeribitConfig {
         ws_url: "wss://test.deribit.com/ws/api/v2".to_string(),
         rate_limit_per_second: 20,
         heartbeat_interval_ms: 10000,
+        staleness_threshold_ms: 5000,
+        reconnect: Default::default(),
         instruments: vec!["BTC-27JUN25-100000-C".to_string()],
     }
 }

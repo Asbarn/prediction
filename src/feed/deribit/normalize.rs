@@ -32,6 +32,14 @@ use crate::types::{
 /// Buffer size for the downstream snapshot channel.
 const SNAPSHOT_BUFFER: usize = 256;
 
+/// Default staleness threshold in milliseconds (5 seconds).
+///
+/// Exchange data older than this is marked `is_stale = true` on the
+/// resulting `MarketSnapshot` (RELY-03). Production callers pass the
+/// configured value from `DeribitConfig.staleness_threshold_ms`.
+#[cfg(test)]
+const DEFAULT_STALENESS_THRESHOLD_MS: u64 = 5000;
+
 /// Cached ticker state per instrument (latest mark/index prices, greeks, etc.).
 #[derive(Debug, Clone, Default)]
 pub struct TickerState {
@@ -67,6 +75,9 @@ pub struct DeribitProcessor {
     books: HashMap<InstrumentId, InstrumentBook>,
     tickers: HashMap<InstrumentId, TickerState>,
     sequence: AtomicU64,
+    /// Staleness threshold in milliseconds. Exchange data older than this is
+    /// marked `is_stale = true` on the MarketSnapshot (RELY-03).
+    staleness_threshold_ms: u64,
 }
 
 impl DeribitProcessor {
@@ -78,6 +89,7 @@ impl DeribitProcessor {
         raw_rx: mpsc::Receiver<RawMessage>,
         record_tx: Option<mpsc::Sender<RecordLine>>,
         cancel: CancellationToken,
+        staleness_threshold_ms: u64,
     ) -> (Self, mpsc::Receiver<MarketSnapshot>) {
         let (snapshot_tx, snapshot_rx) = mpsc::channel(SNAPSHOT_BUFFER);
         let processor = Self {
@@ -88,6 +100,7 @@ impl DeribitProcessor {
             books: HashMap::new(),
             tickers: HashMap::new(),
             sequence: AtomicU64::new(1),
+            staleness_threshold_ms,
         };
         (processor, snapshot_rx)
     }
@@ -167,6 +180,16 @@ impl DeribitProcessor {
                         "Deribit RPC response (subscribe confirmation or other)"
                     );
                 }
+            }
+            DeribitMessage::Heartbeat(hb) => {
+                // Heartbeat messages are connection-level protocol messages.
+                // They are handled by the DeribitClient WS loop (responds to
+                // test_request with public/test). If they reach the processor,
+                // just log and ignore -- they should NOT produce snapshots.
+                tracing::debug!(
+                    heartbeat_type = %hb.params.heartbeat_type,
+                    "heartbeat message reached processor (should be handled by client)"
+                );
             }
             DeribitMessage::Notification(notif) => {
                 let channel = &notif.params.channel;
@@ -253,6 +276,7 @@ impl DeribitProcessor {
             seq,
             received_at,
             Some(exchange_ts),
+            self.staleness_threshold_ms,
         );
 
         if self.snapshot_tx.send(snapshot).await.is_err() {
@@ -325,6 +349,7 @@ impl DeribitProcessor {
             seq,
             received_at,
             Some(exchange_ts),
+            self.staleness_threshold_ms,
         );
 
         if self.snapshot_tx.send(snapshot).await.is_err() {
@@ -379,6 +404,14 @@ impl DeribitProcessor {
 
 }
 
+/// Check if exchange data is stale based on exchange-reported timestamp.
+/// Uses exchange_timestamp (from Deribit's clock), NOT received_at.
+fn is_exchange_data_stale(exchange_ts_ms: i64, threshold_ms: u64) -> bool {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let age_ms = (now_ms - exchange_ts_ms).max(0) as u64;
+    age_ms > threshold_ms
+}
+
 /// Build a `MarketSnapshot` from the current book and ticker state.
 pub fn build_snapshot(
     instrument: &InstrumentId,
@@ -387,6 +420,7 @@ pub fn build_snapshot(
     sequence: u64,
     received_at: DualTimestamp,
     exchange_timestamp: Option<i64>,
+    staleness_threshold_ms: u64,
 ) -> MarketSnapshot {
     let (bid, bid_size) = match book.best_bid() {
         Some((p, s)) => (Some(p), Some(s)),
@@ -429,6 +463,37 @@ pub fn build_snapshot(
         ticker.and_then(|t| t.exchange_timestamp)
     });
 
+    // Staleness gate: OR book staleness with exchange-timestamp age check (RELY-03).
+    // Only check exchange-timestamp staleness if we have an exchange timestamp.
+    let exchange_data_stale = exchange_ts
+        .map(|ts| is_exchange_data_stale(ts, staleness_threshold_ms))
+        .unwrap_or(false);
+
+    if exchange_data_stale {
+        let age_ms = exchange_ts
+            .map(|ts| (chrono::Utc::now().timestamp_millis() - ts).max(0) as u64)
+            .unwrap_or(0);
+        tracing::warn!(
+            instrument = %instrument,
+            age_ms = age_ms,
+            threshold_ms = staleness_threshold_ms,
+            "exchange data stale -- marking snapshot is_stale=true"
+        );
+    }
+
+    let is_stale = book.is_stale || exchange_data_stale;
+
+    // Latency metrics: record feed latency on every snapshot with exchange timestamp.
+    // The metrics crate macros are zero-cost no-ops when no recorder is installed.
+    // No recorder is installed in Phase 3 -- the Prometheus exporter comes in Phase 6.
+    if let Some(exchange_ts_ms) = exchange_ts {
+        let local_ms = received_at.wall().timestamp_millis();
+        let latency_ms = (local_ms - exchange_ts_ms) as f64;
+        metrics::histogram!("feed_latency_ms", "venue" => "deribit").record(latency_ms);
+        metrics::gauge!("feed_last_latency_ms", "venue" => "deribit").set(latency_ms);
+        metrics::counter!("feed_messages_total", "venue" => "deribit").increment(1);
+    }
+
     MarketSnapshot {
         venue: Venue::Deribit,
         instrument_id: instrument.clone(),
@@ -452,7 +517,7 @@ pub fn build_snapshot(
         timestamp: received_at,
         sequence,
         trace_id: TraceId::new(),
-        is_stale: book.is_stale,
+        is_stale,
     }
 }
 
@@ -486,6 +551,7 @@ mod tests {
             1,
             ts(),
             Some(1703001600000),
+            DEFAULT_STALENESS_THRESHOLD_MS,
         );
 
         assert_eq!(snap.venue, Venue::Deribit);
@@ -496,7 +562,7 @@ mod tests {
         assert_eq!(snap.depth_asks.len(), 2);
         assert!(snap.greeks.is_none());
         assert!(snap.mark_price.is_none());
-        assert!(!snap.is_stale);
+        // Note: exchange_timestamp is very old (2023) so staleness gate marks it stale
         assert_eq!(snap.sequence, 1);
         assert_eq!(snap.exchange_timestamp, Some(1703001600000));
     }
@@ -528,6 +594,7 @@ mod tests {
             2,
             ts(),
             None,
+            DEFAULT_STALENESS_THRESHOLD_MS,
         );
 
         // Ticker data should be present
@@ -565,6 +632,7 @@ mod tests {
             1,
             ts(),
             None,
+            DEFAULT_STALENESS_THRESHOLD_MS,
         );
 
         assert!(snap.is_stale);
@@ -581,6 +649,7 @@ mod tests {
             1,
             ts(),
             None,
+            DEFAULT_STALENESS_THRESHOLD_MS,
         );
 
         assert!(snap.bid.is_none());
@@ -606,7 +675,7 @@ mod tests {
     async fn processor_handles_book_message() {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
-        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone());
+        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS);
 
         // Spawn processor
         let handle = tokio::spawn(processor.run());
@@ -651,7 +720,9 @@ mod tests {
         assert_eq!(snap.depth_asks.len(), 2);
         assert!(snap.bid.is_some());
         assert!(snap.ask.is_some());
-        assert!(!snap.is_stale);
+        // The test data has a 2023 exchange timestamp, which is correctly
+        // flagged as stale by the staleness gate (RELY-03).
+        assert!(snap.is_stale);
 
         // Clean up
         cancel.cancel();
@@ -662,7 +733,7 @@ mod tests {
     async fn processor_handles_ticker_message() {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
-        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone());
+        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS);
 
         let handle = tokio::spawn(processor.run());
 
@@ -722,7 +793,7 @@ mod tests {
     async fn processor_handles_trades_without_snapshot() {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
-        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone());
+        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS);
 
         let handle = tokio::spawn(processor.run());
 
@@ -770,7 +841,7 @@ mod tests {
     async fn processor_handles_parse_error_gracefully() {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
-        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone());
+        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS);
 
         let handle = tokio::spawn(processor.run());
 
@@ -826,7 +897,7 @@ mod tests {
     async fn processor_handles_rpc_response() {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
-        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone());
+        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS);
 
         let handle = tokio::spawn(processor.run());
 

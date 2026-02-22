@@ -8,14 +8,23 @@ use serde::Deserialize;
 
 /// Top-level JSON-RPC message from Deribit.
 ///
-/// Could be a response to our request or a subscription notification.
-/// Uses `#[serde(untagged)]` because responses have `id` while
-/// notifications have `method: "subscription"`.
+/// Could be a response to our request, a heartbeat notification, or a
+/// subscription notification. Uses `#[serde(untagged)]` because responses
+/// have `id` while notifications have `method`.
+///
+/// **Variant ordering matters**: serde tries each variant in order.
+/// `Heartbeat` must come before `Notification` because heartbeat messages
+/// (`method: "heartbeat"`) would otherwise deserialize as a `Notification`
+/// (which also has a `method` field). The `HeartbeatNotification` type's
+/// `params` shape (no `channel`/`data`) rejects subscription notifications.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum DeribitMessage {
     /// Response to a request we sent (has `id` field).
     Response(RpcResponse),
+    /// Heartbeat notification from the server (method: "heartbeat").
+    /// Placed before Notification so serde tries heartbeat params first.
+    Heartbeat(HeartbeatNotification),
     /// Subscription notification (has `method: "subscription"`).
     Notification(RpcNotification),
 }
@@ -52,6 +61,26 @@ pub struct NotificationParams {
     pub channel: String,
     /// Raw data -- parsed further based on channel type.
     pub data: serde_json::Value,
+}
+
+/// JSON-RPC 2.0 heartbeat notification from the Deribit server.
+///
+/// Sent periodically after `public/set_heartbeat` is called. Two types:
+/// - `type: "test_request"` -- client must respond with `public/test`
+/// - `type: "heartbeat"` -- informational keepalive, no response needed
+#[derive(Debug, Deserialize)]
+pub struct HeartbeatNotification {
+    pub jsonrpc: String,
+    pub method: String,
+    pub params: HeartbeatParams,
+}
+
+/// Parameters of a heartbeat notification.
+#[derive(Debug, Deserialize)]
+pub struct HeartbeatParams {
+    /// Either `"test_request"` or `"heartbeat"`.
+    #[serde(rename = "type")]
+    pub heartbeat_type: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -539,5 +568,85 @@ mod tests {
         assert!(ticker.greeks.is_none());
         assert!(ticker.stats.is_none());
         assert!(ticker.funding_8h.is_none());
+    }
+
+    // --- Heartbeat deserialization tests ---
+
+    #[test]
+    fn deserialize_heartbeat_test_request() {
+        let json = r#"{"jsonrpc":"2.0","method":"heartbeat","params":{"type":"test_request"}}"#;
+
+        let msg: DeribitMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            DeribitMessage::Heartbeat(hb) => {
+                assert_eq!(hb.jsonrpc, "2.0");
+                assert_eq!(hb.method, "heartbeat");
+                assert_eq!(hb.params.heartbeat_type, "test_request");
+            }
+            other => panic!("expected Heartbeat variant, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn deserialize_heartbeat_notification() {
+        let json = r#"{"jsonrpc":"2.0","method":"heartbeat","params":{"type":"heartbeat"}}"#;
+
+        let msg: DeribitMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            DeribitMessage::Heartbeat(hb) => {
+                assert_eq!(hb.jsonrpc, "2.0");
+                assert_eq!(hb.method, "heartbeat");
+                assert_eq!(hb.params.heartbeat_type, "heartbeat");
+            }
+            other => panic!("expected Heartbeat variant, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn heartbeat_does_not_match_subscription_notification() {
+        // Subscription notifications must NOT match the Heartbeat variant
+        let json = r#"{
+            "jsonrpc": "2.0",
+            "method": "subscription",
+            "params": {
+                "channel": "deribit_price_index.btc_usd",
+                "data": {"timestamp": 1703001600000, "price": 43500.0, "index_name": "btc_usd"}
+            }
+        }"#;
+
+        let msg: DeribitMessage = serde_json::from_str(json).unwrap();
+        assert!(
+            matches!(msg, DeribitMessage::Notification(_)),
+            "subscription should parse as Notification, not Heartbeat"
+        );
+    }
+
+    #[test]
+    fn existing_variants_still_parse_with_heartbeat_enum() {
+        // Response still works
+        let response = r#"{"jsonrpc":"2.0","id":1,"result":"ok"}"#;
+        let msg: DeribitMessage = serde_json::from_str(response).unwrap();
+        assert!(matches!(msg, DeribitMessage::Response(_)));
+
+        // Subscription notification still works
+        let notification = r#"{
+            "jsonrpc": "2.0",
+            "method": "subscription",
+            "params": {
+                "channel": "ticker.BTC-27JUN25-100000-C.raw",
+                "data": {
+                    "timestamp": 1703001600000,
+                    "instrument_name": "BTC-27JUN25-100000-C",
+                    "state": "open",
+                    "mark_price": 0.0057,
+                    "index_price": 43500.0,
+                    "open_interest": 500.0,
+                    "min_price": 0.0001,
+                    "max_price": 0.5
+                }
+            }
+        }"#;
+        let msg: DeribitMessage = serde_json::from_str(notification).unwrap();
+        assert!(matches!(msg, DeribitMessage::Notification(_)));
     }
 }

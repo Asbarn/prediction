@@ -44,5 +44,8 @@ notify-debouncer-mini = "0.7"
 tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 
+# Metrics facade (Phase 3 latency tracking)
+metrics = "0.24"
+
 # Mock data generation
 rand = "0.8"
