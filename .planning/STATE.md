@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 5 of 9 (Event Mapping)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In Progress
-Last activity: 2026-02-22 -- Completed 05-01 (extended config schema, EventRegistry, TOML writer)
+Last activity: 2026-02-22 -- Completed 05-02 (basis risk scoring and expiry warning system)
 
-Progress: [#############-] 93% (Phase 4 complete, Phase 5 plan 1/3 done)
+Progress: [#############-] 96% (Phase 4 complete, Phase 5 plan 2/3 done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
+- Total plans completed: 15
 - Average duration: 9min
-- Total execution time: ~2.0 hours
+- Total execution time: ~2.1 hours
 
 **By Phase:**
 
@@ -31,11 +31,11 @@ Progress: [#############-] 93% (Phase 4 complete, Phase 5 plan 1/3 done)
 | 02-deribit-feed | 4/4 | 33min | 8min |
 | 03-feed-infrastructure | 3/3 | 32min | 11min |
 | 04-multi-venue-feeds | 3/3 | 13min | 4min |
-| 05-event-mapping | 1/3 | 11min | 11min |
+| 05-event-mapping | 2/3 | 15min | 8min |
 
 **Recent Trend:**
-- Last 5 plans: 14min, 8min, ~0min*, 13min, 11min
-- Trend: stable
+- Last 5 plans: 8min, ~0min*, 13min, 11min, 4min
+- Trend: stable-to-fast
 - *04-01 and 04-02 ran out of quota before SUMMARY creation but code is committed
 
 *Updated after each plan completion*
@@ -97,6 +97,9 @@ Recent decisions affecting current work:
 - [05-01]: All new EventMapping fields use #[serde(default)] for zero-breakage migration
 - [05-01]: EventRegistry indexes Polymarket by token_id (not condition_id) for pipeline instrument lookup
 - [05-01]: Expiry threshold validation checks uniqueness rather than ordering
+- [05-02]: Unknown SourcePair uses index_oracle weight (0.5) as conservative default
+- [05-02]: compute_risk_for_mapping uses expiry date at 00:00:00 UTC as prediction resolution estimate
+- [05-02]: inflate_risk_score uses default weights for composite recalculation (global config, not per-score)
 
 ### Pending Todos
 
@@ -110,5 +113,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 05-01-PLAN.md (extended config schema, EventRegistry, TOML writer)
-Resume file: .planning/phases/05-event-mapping/05-01-SUMMARY.md
+Stopped at: Completed 05-02-PLAN.md (basis risk scoring and expiry warning system)
+Resume file: .planning/phases/05-event-mapping/05-02-SUMMARY.md

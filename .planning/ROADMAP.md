@@ -105,7 +105,7 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md -- Extended EventsConfig schema with approval/lifecycle/settlement fields, EventRegistry with dual-index lookup, format-preserving TOML writer
-- [ ] 05-02-PLAN.md -- Settlement basis risk scoring (time/source/criteria components) and near-expiry warning system with configurable tiers
+- [x] 05-02-PLAN.md -- Settlement basis risk scoring (time/source/criteria components) and near-expiry warning system with configurable tiers
 - [ ] 05-03-PLAN.md -- Per-venue REST discovery, cross-venue candidate matching, ContractLifecycleManager with expiry rolls, main.rs integration
 
 ### Phase 6: Prediction Market Spreads
@@ -188,7 +188,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | 2. Deribit Feed and Data Pipeline | 4/4 | Complete | 2026-02-22 |
 | 3. Feed Infrastructure | 3/3 | Complete | 2026-02-22 |
 | 4. Multi-Venue Feeds | 3/3 | Complete | 2026-02-22 |
-| 5. Event Mapping | 1/3 | In Progress | - |
+| 5. Event Mapping | 2/3 | In Progress | - |
 | 6. Prediction Market Spreads | 0/5 | Not started | - |
 | 7. Options Pricing Engine | 0/5 | Not started | - |
 | 8. Cross-Asset Signal Generation | 0/3 | Not started | - |
