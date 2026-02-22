@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Project skeleton with shared types, configuration, structured logging, and graceful shutdown
 - [x] **Phase 2: Deribit Feed and Data Pipeline** - End-to-end data path from Deribit WebSocket through normalization bus to JSONL recording, with mock data abstraction
-- [ ] **Phase 3: Feed Infrastructure** - Reliability layer with automatic reconnection, heartbeat monitoring, staleness detection, rate limiting, and timestamp tracking
+- [x] **Phase 3: Feed Infrastructure** - Reliability layer with automatic reconnection, heartbeat monitoring, staleness detection, rate limiting, and timestamp tracking
 - [ ] **Phase 4: Multi-Venue Feeds** - Polymarket and Kalshi feed integration with graceful degradation on feed loss
 - [ ] **Phase 5: Event Mapping** - Cross-venue instrument registry with settlement basis risk scoring and contract lifecycle management
 - [ ] **Phase 6: Prediction Market Spreads** - Cross-platform spread detection between prediction markets with fee-adjusted costs, paper P&L tracking, and Prometheus metrics
@@ -72,9 +72,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md -- Config extensions (reconnect, staleness), heartbeat message types, bidirectional WS client with heartbeat protocol
-- [ ] 03-02-PLAN.md -- Per-instrument staleness gate, latency metrics via metrics crate, periodic flush for recording writer
-- [ ] 03-03-PLAN.md -- Reconnection supervisor with exponential backoff, per-venue rate limiter, pipeline integration
+- [x] 03-01-PLAN.md -- Config extensions (reconnect, staleness), heartbeat message types, bidirectional WS client with heartbeat protocol
+- [x] 03-02-PLAN.md -- Per-instrument staleness gate, latency metrics via metrics crate, periodic flush for recording writer
+- [x] 03-03-PLAN.md -- Reconnection supervisor with exponential backoff, per-venue rate limiter, pipeline integration
 
 ### Phase 4: Multi-Venue Feeds
 **Goal**: Polymarket and Kalshi feeds are operational alongside Deribit, all publishing normalized MarketSnapshot events through the same channel, with the system continuing to function when any individual feed drops.
@@ -186,7 +186,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete | 2026-02-22 |
 | 2. Deribit Feed and Data Pipeline | 4/4 | Complete | 2026-02-22 |
-| 3. Feed Infrastructure | 0/3 | Not started | - |
+| 3. Feed Infrastructure | 3/3 | Complete | 2026-02-22 |
 | 4. Multi-Venue Feeds | 0/3 | Not started | - |
 | 5. Event Mapping | 0/3 | Not started | - |
 | 6. Prediction Market Spreads | 0/5 | Not started | - |
