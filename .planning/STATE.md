@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 2: Deribit Feed
+**Current focus:** Phase 3: Feed Infrastructure
 
 ## Current Position
 
-Phase: 2 of 9 (Deribit Feed)
-Plan: 4 of 4 in current phase
-Status: Phase Complete
-Last activity: 2026-02-22 -- Completed 02-04 (mock data, pipeline assembly, CLI integration)
+Phase: 3 of 9 (Feed Infrastructure)
+Plan: 1 of 3 in current phase
+Status: In Progress
+Last activity: 2026-02-22 -- Completed 03-01 (heartbeat config, bidirectional WS client)
 
-Progress: [########..] 78%
+Progress: [########..] 82%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: 8min
-- Total execution time: 0.9 hours
+- Total execution time: 1.1 hours
 
 **By Phase:**
 
@@ -29,9 +29,10 @@ Progress: [########..] 78%
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | 24min | 8min |
 | 02-deribit-feed | 4/4 | 33min | 8min |
+| 03-feed-infrastructure | 1/3 | 10min | 10min |
 
 **Recent Trend:**
-- Last 5 plans: 9min, 9min, 9min, 7min, 8min
+- Last 5 plans: 9min, 9min, 7min, 8min, 10min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -70,6 +71,11 @@ Recent decisions affecting current work:
 - [02-04]: Replay reads entire JSONL into memory upfront -- simpler than streaming, adequate for dev recordings
 - [02-04]: Pipeline takes DeribitConfig directly not VenuesConfig -- narrower interface, clearer dependency
 - [02-04]: Added Deserialize to RecordLine -- required for replay to parse JSONL back into structured data
+- [03-01]: Heartbeat detection via fast string check (contains method:heartbeat) rather than relying solely on serde untagged ordering
+- [03-01]: Heartbeat responses exempt from rate limiting -- Deribit closes connection on delayed test_request response
+- [03-01]: Staleness gate uses OR logic: book.is_stale || exchange_data_stale (exchange timestamp age check)
+- [03-01]: metrics facade added with no recorder (zero-cost no-ops) -- Prometheus recorder deferred to Phase 6
+- [03-01]: Heartbeat timeout at 2x interval for dead connection detection
 
 ### Pending Todos
 
@@ -85,5 +91,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 02-04-PLAN.md (Phase 2 complete -- mock data, pipeline, CLI)
-Resume file: .planning/phases/02-deribit-feed/02-04-SUMMARY.md
+Stopped at: Completed 03-01-PLAN.md (heartbeat config, bidirectional WS client)
+Resume file: .planning/phases/03-feed-infrastructure/03-01-SUMMARY.md
