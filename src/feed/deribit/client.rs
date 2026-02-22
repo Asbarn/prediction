@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::DeribitConfig;
 use crate::feed::deribit::channels;
+use crate::feed::reliability::VenueRateLimiter;
 use crate::feed::traits::RawMessage;
 use crate::types::DualTimestamp;
 
@@ -36,6 +37,7 @@ pub struct DeribitClient {
     config: DeribitConfig,
     instruments: Vec<String>,
     cancel: CancellationToken,
+    rate_limiter: Option<VenueRateLimiter>,
 }
 
 impl DeribitClient {
@@ -53,7 +55,18 @@ impl DeribitClient {
             config,
             instruments,
             cancel,
+            rate_limiter: None,
         }
+    }
+
+    /// Attach a rate limiter for outbound message throttling.
+    ///
+    /// When set, `wait()` is called before sending subscribe and
+    /// set_heartbeat requests. Heartbeat test_request responses
+    /// (`public/test`) are exempt per research pitfall 6.
+    pub fn with_rate_limiter(mut self, limiter: VenueRateLimiter) -> Self {
+        self.rate_limiter = Some(limiter);
+        self
     }
 
     /// Connect to Deribit, subscribe to all channels, and start reading.
@@ -109,6 +122,10 @@ impl DeribitClient {
             "subscribing to Deribit channels"
         );
 
+        // Rate-limit the subscribe request (if rate limiter attached)
+        if let Some(ref rl) = self.rate_limiter {
+            rl.wait().await;
+        }
         write
             .send(Message::text(subscribe_msg.to_string()))
             .await
@@ -129,6 +146,7 @@ impl DeribitClient {
         // Spawn the bidirectional WS loop as a background task.
         // The task owns both read and write halves (single owner for write).
         let cancel = self.cancel.clone();
+        let rate_limiter = self.rate_limiter.clone();
         tokio::spawn(async move {
             tracing::debug!("Deribit WS loop started (bidirectional)");
 
@@ -151,6 +169,10 @@ impl DeribitClient {
                 "sending public/set_heartbeat"
             );
 
+            // Rate-limit the set_heartbeat request (if rate limiter attached)
+            if let Some(ref rl) = rate_limiter {
+                rl.wait().await;
+            }
             if let Err(e) = write.send(Message::text(set_heartbeat_msg.to_string())).await {
                 tracing::error!(error = %e, "failed to send set_heartbeat request");
                 return;

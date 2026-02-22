@@ -47,5 +47,11 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 # Metrics facade (Phase 3 latency tracking)
 metrics = "0.24"
 
+# Reconnection backoff (Phase 3)
+backoff = { version = "0.4", features = ["tokio"] }
+
+# Rate limiting (Phase 3)
+governor = "0.8"
+
 # Mock data generation
 rand = "0.8"
