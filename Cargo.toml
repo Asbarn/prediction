@@ -53,5 +53,16 @@ backoff = { version = "0.4", features = ["tokio"] }
 # Rate limiting (Phase 3)
 governor = "0.8"
 
+# HTTP client (Polymarket Gamma API, Kalshi REST)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# RSA-PSS signing for Kalshi auth (Phase 4)
+rsa = { version = "0.9", features = ["sha2"] }
+sha2 = "0.10"
+base64 = "0.22"
+
+# HTTP request building (Phase 4)
+http = "1.2"
+
 # Mock data generation
 rand = "0.8"

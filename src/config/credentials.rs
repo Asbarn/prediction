@@ -12,8 +12,10 @@ pub struct Credentials {
     pub deribit_api_key: Option<String>,
     pub deribit_api_secret: Option<String>,
     pub polymarket_private_key: Option<String>,
-    pub kalshi_email: Option<String>,
-    pub kalshi_password: Option<String>,
+    /// Kalshi API key ID (from KALSHI_API_KEY_ID env var).
+    pub kalshi_api_key_id: Option<String>,
+    /// Kalshi RSA private key, PEM-encoded (from KALSHI_PRIVATE_KEY env var).
+    pub kalshi_private_key: Option<String>,
 }
 
 /// Load credentials from environment variables.
@@ -25,8 +27,8 @@ pub fn load_credentials() -> Credentials {
         deribit_api_key: std::env::var("DERIBIT_API_KEY").ok(),
         deribit_api_secret: std::env::var("DERIBIT_API_SECRET").ok(),
         polymarket_private_key: std::env::var("POLYMARKET_PRIVATE_KEY").ok(),
-        kalshi_email: std::env::var("KALSHI_EMAIL").ok(),
-        kalshi_password: std::env::var("KALSHI_PASSWORD").ok(),
+        kalshi_api_key_id: std::env::var("KALSHI_API_KEY_ID").ok(),
+        kalshi_private_key: std::env::var("KALSHI_PRIVATE_KEY").ok(),
     }
 }
 
@@ -47,8 +49,8 @@ impl fmt::Debug for Credentials {
             .field("deribit_api_key", &redact(&self.deribit_api_key))
             .field("deribit_api_secret", &redact(&self.deribit_api_secret))
             .field("polymarket_private_key", &redact(&self.polymarket_private_key))
-            .field("kalshi_email", &redact(&self.kalshi_email))
-            .field("kalshi_password", &redact(&self.kalshi_password))
+            .field("kalshi_api_key_id", &redact(&self.kalshi_api_key_id))
+            .field("kalshi_private_key", &redact(&self.kalshi_private_key))
             .finish()
     }
 }

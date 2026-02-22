@@ -59,6 +59,18 @@ fn default_heartbeat_interval() -> u64 {
     10_000
 }
 
+fn default_gamma_api_url() -> String {
+    "https://gamma-api.polymarket.com".to_string()
+}
+
+fn default_polymarket_rate_limit() -> u32 {
+    10
+}
+
+fn default_polymarket_ping_interval() -> u64 {
+    10_000
+}
+
 /// Deribit connection settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DeribitConfig {
@@ -82,6 +94,15 @@ pub struct DeribitConfig {
     pub instruments: Vec<String>,
 }
 
+/// A Polymarket asset (token) to subscribe to.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PolymarketAsset {
+    /// Condition ID (market-level identifier).
+    pub condition_id: String,
+    /// Token/asset ID (outcome-level identifier, used for WS subscription).
+    pub token_id: String,
+}
+
 /// Polymarket connection settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PolymarketConfig {
@@ -91,6 +112,25 @@ pub struct PolymarketConfig {
     pub rest_url: String,
     /// Blockchain chain ID (e.g., 137 for Polygon mainnet).
     pub chain_id: u64,
+    /// Gamma API URL for condition_id to token_id resolution.
+    #[serde(default = "default_gamma_api_url")]
+    pub gamma_api_url: String,
+    /// Staleness threshold in milliseconds. Data older than this is marked
+    /// `is_stale = true` on `MarketSnapshot`.
+    #[serde(default = "default_staleness_threshold")]
+    pub staleness_threshold_ms: u64,
+    /// Reconnection configuration for exponential backoff with jitter.
+    #[serde(default)]
+    pub reconnect: ReconnectConfig,
+    /// Assets (token IDs) to subscribe to on the market channel.
+    #[serde(default)]
+    pub assets: Vec<PolymarketAsset>,
+    /// Maximum API requests per second.
+    #[serde(default = "default_polymarket_rate_limit")]
+    pub rate_limit_per_second: u32,
+    /// PING interval in milliseconds (Polymarket requires PING every 10s).
+    #[serde(default = "default_polymarket_ping_interval")]
+    pub ping_interval_ms: u64,
 }
 
 /// Kalshi connection settings.
@@ -100,4 +140,23 @@ pub struct KalshiConfig {
     pub rest_url: String,
     /// WebSocket URL.
     pub ws_url: String,
+    /// Staleness threshold in milliseconds. Data older than this is marked
+    /// `is_stale = true` on `MarketSnapshot` (RELY-03).
+    #[serde(default = "default_staleness_threshold")]
+    pub staleness_threshold_ms: u64,
+    /// Reconnection configuration for exponential backoff with jitter.
+    #[serde(default)]
+    pub reconnect: ReconnectConfig,
+    /// Maximum API requests per second.
+    #[serde(default = "default_kalshi_rate_limit")]
+    pub rate_limit_per_second: u32,
+    /// Kalshi market tickers to subscribe (e.g., ["KXBTC-26FEB22-T100000"]).
+    #[serde(default)]
+    pub market_tickers: Vec<String>,
+    /// Path to RSA private key PEM file (alternative to KALSHI_PRIVATE_KEY env var).
+    pub private_key_path: Option<String>,
+}
+
+fn default_kalshi_rate_limit() -> u32 {
+    10
 }

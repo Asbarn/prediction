@@ -15,7 +15,30 @@ randomization_factor = 0.5     # +/- 50% jitter
 ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 rest_url = "https://clob.polymarket.com"
 chain_id = 137  # Polygon mainnet
+gamma_api_url = "https://gamma-api.polymarket.com"
+staleness_threshold_ms = 5000
+rate_limit_per_second = 10
+ping_interval_ms = 10000
+
+# Reconnection backoff configuration
+[polymarket.reconnect]
+initial_backoff_ms = 1000
+max_backoff_ms = 60000
+randomization_factor = 0.5
+
+# Example Polymarket assets (placeholder IDs for a sample market)
+[[polymarket.assets]]
+condition_id = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+token_id = "71321045679252212594626385532706912750332728571942532289631379312455583992563"
 
 [kalshi]
 rest_url = "https://trading-api.kalshi.com/trade-api/v2"
 ws_url = "wss://trading-api.kalshi.com/trade-api/ws/v2"
+staleness_threshold_ms = 5000
+rate_limit_per_second = 10
+market_tickers = []
+
+[kalshi.reconnect]
+initial_backoff_ms = 1000
+max_backoff_ms = 60000
+randomization_factor = 0.5

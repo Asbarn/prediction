@@ -344,8 +344,8 @@ fn credentials_debug_redacts_secrets() {
         deribit_api_key: Some("secret_key".to_string()),
         deribit_api_secret: None,
         polymarket_private_key: Some("0xprivate".to_string()),
-        kalshi_email: None,
-        kalshi_password: None,
+        kalshi_api_key_id: None,
+        kalshi_private_key: None,
     };
     let debug = format!("{creds:?}");
     assert!(!debug.contains("secret_key"), "should not expose key: {debug}");
