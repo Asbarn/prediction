@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - Project skeleton with shared types, configuration, structured logging, and graceful shutdown
 - [x] **Phase 2: Deribit Feed and Data Pipeline** - End-to-end data path from Deribit WebSocket through normalization bus to JSONL recording, with mock data abstraction
 - [x] **Phase 3: Feed Infrastructure** - Reliability layer with automatic reconnection, heartbeat monitoring, staleness detection, rate limiting, and timestamp tracking
-- [ ] **Phase 4: Multi-Venue Feeds** - Polymarket and Kalshi feed integration with graceful degradation on feed loss
+- [x] **Phase 4: Multi-Venue Feeds** - Polymarket and Kalshi feed integration with graceful degradation on feed loss
 - [ ] **Phase 5: Event Mapping** - Cross-venue instrument registry with settlement basis risk scoring and contract lifecycle management
 - [ ] **Phase 6: Prediction Market Spreads** - Cross-platform spread detection between prediction markets with fee-adjusted costs, paper P&L tracking, and Prometheus metrics
 - [ ] **Phase 7: Options Pricing Engine** - Black-76 pricing, IV solver, call spread replication for digital payoffs, vol surface construction, and Greeks
@@ -88,9 +88,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md -- Polymarket CLOB WebSocket client, message types, probability normalization, and reconnection supervisor
-- [ ] 04-02-PLAN.md -- Kalshi RSA-PSS auth, WebSocket client, incremental order book, cents-to-probability normalization, and supervisor
-- [ ] 04-03-PLAN.md -- Multi-feed fan-in with shared mpsc channel, per-venue health tracking, graceful degradation, and main.rs integration
+- [x] 04-01-PLAN.md -- Polymarket CLOB WebSocket client, message types, probability normalization, and reconnection supervisor
+- [x] 04-02-PLAN.md -- Kalshi RSA-PSS auth, WebSocket client, incremental order book, cents-to-probability normalization, and supervisor
+- [x] 04-03-PLAN.md -- Multi-feed fan-in with shared mpsc channel, per-venue health tracking, graceful degradation, and main.rs integration
 
 ### Phase 5: Event Mapping
 **Goal**: Equivalent instruments across Polymarket, Kalshi, and Deribit are mapped together through a config-driven registry, with each mapping carrying quantified settlement basis risk and lifecycle status, enabling downstream spread calculations to compare the right instruments.
@@ -104,7 +104,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md -- Extended EventsConfig schema with approval/lifecycle/settlement fields, EventRegistry with dual-index lookup, format-preserving TOML writer
+- [x] 05-01-PLAN.md -- Extended EventsConfig schema with approval/lifecycle/settlement fields, EventRegistry with dual-index lookup, format-preserving TOML writer
 - [ ] 05-02-PLAN.md -- Settlement basis risk scoring (time/source/criteria components) and near-expiry warning system with configurable tiers
 - [ ] 05-03-PLAN.md -- Per-venue REST discovery, cross-venue candidate matching, ContractLifecycleManager with expiry rolls, main.rs integration
 
@@ -187,8 +187,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | 1. Foundation | 3/3 | Complete | 2026-02-22 |
 | 2. Deribit Feed and Data Pipeline | 4/4 | Complete | 2026-02-22 |
 | 3. Feed Infrastructure | 3/3 | Complete | 2026-02-22 |
-| 4. Multi-Venue Feeds | 0/3 | Not started | - |
-| 5. Event Mapping | 0/3 | Not started | - |
+| 4. Multi-Venue Feeds | 3/3 | Complete | 2026-02-22 |
+| 5. Event Mapping | 1/3 | In Progress | - |
 | 6. Prediction Market Spreads | 0/5 | Not started | - |
 | 7. Options Pricing Engine | 0/5 | Not started | - |
 | 8. Cross-Asset Signal Generation | 0/3 | Not started | - |

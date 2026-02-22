@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 4: Multi-Venue Feeds
+**Current focus:** Phase 5: Event Mapping
 
 ## Current Position
 
-Phase: 4 of 9 (Multi-Venue Feeds)
-Plan: 3 of 3 in current phase
-Status: Phase Complete
-Last activity: 2026-02-22 -- Completed 04-03 (multi-venue pipeline assembly, health tracker, main.rs integration)
+Phase: 5 of 9 (Event Mapping)
+Plan: 1 of 3 in current phase
+Status: In Progress
+Last activity: 2026-02-22 -- Completed 05-01 (extended config schema, EventRegistry, TOML writer)
 
-Progress: [##########] 100% (Phase 4 complete)
+Progress: [#############-] 93% (Phase 4 complete, Phase 5 plan 1/3 done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13
+- Total plans completed: 14
 - Average duration: 9min
-- Total execution time: 1.8 hours
+- Total execution time: ~2.0 hours
 
 **By Phase:**
 
@@ -31,9 +31,10 @@ Progress: [##########] 100% (Phase 4 complete)
 | 02-deribit-feed | 4/4 | 33min | 8min |
 | 03-feed-infrastructure | 3/3 | 32min | 11min |
 | 04-multi-venue-feeds | 3/3 | 13min | 4min |
+| 05-event-mapping | 1/3 | 11min | 11min |
 
 **Recent Trend:**
-- Last 5 plans: 10min, 14min, 8min, ~0min*, 13min
+- Last 5 plans: 14min, 8min, ~0min*, 13min, 11min
 - Trend: stable
 - *04-01 and 04-02 ran out of quota before SUMMARY creation but code is committed
 
@@ -91,6 +92,11 @@ Recent decisions affecting current work:
 - [04-03]: Kalshi graceful degradation: missing credentials log warning and skip, no crash
 - [04-03]: Private key loading: KALSHI_PRIVATE_KEY env var priority, falls back to config file path
 - [04-03]: Per-venue recording directories (recordings/deribit, recordings/polymarket, recordings/kalshi)
+- [05-01]: Direction enum replaces String for type-safe above/below handling
+- [05-01]: LifecycleStatus enum (Active/Expiring/Expired) with Default=Active for backward compat
+- [05-01]: All new EventMapping fields use #[serde(default)] for zero-breakage migration
+- [05-01]: EventRegistry indexes Polymarket by token_id (not condition_id) for pipeline instrument lookup
+- [05-01]: Expiry threshold validation checks uniqueness rather than ordering
 
 ### Pending Todos
 
@@ -104,5 +110,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 04-03-PLAN.md (multi-venue pipeline, health tracker, main.rs) -- Phase 4 complete
-Resume file: .planning/phases/04-multi-venue-feeds/04-03-SUMMARY.md
+Stopped at: Completed 05-01-PLAN.md (extended config schema, EventRegistry, TOML writer)
+Resume file: .planning/phases/05-event-mapping/05-01-SUMMARY.md
