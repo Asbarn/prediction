@@ -530,11 +530,17 @@ mod tests {
         DualTimestamp::now()
     }
 
+    /// Return a "fresh" exchange timestamp (now minus a small offset).
+    fn fresh_exchange_ts() -> i64 {
+        chrono::Utc::now().timestamp_millis() - 100 // 100ms ago
+    }
+
     #[test]
     fn build_snapshot_from_book_only() {
+        let now_ts = fresh_exchange_ts();
         let mut book = InstrumentBook::new(InstrumentId::new("BTC-27JUN25-100000-C"));
         let data = crate::feed::deribit::messages::BookData {
-            timestamp: 1703001600000,
+            timestamp: now_ts,
             instrument_name: "BTC-27JUN25-100000-C".to_string(),
             change_id: 100,
             prev_change_id: None,
@@ -550,7 +556,7 @@ mod tests {
             None,
             1,
             ts(),
-            Some(1703001600000),
+            Some(now_ts),
             DEFAULT_STALENESS_THRESHOLD_MS,
         );
 
@@ -562,13 +568,14 @@ mod tests {
         assert_eq!(snap.depth_asks.len(), 2);
         assert!(snap.greeks.is_none());
         assert!(snap.mark_price.is_none());
-        // Note: exchange_timestamp is very old (2023) so staleness gate marks it stale
+        assert!(!snap.is_stale);
         assert_eq!(snap.sequence, 1);
-        assert_eq!(snap.exchange_timestamp, Some(1703001600000));
+        assert_eq!(snap.exchange_timestamp, Some(now_ts));
     }
 
     #[test]
     fn build_snapshot_with_ticker_state() {
+        let now_ts = fresh_exchange_ts();
         let book = InstrumentBook::new(InstrumentId::new("BTC-27JUN25-100000-C"));
         let ticker = TickerState {
             last_price: Some(0.0055),
@@ -584,7 +591,7 @@ mod tests {
                 theta: -0.5,
                 rho: 0.001,
             }),
-            exchange_timestamp: Some(1703001600000),
+            exchange_timestamp: Some(now_ts),
         };
 
         let snap = build_snapshot(
@@ -615,7 +622,7 @@ mod tests {
         assert!(snap.volume_24h.is_some());
 
         // Exchange timestamp from ticker (since we passed None explicitly)
-        assert_eq!(snap.exchange_timestamp, Some(1703001600000));
+        assert_eq!(snap.exchange_timestamp, Some(now_ts));
 
         assert_eq!(snap.sequence, 2);
     }
@@ -658,6 +665,94 @@ mod tests {
         assert!(snap.ask_size.is_none());
         assert!(snap.depth_bids.is_empty());
         assert!(snap.depth_asks.is_empty());
+    }
+
+    // --- Staleness gate tests ---
+
+    #[test]
+    fn test_staleness_gate_marks_old_data() {
+        let book = InstrumentBook::new(InstrumentId::new("TEST"));
+        // Exchange timestamp from 10 seconds ago (threshold 5000ms)
+        let old_ts = chrono::Utc::now().timestamp_millis() - 10_000;
+
+        let snap = build_snapshot(
+            &InstrumentId::new("TEST"),
+            &book,
+            None,
+            1,
+            ts(),
+            Some(old_ts),
+            DEFAULT_STALENESS_THRESHOLD_MS,
+        );
+
+        assert!(snap.is_stale, "exchange data 10s old should be stale (threshold 5s)");
+    }
+
+    #[test]
+    fn test_staleness_gate_fresh_data() {
+        let book = InstrumentBook::new(InstrumentId::new("TEST"));
+        // Exchange timestamp from 1 second ago (well within threshold)
+        let fresh_ts = chrono::Utc::now().timestamp_millis() - 1_000;
+
+        let snap = build_snapshot(
+            &InstrumentId::new("TEST"),
+            &book,
+            None,
+            1,
+            ts(),
+            Some(fresh_ts),
+            DEFAULT_STALENESS_THRESHOLD_MS,
+        );
+
+        assert!(!snap.is_stale, "exchange data 1s old should not be stale (threshold 5s)");
+    }
+
+    #[test]
+    fn test_staleness_gate_no_exchange_ts() {
+        // Without exchange timestamp, staleness comes only from book.is_stale
+        let book = InstrumentBook::new(InstrumentId::new("TEST"));
+
+        let snap = build_snapshot(
+            &InstrumentId::new("TEST"),
+            &book,
+            None,
+            1,
+            ts(),
+            None,
+            DEFAULT_STALENESS_THRESHOLD_MS,
+        );
+
+        assert!(!snap.is_stale, "no exchange ts + fresh book = not stale");
+    }
+
+    #[test]
+    fn test_staleness_or_with_book_stale() {
+        // Book is stale but exchange_ts is fresh -- should still be stale (OR logic)
+        let mut book = InstrumentBook::new(InstrumentId::new("TEST"));
+        book.mark_stale();
+        let fresh_ts = chrono::Utc::now().timestamp_millis() - 100;
+
+        let snap = build_snapshot(
+            &InstrumentId::new("TEST"),
+            &book,
+            None,
+            1,
+            ts(),
+            Some(fresh_ts),
+            DEFAULT_STALENESS_THRESHOLD_MS,
+        );
+
+        assert!(snap.is_stale, "stale book OR'd with fresh exchange_ts = stale");
+    }
+
+    #[test]
+    fn test_is_exchange_data_stale_function() {
+        let now = chrono::Utc::now().timestamp_millis();
+        assert!(is_exchange_data_stale(now - 10_000, 5000));
+        assert!(!is_exchange_data_stale(now - 1_000, 5000));
+        assert!(!is_exchange_data_stale(now, 5000));
+        // Future timestamp should not be stale
+        assert!(!is_exchange_data_stale(now + 1_000, 5000));
     }
 
     #[test]
@@ -720,8 +815,8 @@ mod tests {
         assert_eq!(snap.depth_asks.len(), 2);
         assert!(snap.bid.is_some());
         assert!(snap.ask.is_some());
-        // The test data has a 2023 exchange timestamp, which is correctly
-        // flagged as stale by the staleness gate (RELY-03).
+        // The test data has a 2023 exchange timestamp, which the staleness
+        // gate correctly flags as stale (RELY-03).
         assert!(snap.is_stale);
 
         // Clean up

@@ -1,13 +1,17 @@
 //! Deribit WebSocket client.
 //!
 //! Connects to the Deribit WebSocket API, subscribes to market data channels,
-//! and forwards raw text frames through an mpsc channel. No reconnection logic
-//! in Phase 2 -- that is Phase 3.
+//! and forwards raw text frames through an mpsc channel. Handles the Deribit
+//! heartbeat protocol (set_heartbeat + test_request response) to keep the
+//! connection alive. Detects dead connections via heartbeat timeout.
+//!
+//! Reconnection logic lives in the supervisor (Plan 03-02), not here.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
+use tokio::time::{Duration, Instant};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
@@ -26,7 +30,8 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 /// Deribit WebSocket client.
 ///
 /// Connects to Deribit, subscribes to all 4 channel types for a list of
-/// instruments, and forwards raw text frames through an mpsc channel.
+/// instruments, handles the heartbeat protocol, and forwards raw text
+/// frames through an mpsc channel.
 pub struct DeribitClient {
     config: DeribitConfig,
     instruments: Vec<String>,
@@ -36,7 +41,7 @@ pub struct DeribitClient {
 impl DeribitClient {
     /// Create a new `DeribitClient`.
     ///
-    /// - `config`: Deribit connection settings (ws_url, etc.)
+    /// - `config`: Deribit connection settings (ws_url, heartbeat_interval_ms, etc.)
     /// - `instruments`: List of instrument names to subscribe to
     /// - `cancel`: Cancellation token for graceful shutdown
     pub fn new(
@@ -54,11 +59,19 @@ impl DeribitClient {
     /// Connect to Deribit, subscribe to all channels, and start reading.
     ///
     /// Returns an `mpsc::Receiver<RawMessage>` that receives raw WebSocket
-    /// text frames as they arrive. Spawns a background tokio task for the
-    /// read loop.
+    /// text frames as they arrive. Spawns a background tokio task that owns
+    /// both the read and write halves of the WebSocket connection.
     ///
-    /// If the initial connection fails, returns an error immediately.
-    /// The caller decides whether to retry (Phase 3) or fail.
+    /// The spawned task:
+    /// 1. Sends `public/set_heartbeat` to enable heartbeat monitoring
+    /// 2. Reads incoming messages in a select loop
+    /// 3. Responds to heartbeat `test_request` messages with `public/test`
+    /// 4. Detects dead connections when no messages arrive within 2x the
+    ///    heartbeat interval (exits the loop for supervisor to reconnect)
+    /// 5. Forwards non-heartbeat text frames to the raw message channel
+    ///
+    /// If the initial connection or subscribe fails, returns an error
+    /// immediately. The caller decides whether to retry.
     pub async fn start(&self) -> anyhow::Result<mpsc::Receiver<RawMessage>> {
         let ws_url = self.config.ws_url.clone();
         tracing::info!(url = %ws_url, "connecting to Deribit WebSocket");
@@ -107,32 +120,122 @@ impl DeribitClient {
         // Create the raw message channel
         let (tx, rx) = mpsc::channel::<RawMessage>(RAW_MESSAGE_BUFFER);
 
-        // Spawn the read loop as a background task
+        // Compute heartbeat timeout: 2x the heartbeat interval.
+        // Deribit minimum heartbeat interval is 10 seconds.
+        let heartbeat_interval_ms = self.config.heartbeat_interval_ms.max(10_000);
+        let heartbeat_interval_secs = (heartbeat_interval_ms / 1000) as u32;
+        let timeout_duration = Duration::from_millis(heartbeat_interval_ms * 2);
+
+        // Spawn the bidirectional WS loop as a background task.
+        // The task owns both read and write halves (single owner for write).
         let cancel = self.cancel.clone();
         tokio::spawn(async move {
-            tracing::debug!("Deribit WS read loop started");
+            tracing::debug!("Deribit WS loop started (bidirectional)");
+
+            // Send public/set_heartbeat to enable server-side heartbeat monitoring.
+            // The server will periodically send heartbeat notifications; if we fail
+            // to respond to test_request messages, the server closes the connection.
+            let hb_request_id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+            let set_heartbeat_msg = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": hb_request_id,
+                "method": "public/set_heartbeat",
+                "params": {
+                    "interval": heartbeat_interval_secs
+                }
+            });
+
+            tracing::info!(
+                interval_s = heartbeat_interval_secs,
+                request_id = hb_request_id,
+                "sending public/set_heartbeat"
+            );
+
+            if let Err(e) = write.send(Message::text(set_heartbeat_msg.to_string())).await {
+                tracing::error!(error = %e, "failed to send set_heartbeat request");
+                return;
+            }
+
+            // Track the last time we received any message (for timeout detection).
+            let mut last_message_at = Instant::now();
 
             loop {
+                // Compute the deadline for the heartbeat timeout.
+                let timeout_deadline = last_message_at + timeout_duration;
+
                 tokio::select! {
                     biased;
 
                     _ = cancel.cancelled() => {
-                        tracing::info!("Deribit WS read loop cancelled");
+                        tracing::info!("Deribit WS loop cancelled");
                         // Attempt to send close frame
                         let _ = write.send(Message::Close(None)).await;
+                        break;
+                    }
+
+                    // Heartbeat timeout: no messages received within 2x heartbeat interval.
+                    // The connection is dead -- exit for the supervisor to reconnect.
+                    _ = tokio::time::sleep_until(timeout_deadline) => {
+                        let elapsed = last_message_at.elapsed();
+                        tracing::warn!(
+                            elapsed_ms = elapsed.as_millis() as u64,
+                            timeout_ms = timeout_duration.as_millis() as u64,
+                            "heartbeat timeout -- no messages received, connection assumed dead"
+                        );
                         break;
                     }
 
                     msg = read.next() => {
                         match msg {
                             Some(Ok(Message::Text(text))) => {
+                                // Update liveness tracker on every received message.
+                                last_message_at = Instant::now();
+
+                                let text_str = text.to_string();
+
+                                // Check if this is a heartbeat message (fast string check).
+                                // Heartbeat messages are connection-level protocol messages
+                                // and must NOT be forwarded to the raw message channel.
+                                if text_str.contains("\"method\":\"heartbeat\"")
+                                    || text_str.contains("\"method\": \"heartbeat\"")
+                                {
+                                    // Parse to check if it's a test_request that needs response.
+                                    if text_str.contains("\"test_request\"") {
+                                        let test_id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+                                        let test_response = serde_json::json!({
+                                            "jsonrpc": "2.0",
+                                            "id": test_id,
+                                            "method": "public/test",
+                                            "params": {}
+                                        });
+
+                                        tracing::debug!(
+                                            request_id = test_id,
+                                            "responding to heartbeat test_request with public/test"
+                                        );
+
+                                        // Send immediately -- exempt from rate limiting
+                                        // (per research pitfall 6: heartbeat responses must
+                                        // be prompt, never rate-limited).
+                                        if let Err(e) = write.send(Message::text(test_response.to_string())).await {
+                                            tracing::error!(error = %e, "failed to send heartbeat test response");
+                                            break;
+                                        }
+                                    } else {
+                                        tracing::debug!("received heartbeat keepalive (no response needed)");
+                                    }
+                                    // Do NOT forward heartbeat to raw_tx channel.
+                                    continue;
+                                }
+
+                                // Non-heartbeat text message -- forward to raw channel.
                                 let raw = RawMessage {
-                                    text: text.to_string(),
+                                    text: text_str,
                                     received_at: DualTimestamp::now(),
                                 };
 
                                 if tx.send(raw).await.is_err() {
-                                    tracing::warn!("raw message receiver dropped, stopping read loop");
+                                    tracing::warn!("raw message receiver dropped, stopping WS loop");
                                     break;
                                 }
                             }
@@ -146,13 +249,16 @@ impl DeribitClient {
                             }
                             Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => {
                                 // tokio-tungstenite handles pong automatically.
-                                // We just keep reading (pitfall 2 from research).
+                                // Update liveness tracker.
+                                last_message_at = Instant::now();
                             }
                             Some(Ok(Message::Binary(_))) => {
                                 tracing::debug!("ignoring binary WS frame");
+                                last_message_at = Instant::now();
                             }
                             Some(Ok(Message::Frame(_))) => {
-                                // Raw frame -- ignore.
+                                // Raw frame -- ignore but update liveness.
+                                last_message_at = Instant::now();
                             }
                             Some(Err(e)) => {
                                 tracing::error!(error = %e, "Deribit WS read error");
@@ -167,7 +273,7 @@ impl DeribitClient {
                 }
             }
 
-            tracing::debug!("Deribit WS read loop exiting");
+            tracing::debug!("Deribit WS loop exiting");
         });
 
         Ok(rx)
