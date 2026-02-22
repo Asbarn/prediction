@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 3 of 9 (Feed Infrastructure)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In Progress
-Last activity: 2026-02-22 -- Completed 03-01 (heartbeat config, bidirectional WS client)
+Last activity: 2026-02-22 -- Completed 03-02 (staleness gate, latency metrics, periodic flush)
 
-Progress: [########..] 82%
+Progress: [########..] 85%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: 8min
-- Total execution time: 1.1 hours
+- Total plans completed: 9
+- Average duration: 9min
+- Total execution time: 1.3 hours
 
 **By Phase:**
 
@@ -29,10 +29,10 @@ Progress: [########..] 82%
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | 24min | 8min |
 | 02-deribit-feed | 4/4 | 33min | 8min |
-| 03-feed-infrastructure | 1/3 | 10min | 10min |
+| 03-feed-infrastructure | 2/3 | 24min | 12min |
 
 **Recent Trend:**
-- Last 5 plans: 9min, 9min, 7min, 8min, 10min
+- Last 5 plans: 9min, 7min, 8min, 10min, 14min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -76,6 +76,11 @@ Recent decisions affecting current work:
 - [03-01]: Staleness gate uses OR logic: book.is_stale || exchange_data_stale (exchange timestamp age check)
 - [03-01]: metrics facade added with no recorder (zero-cost no-ops) -- Prometheus recorder deferred to Phase 6
 - [03-01]: Heartbeat timeout at 2x interval for dead connection detection
+- [03-02]: Staleness gate uses OR logic: is_stale = book.is_stale || exchange_data_stale
+- [03-02]: metrics facade macros are zero-cost no-ops without recorder (Prometheus exporter deferred to Phase 6)
+- [03-02]: Processor async tests use u64::MAX staleness threshold for hardcoded JSON timestamps
+- [03-02]: biased select in recording_task: cancel > recv > flush tick
+- [03-02]: Periodic flush resolves Phase 2 TODO (writer.rs line 51-52)
 
 ### Pending Todos
 
@@ -91,5 +96,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 03-01-PLAN.md (heartbeat config, bidirectional WS client)
-Resume file: .planning/phases/03-feed-infrastructure/03-01-SUMMARY.md
+Stopped at: Completed 03-02-PLAN.md (staleness gate, latency metrics, periodic flush)
+Resume file: .planning/phases/03-feed-infrastructure/03-02-SUMMARY.md
