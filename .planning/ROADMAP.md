@@ -101,12 +101,12 @@ Plans:
   2. Each mapping carries a computed basis_risk_score quantifying: settlement time differences (Deribit Friday 08:00 UTC vs prediction market resolution), settlement source differences (index price vs oracle), and resolution criteria differences
   3. The contract lifecycle manager continuously discovers new contracts, detects expiring/expired ones, and handles Deribit expiry rolls -- not just at startup
   4. Contracts approaching expiry receive special handling flags (pricing character change warnings, liquidity warnings, elevated settlement risk) that downstream consumers can act on
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: TOML event registry and cross-venue mapping
-- [ ] 05-02: Settlement basis risk analyzer
-- [ ] 05-03: Contract lifecycle manager and expiry handling
+- [ ] 05-01-PLAN.md -- Extended EventsConfig schema with approval/lifecycle/settlement fields, EventRegistry with dual-index lookup, format-preserving TOML writer
+- [ ] 05-02-PLAN.md -- Settlement basis risk scoring (time/source/criteria components) and near-expiry warning system with configurable tiers
+- [ ] 05-03-PLAN.md -- Per-venue REST discovery, cross-venue candidate matching, ContractLifecycleManager with expiry rolls, main.rs integration
 
 ### Phase 6: Prediction Market Spreads
 **Goal**: The system detects cross-platform prediction market arbitrage (Polymarket vs Kalshi), computes fee-adjusted net spreads, logs every computation for analysis, tracks hypothetical paper trade P&L, and exports key metrics to Prometheus -- delivering the first actionable trading signals.
