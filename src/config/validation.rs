@@ -1,4 +1,7 @@
 use crate::error::ConfigError;
+use chrono::NaiveDate;
+use rust_decimal::Decimal;
+use std::str::FromStr;
 
 use super::events::EventsConfig;
 use super::system::SystemConfig;
@@ -50,6 +53,57 @@ pub fn validate_config(
                     event.id
                 ),
             });
+        }
+
+        // Validate expiry date is parseable
+        if NaiveDate::parse_from_str(&event.expiry, "%Y-%m-%d").is_err() {
+            return Err(ConfigError::Validation {
+                file: "events.toml".to_string(),
+                message: format!(
+                    "event '{}' has invalid expiry date '{}' -- expected YYYY-MM-DD format",
+                    event.id, event.expiry
+                ),
+            });
+        }
+
+        // Validate strike is parseable to Decimal
+        if Decimal::from_str(&event.strike).is_err() {
+            return Err(ConfigError::Validation {
+                file: "events.toml".to_string(),
+                message: format!(
+                    "event '{}' has invalid strike '{}' -- must be a valid decimal number",
+                    event.id, event.strike
+                ),
+            });
+        }
+    }
+
+    // Validate expiry thresholds: risk_inflation_factor >= 1.0 and unique hours
+    if !events.expiry_thresholds.is_empty() {
+        for threshold in &events.expiry_thresholds {
+            if threshold.risk_inflation_factor < 1.0 {
+                return Err(ConfigError::Validation {
+                    file: "events.toml".to_string(),
+                    message: format!(
+                        "expiry threshold '{}' has risk_inflation_factor {} < 1.0",
+                        threshold.name, threshold.risk_inflation_factor
+                    ),
+                });
+            }
+        }
+
+        // Ensure no duplicate hours_before_expiry values
+        let mut seen_hours = std::collections::HashSet::new();
+        for threshold in &events.expiry_thresholds {
+            if !seen_hours.insert(threshold.hours_before_expiry) {
+                return Err(ConfigError::Validation {
+                    file: "events.toml".to_string(),
+                    message: format!(
+                        "expiry threshold '{}' has duplicate hours_before_expiry {}",
+                        threshold.name, threshold.hours_before_expiry
+                    ),
+                });
+            }
         }
     }
 

@@ -1,9 +1,65 @@
+# Event mapping configuration
+# Discovery appends new candidates with approved = false
+# User reviews and sets approved = true to activate
+
+# Settlement source risk weights (predefined)
+[risk_weights]
+time_per_hour = 0.05       # Risk per hour of settlement time difference
+time_weight = 0.4          # Weight of time risk in composite
+source_weight = 0.4        # Weight of source risk in composite
+criteria_weight = 0.2      # Weight of criteria risk in composite
+
+# Source pair risk categories
+[risk_weights.source_pairs]
+index_index = 0.0
+index_oracle = 0.5
+oracle_oracle = 0.2
+oracle_index = 0.5
+
+# Discovery configuration
+[discovery]
+deribit_poll_interval_secs = 300     # Poll Deribit every 5 minutes
+kalshi_poll_interval_secs = 600      # Poll Kalshi every 10 minutes
+polymarket_poll_interval_secs = 600  # Poll Polymarket every 10 minutes
+deribit_currencies = ["BTC"]         # Currencies to discover
+kalshi_series_tickers = ["KXBTC"]    # Kalshi series to monitor
+
+# Expiry warning thresholds
+[[expiry_thresholds]]
+name = "caution"
+hours_before_expiry = 48
+flags = ["pricing_character_change"]
+risk_inflation_factor = 1.2
+
+[[expiry_thresholds]]
+name = "warning"
+hours_before_expiry = 24
+flags = ["pricing_character_change", "liquidity_warning"]
+risk_inflation_factor = 1.5
+
+[[expiry_thresholds]]
+name = "critical"
+hours_before_expiry = 6
+flags = ["pricing_character_change", "liquidity_warning", "elevated_settlement_risk"]
+risk_inflation_factor = 2.0
+
+# --- Event Mappings ---
+
 [[events]]
-id = "BTC-100K-2025-06-30"
+id = "BTC-100K-2025-06-27"
 asset = "BTC"
 strike = "100000"
 direction = "above"
-expiry = "2025-06-30"
+expiry = "2025-06-27"
+approved = true
+status = "active"
+
+# Settlement metadata for risk scoring
+[events.settlement]
+deribit_settlement_time = "2025-06-27T08:00:00Z"
+deribit_settlement_source = "deribit_index"
+polymarket_resolution_source = "oracle"
+kalshi_resolution_source = "index"
 
 [events.venues.deribit]
 instrument = "BTC-27JUN25-100000-C"
@@ -14,3 +70,17 @@ token_id = "12345"
 
 [events.venues.kalshi]
 ticker = "KXBTCD-25JUN30-T100000"
+
+# Auto-discovered candidate (not yet approved)
+[[events]]
+id = "BTC-120K-2025-07-25"
+asset = "BTC"
+strike = "120000"
+direction = "above"
+expiry = "2025-07-25"
+approved = false
+status = "active"
+discovered_at = "2026-02-22T14:30:00Z"
+
+[events.venues.deribit]
+instrument = "BTC-25JUL25-120000-C"

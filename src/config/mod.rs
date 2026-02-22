@@ -7,7 +7,9 @@ mod venues;
 
 pub use credentials::Credentials;
 pub use events::{
-    DeribitMapping, EventMapping, EventVenues, EventsConfig, KalshiMapping, PolymarketMapping,
+    DeribitMapping, Direction, DiscoveryConfig, EventMapping, EventVenues, EventsConfig,
+    ExpiryThreshold, KalshiMapping, LifecycleStatus, PolymarketMapping, RiskWeightsConfig,
+    SettlementMetadata, SourcePairWeights,
 };
 pub use system::{LoggingConfig, SignalConfig, StalenessConfig, SystemConfig};
 pub use venues::{DeribitConfig, KalshiConfig, PolymarketConfig, VenuesConfig};
