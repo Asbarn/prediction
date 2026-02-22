@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 3 of 9 (Feed Infrastructure)
-Plan: 2 of 3 in current phase
-Status: In Progress
-Last activity: 2026-02-22 -- Completed 03-02 (staleness gate, latency metrics, periodic flush)
+Plan: 3 of 3 in current phase
+Status: Phase Complete
+Last activity: 2026-02-22 -- Completed 03-03 (reconnection supervisor, rate limiter, pipeline wiring)
 
-Progress: [########..] 85%
+Progress: [##########] 100% (Phase 3 complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
+- Total plans completed: 10
 - Average duration: 9min
-- Total execution time: 1.3 hours
+- Total execution time: 1.4 hours
 
 **By Phase:**
 
@@ -29,10 +29,10 @@ Progress: [########..] 85%
 |-------|-------|-------|----------|
 | 01-foundation | 3/3 | 24min | 8min |
 | 02-deribit-feed | 4/4 | 33min | 8min |
-| 03-feed-infrastructure | 2/3 | 24min | 12min |
+| 03-feed-infrastructure | 3/3 | 32min | 11min |
 
 **Recent Trend:**
-- Last 5 plans: 9min, 7min, 8min, 10min, 14min
+- Last 5 plans: 7min, 8min, 10min, 14min, 8min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -81,6 +81,10 @@ Recent decisions affecting current work:
 - [03-02]: Processor async tests use u64::MAX staleness threshold for hardcoded JSON timestamps
 - [03-02]: biased select in recording_task: cancel > recv > flush tick
 - [03-02]: Periodic flush resolves Phase 2 TODO (writer.rs line 51-52)
+- [03-03]: backoff::Backoff trait must be explicitly imported for reset() and next_backoff() methods
+- [03-03]: Backoff reset on first message received (not on connection success) prevents burn-through with accept-then-close servers
+- [03-03]: Rate limiter is Optional on DeribitClient (None for Mock/Replay, Some for Live via supervisor)
+- [03-03]: Heartbeat test_request responses exempt from rate limiting per research pitfall 6
 
 ### Pending Todos
 
@@ -96,5 +100,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 03-02-PLAN.md (staleness gate, latency metrics, periodic flush)
-Resume file: .planning/phases/03-feed-infrastructure/03-02-SUMMARY.md
+Stopped at: Completed 03-03-PLAN.md (reconnection supervisor, rate limiter, pipeline wiring) -- Phase 3 complete
+Resume file: .planning/phases/03-feed-infrastructure/03-03-SUMMARY.md
