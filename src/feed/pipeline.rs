@@ -12,15 +12,17 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::DeribitConfig;
-use crate::feed::deribit::client::DeribitClient;
 use crate::feed::deribit::normalize::DeribitProcessor;
+use crate::feed::deribit::supervisor::DeribitSupervisor;
 use crate::feed::mock::replay::ReplayDataSource;
 use crate::feed::mock::synthetic::SyntheticDataSource;
 use crate::feed::recording::RecordingService;
+use crate::feed::reliability::VenueRateLimiter;
 use crate::feed::traits::{RawDataSource, RawMessage};
 use crate::types::{MarketSnapshot, Venue};
 
 /// Selects how the pipeline receives raw market data.
+#[derive(Debug)]
 pub enum DataMode {
     /// Connect to real Deribit WebSocket (requires internet).
     Live,
@@ -44,6 +46,8 @@ pub async fn run_pipeline(
     recording_dir: PathBuf,
     cancel: CancellationToken,
 ) -> anyhow::Result<mpsc::Receiver<MarketSnapshot>> {
+    tracing::info!(mode = ?mode, "starting pipeline");
+
     // 1. Start the recording service
     let recording_svc = RecordingService::start(
         recording_dir,
@@ -54,12 +58,21 @@ pub async fn run_pipeline(
     // 2. Start the data source based on mode
     let raw_rx: mpsc::Receiver<RawMessage> = match mode {
         DataMode::Live => {
-            let client = DeribitClient::new(
+            let rate_limiter = VenueRateLimiter::new("deribit", config.rate_limit_per_second);
+            tracing::info!(
+                venue = "deribit",
+                rate_limit = config.rate_limit_per_second,
+                "rate limiter configured"
+            );
+            let (supervisor_tx, supervisor_rx) = mpsc::channel::<RawMessage>(1024);
+            let supervisor = DeribitSupervisor::new(
                 config.clone(),
                 config.instruments.clone(),
                 cancel.clone(),
+                rate_limiter,
             );
-            client.start().await?
+            tokio::spawn(supervisor.run(supervisor_tx));
+            supervisor_rx
         }
         DataMode::Replay { path, speed } => {
             let source = ReplayDataSource::new(path, speed, cancel.clone());
