@@ -58,6 +58,10 @@ Recent decisions affecting current work:
 - [02-01]: f64 at serde boundary -- Decimal conversion deferred to normalization layer (Plan 02)
 - [02-01]: BookData bids/asks as Vec<[f64; 2]> -- matches grouped channel snapshot format
 - [02-01]: Testnet URL in venues.toml default config for safe development
+- [02-02]: f64 to Decimal via from_f64_retain (never panics) instead of try_from for edge-case floats
+- [02-02]: Ticker updates produce snapshots even without prior book data (empty book fallback)
+- [02-02]: Stale snapshots still published downstream so consumers see is_stale flag
+- [02-02]: Trades and price_index do not produce MarketSnapshot events in Phase 2
 - [02-03]: 8192-message bounded channel for recording buffer -- balances memory with burst tolerance
 - [02-03]: Flush on every write in Phase 2 for correctness -- optimize to periodic flush in Phase 3
 - [02-03]: Drop newest on buffer overflow via try_send -- never block data pipeline
