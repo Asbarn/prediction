@@ -100,15 +100,29 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!("starting in mock mode (synthetic data)");
                 DataMode::Mock
             } else {
+                // Log which venues are configured for Live mode
                 tracing::info!("starting in live mode");
+                tracing::info!(
+                    deribit = "available (public testnet)",
+                    polymarket = "available (no auth for market data)",
+                    kalshi = if config.credentials.kalshi_api_key_id.is_some()
+                        && config.credentials.kalshi_private_key.is_some()
+                    {
+                        "available (credentials configured)"
+                    } else {
+                        "skipped (KALSHI_API_KEY_ID / KALSHI_PRIVATE_KEY not set)"
+                    },
+                    "venue availability"
+                );
                 DataMode::Live
             };
 
-            // Start the pipeline
+            // Start the multi-venue pipeline
             let recording_dir = PathBuf::from("recordings");
-            let mut snapshot_rx = pipeline::run_pipeline(
+            let mut snapshot_rx = pipeline::run_multi_venue_pipeline(
                 mode,
-                &config.venues.deribit,
+                &config.venues,
+                &config.credentials,
                 recording_dir,
                 shutdown_token.clone(),
             )
