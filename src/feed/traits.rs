@@ -48,7 +48,7 @@ pub trait NormalizedDataSource: Send + 'static {
 ///
 /// Contains both the raw WebSocket frame and parsed metadata for efficient
 /// filtering without re-parsing.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RecordLine {
     /// The exact WebSocket text frame.
     pub raw: String,
