@@ -85,12 +85,12 @@ Plans:
   2. System connects to Kalshi (REST polling or WebSocket) and normalizes contracts into probability + expiry schema matching the unified MarketSnapshot format
   3. All three venue feeds publish through the same bounded async channel, and downstream consumers process events from any venue identically
   4. When any single feed drops, remaining feeds continue operating -- affected instruments are marked unavailable, degraded state is surfaced in metrics, and the system does not crash or stall
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: Polymarket CLOB WebSocket client and order book normalization
-- [ ] 04-02: Kalshi feed client and contract normalization
-- [ ] 04-03: Multi-feed fan-in and graceful degradation
+- [ ] 04-01-PLAN.md -- Polymarket CLOB WebSocket client, message types, probability normalization, and reconnection supervisor
+- [ ] 04-02-PLAN.md -- Kalshi RSA-PSS auth, WebSocket client, incremental order book, cents-to-probability normalization, and supervisor
+- [ ] 04-03-PLAN.md -- Multi-feed fan-in with shared mpsc channel, per-venue health tracking, graceful degradation, and main.rs integration
 
 ### Phase 5: Event Mapping
 **Goal**: Equivalent instruments across Polymarket, Kalshi, and Deribit are mapped together through a config-driven registry, with each mapping carrying quantified settlement basis risk and lifecycle status, enabling downstream spread calculations to compare the right instruments.
