@@ -1,7 +1,8 @@
 [deribit]
-ws_url = "wss://www.deribit.com/ws/api/v2"
+ws_url = "wss://test.deribit.com/ws/api/v2"  # Testnet for dev
 rate_limit_per_second = 20
 heartbeat_interval_ms = 10000
+instruments = ["BTC-27JUN25-100000-C"]
 
 [polymarket]
 ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"

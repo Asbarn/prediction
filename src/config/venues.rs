@@ -21,6 +21,10 @@ pub struct DeribitConfig {
     pub rate_limit_per_second: u32,
     /// Heartbeat interval in milliseconds.
     pub heartbeat_interval_ms: u64,
+    /// Instrument names to subscribe to (e.g., ["BTC-27JUN25-100000-C"]).
+    /// Dynamic -- comes from config in Phase 2, driven by event registry in Phase 5.
+    #[serde(default)]
+    pub instruments: Vec<String>,
 }
 
 /// Polymarket connection settings.
