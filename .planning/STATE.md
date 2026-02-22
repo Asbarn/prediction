@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 5: Event Mapping
+**Current focus:** Phase 6: Pricing Engine
 
 ## Current Position
 
-Phase: 5 of 9 (Event Mapping)
-Plan: 2 of 3 in current phase
-Status: In Progress
-Last activity: 2026-02-22 -- Completed 05-02 (basis risk scoring and expiry warning system)
+Phase: 6 of 9 (Pricing Engine)
+Plan: 1 of ? in current phase
+Status: Not Started
+Last activity: 2026-02-22 -- Completed 05-03 (contract lifecycle manager and discovery)
 
-Progress: [#############-] 96% (Phase 4 complete, Phase 5 plan 2/3 done)
+Progress: [##############] 100% Phase 5 complete (all 3/3 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 15
+- Total plans completed: 16
 - Average duration: 9min
-- Total execution time: ~2.1 hours
+- Total execution time: ~2.4 hours
 
 **By Phase:**
 
@@ -31,11 +31,11 @@ Progress: [#############-] 96% (Phase 4 complete, Phase 5 plan 2/3 done)
 | 02-deribit-feed | 4/4 | 33min | 8min |
 | 03-feed-infrastructure | 3/3 | 32min | 11min |
 | 04-multi-venue-feeds | 3/3 | 13min | 4min |
-| 05-event-mapping | 2/3 | 15min | 8min |
+| 05-event-mapping | 3/3 | 29min | 10min |
 
 **Recent Trend:**
-- Last 5 plans: 8min, ~0min*, 13min, 11min, 4min
-- Trend: stable-to-fast
+- Last 5 plans: ~0min*, 13min, 11min, 4min, 14min
+- Trend: stable
 - *04-01 and 04-02 ran out of quota before SUMMARY creation but code is committed
 
 *Updated after each plan completion*
@@ -100,6 +100,10 @@ Recent decisions affecting current work:
 - [05-02]: Unknown SourcePair uses index_oracle weight (0.5) as conservative default
 - [05-02]: compute_risk_for_mapping uses expiry date at 00:00:00 UTC as prediction resolution estimate
 - [05-02]: inflate_risk_score uses default weights for composite recalculation (global config, not per-score)
+- [05-03]: DiscoveryConfig.min_poll_interval_secs() used as lifecycle tick interval; venues polled independently
+- [05-03]: Kalshi asset extracted from ticker prefix (KX{ASSET}D pattern) rather than separate API field
+- [05-03]: Polymarket discovery limited to deactivation monitoring in v1 (no structured field extraction)
+- [05-03]: Pipeline accepts optional EventRegistry parameter (pass-through for Phase 6 annotation)
 
 ### Pending Todos
 
@@ -113,5 +117,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-22
-Stopped at: Completed 05-02-PLAN.md (basis risk scoring and expiry warning system)
-Resume file: .planning/phases/05-event-mapping/05-02-SUMMARY.md
+Stopped at: Completed 05-03-PLAN.md (contract lifecycle manager and discovery) -- Phase 5 complete
+Resume file: .planning/phases/05-event-mapping/05-03-SUMMARY.md

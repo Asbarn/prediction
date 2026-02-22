@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Deribit Feed and Data Pipeline** - End-to-end data path from Deribit WebSocket through normalization bus to JSONL recording, with mock data abstraction
 - [x] **Phase 3: Feed Infrastructure** - Reliability layer with automatic reconnection, heartbeat monitoring, staleness detection, rate limiting, and timestamp tracking
 - [x] **Phase 4: Multi-Venue Feeds** - Polymarket and Kalshi feed integration with graceful degradation on feed loss
-- [ ] **Phase 5: Event Mapping** - Cross-venue instrument registry with settlement basis risk scoring and contract lifecycle management
+- [x] **Phase 5: Event Mapping** - Cross-venue instrument registry with settlement basis risk scoring and contract lifecycle management
 - [ ] **Phase 6: Prediction Market Spreads** - Cross-platform spread detection between prediction markets with fee-adjusted costs, paper P&L tracking, and Prometheus metrics
 - [ ] **Phase 7: Options Pricing Engine** - Black-76 pricing, IV solver, call spread replication for digital payoffs, vol surface construction, and Greeks
 - [ ] **Phase 8: Cross-Asset Signal Generation** - Full spread calculation between options-implied probabilities and prediction market prices with signal generation and threshold engine
@@ -106,7 +106,7 @@ Plans:
 Plans:
 - [x] 05-01-PLAN.md -- Extended EventsConfig schema with approval/lifecycle/settlement fields, EventRegistry with dual-index lookup, format-preserving TOML writer
 - [x] 05-02-PLAN.md -- Settlement basis risk scoring (time/source/criteria components) and near-expiry warning system with configurable tiers
-- [ ] 05-03-PLAN.md -- Per-venue REST discovery, cross-venue candidate matching, ContractLifecycleManager with expiry rolls, main.rs integration
+- [x] 05-03-PLAN.md -- Per-venue REST discovery, cross-venue candidate matching, ContractLifecycleManager with expiry rolls, main.rs integration
 
 ### Phase 6: Prediction Market Spreads
 **Goal**: The system detects cross-platform prediction market arbitrage (Polymarket vs Kalshi), computes fee-adjusted net spreads, logs every computation for analysis, tracks hypothetical paper trade P&L, and exports key metrics to Prometheus -- delivering the first actionable trading signals.
@@ -188,7 +188,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | 2. Deribit Feed and Data Pipeline | 4/4 | Complete | 2026-02-22 |
 | 3. Feed Infrastructure | 3/3 | Complete | 2026-02-22 |
 | 4. Multi-Venue Feeds | 3/3 | Complete | 2026-02-22 |
-| 5. Event Mapping | 2/3 | In Progress | - |
+| 5. Event Mapping | 3/3 | Complete | 2026-02-22 |
 | 6. Prediction Market Spreads | 0/5 | Not started | - |
 | 7. Options Pricing Engine | 0/5 | Not started | - |
 | 8. Cross-Asset Signal Generation | 0/3 | Not started | - |
