@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 6 of 9 (Pricing Engine)
-Plan: 1 of ? in current phase
-Status: Not Started
-Last activity: 2026-02-22 -- Completed 05-03 (contract lifecycle manager and discovery)
+Plan: 2 of 4 in current phase
+Status: In Progress
+Last activity: 2026-02-23 -- Completed 06-01 (spread computation primitives)
 
-Progress: [##############] 100% Phase 5 complete (all 3/3 plans done)
+Progress: [####----------] 25% Phase 6 in progress (1/4 plans done)
 
 ## Performance Metrics
 
@@ -32,11 +32,11 @@ Progress: [##############] 100% Phase 5 complete (all 3/3 plans done)
 | 03-feed-infrastructure | 3/3 | 32min | 11min |
 | 04-multi-venue-feeds | 3/3 | 13min | 4min |
 | 05-event-mapping | 3/3 | 29min | 10min |
+| 06-prediction-market-spreads | 1/4 | 11min | 11min |
 
 **Recent Trend:**
-- Last 5 plans: ~0min*, 13min, 11min, 4min, 14min
+- Last 5 plans: 13min, 11min, 4min, 14min, 11min
 - Trend: stable
-- *04-01 and 04-02 ran out of quota before SUMMARY creation but code is committed
 
 *Updated after each plan completion*
 
@@ -104,6 +104,9 @@ Recent decisions affecting current work:
 - [05-03]: Kalshi asset extracted from ticker prefix (KX{ASSET}D pattern) rather than separate API field
 - [05-03]: Polymarket discovery limited to deactivation monitoring in v1 (no structured field extraction)
 - [05-03]: Pipeline accepts optional EventRegistry parameter (pass-through for Phase 6 annotation)
+- [Phase 06]: SpreadConfig added to SystemConfig with serde(default) for backward-compatible config loading
+- [Phase 06]: RollingStats uses f64 (not Decimal) per research recommendation for Welford's algorithm at metrics boundary
+- [Phase 06]: Kalshi ceil() uses Decimal::ceil() (integer ceiling) for conservative per-contract fee estimation
 
 ### Pending Todos
 
@@ -116,6 +119,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-22
-Stopped at: Completed 05-03-PLAN.md (contract lifecycle manager and discovery) -- Phase 5 complete
-Resume file: .planning/phases/05-event-mapping/05-03-SUMMARY.md
+Last session: 2026-02-23
+Stopped at: Completed 06-01-PLAN.md (spread computation primitives)
+Resume file: .planning/phases/06-prediction-market-spreads/06-01-SUMMARY.md

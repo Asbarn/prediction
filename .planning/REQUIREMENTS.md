@@ -48,7 +48,7 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 ### Signal Generation
 
 - [ ] **SGNL-01**: Spread calculator computes spread between prediction market price and options-implied probability for each mapped event
-- [ ] **SGNL-02**: Spread calculation adjusts for: transaction fees (Deribit maker/taker, Polymarket dynamic fees up to ~1.56% at 50/50, Kalshi 7% profit fee), slippage estimate from available depth, funding/carry cost, settlement basis risk premium
+- [x] **SGNL-02**: Spread calculation adjusts for: transaction fees (Deribit maker/taker, Polymarket dynamic fees up to ~1.56% at 50/50, Kalshi 7% profit fee), slippage estimate from available depth, funding/carry cost, settlement basis risk premium
 - [ ] **SGNL-03**: Every spread calculation validates both sides are fresh (staleness gate) and rejects with logging if either side exceeds threshold
 - [ ] **SGNL-04**: Cross-platform prediction market spread detection (Polymarket vs Kalshi) for 4 patterns: Poly YES + Kalshi NO, inverse, and each direction
 - [ ] **SGNL-05**: Signal generation produces ArbSignal with: event ID, direction, raw spread, net edge after costs, confidence, constituent legs, timestamp, and TTL
@@ -151,7 +151,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | PRIC-06 | Phase 7 | Pending |
 | PRIC-07 | Phase 7 | Pending |
 | SGNL-01 | Phase 8 | Pending |
-| SGNL-02 | Phase 6 | Pending |
+| SGNL-02 | Phase 6 | Complete |
 | SGNL-03 | Phase 6 | Pending |
 | SGNL-04 | Phase 6 | Pending |
 | SGNL-05 | Phase 8 | Pending |
