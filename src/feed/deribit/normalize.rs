@@ -51,6 +51,11 @@ pub struct TickerState {
     pub volume_24h: Option<f64>,
     pub greeks: Option<GreeksState>,
     pub exchange_timestamp: Option<i64>,
+    // -- Options pricing data (Phase 7) --
+    pub bid_iv: Option<f64>,
+    pub ask_iv: Option<f64>,
+    pub underlying_price: Option<f64>,
+    pub underlying_index: Option<String>,
 }
 
 /// Cached greeks from the most recent ticker update.
@@ -319,6 +324,11 @@ impl DeribitProcessor {
                 rho: g.rho,
             });
             state.exchange_timestamp = Some(exchange_ts);
+            // Options pricing data (Phase 7)
+            state.bid_iv = ticker_data.bid_iv;
+            state.ask_iv = ticker_data.ask_iv;
+            state.underlying_price = ticker_data.underlying_price;
+            state.underlying_index = ticker_data.underlying_index.clone();
         }
 
         tracing::debug!(
@@ -494,6 +504,12 @@ pub fn build_snapshot(
         metrics::counter!("feed_messages_total", "venue" => "deribit").increment(1);
     }
 
+    // Options pricing data (Phase 7)
+    let bid_iv = ticker.and_then(|t| t.bid_iv);
+    let ask_iv = ticker.and_then(|t| t.ask_iv);
+    let underlying_price = ticker.and_then(|t| t.underlying_price);
+    let underlying_index = ticker.and_then(|t| t.underlying_index.clone());
+
     MarketSnapshot {
         venue: Venue::Deribit,
         instrument_id: instrument.clone(),
@@ -513,6 +529,10 @@ pub fn build_snapshot(
         open_interest,
         volume_24h,
         greeks,
+        bid_iv,
+        ask_iv,
+        underlying_price,
+        underlying_index,
         exchange_timestamp: exchange_ts,
         timestamp: received_at,
         sequence,
@@ -592,6 +612,10 @@ mod tests {
                 rho: 0.001,
             }),
             exchange_timestamp: Some(now_ts),
+            bid_iv: Some(64.0),
+            ask_iv: Some(67.0),
+            underlying_price: Some(43500.0),
+            underlying_index: Some("BTC-27JUN25".to_string()),
         };
 
         let snap = build_snapshot(

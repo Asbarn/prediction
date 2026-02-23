@@ -42,6 +42,16 @@ pub struct MarketSnapshot {
     // -- Greeks (from ticker channel, options only) --
     pub greeks: Option<SnapshotGreeks>,
 
+    // -- Options pricing data (Phase 7) --
+    /// Exchange-computed bid implied volatility (from Deribit ticker).
+    pub bid_iv: Option<f64>,
+    /// Exchange-computed ask implied volatility (from Deribit ticker).
+    pub ask_iv: Option<f64>,
+    /// Forward/futures price used by Deribit pricer (USD).
+    pub underlying_price: Option<f64>,
+    /// Futures contract name (e.g., "BTC-27JUN25") identifying the forward.
+    pub underlying_index: Option<String>,
+
     // -- Timestamps --
     /// Exchange-reported milliseconds since epoch (FEED-08).
     pub exchange_timestamp: Option<i64>,
