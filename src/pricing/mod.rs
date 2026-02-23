@@ -12,7 +12,9 @@
 //! - `instrument` -- Deribit instrument name parser
 
 pub mod black76;
+pub mod confidence;
 pub mod config;
+pub mod greeks;
 pub mod instrument;
 pub mod iv_solver;
 pub mod probability;
