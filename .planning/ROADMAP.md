@@ -168,12 +168,11 @@ Plans:
   2. Feed recordings serve as a reusable replay corpus -- any historical period can be replayed to reproduce signals and investigate pricing discrepancies
   3. HTTP /health endpoint reports: per-feed connection status, last update time per feed, active event count, and system uptime
   4. JSONL schema for all recorded data (feeds, spreads, signals, P&L) is stable and documented, enabling offline analysis with Python/Jupyter tooling
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 09-01: Deterministic replay engine
-- [ ] 09-02: Health endpoint
-- [ ] 09-03: JSONL schema stabilization and documentation
+- [ ] 09-01-PLAN.md -- Health endpoint, JSONL schema stabilization with Deserialize derives and golden tests
+- [ ] 09-02-PLAN.md -- Deterministic multi-venue replay with staleness bypass and CLI integration
 
 ## Progress
 
