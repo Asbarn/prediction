@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::pricing::config::PricingConfig;
+use crate::signal::config::SignalGenerationConfig;
 use crate::spread::config::SpreadConfig;
 
 /// System-wide configuration loaded from `config.toml`.
@@ -25,6 +26,10 @@ pub struct SystemConfig {
     /// Options pricing engine configuration (Phase 7).
     #[serde(default)]
     pub pricing: PricingConfig,
+    /// Cross-asset signal generation configuration (Phase 8).
+    /// Uses `#[serde(default)]` so existing config files without `[signal_generation]` still load.
+    #[serde(default)]
+    pub signal_generation: SignalGenerationConfig,
 }
 
 /// Logging output configuration.

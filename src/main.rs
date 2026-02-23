@@ -12,6 +12,7 @@ use prediction::feed::pipeline::{self, DataMode};
 use prediction::paper_trade::tracker::PaperTradeTracker;
 use prediction::pricing::engine::PricingEngine;
 use prediction::pricing::types::ImpliedProbability;
+use prediction::signal::{ArbSignal, CrossAssetEngine};
 use prediction::spread::{SpreadEngine, SpreadResult};
 use prediction::types::MarketSnapshot;
 
@@ -189,7 +190,7 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!("ContractLifecycleManager started");
             }
 
-            // -- Phase 7 Pipeline: Fan-out -> SpreadEngine + PricingEngine --
+            // -- Phase 8 Pipeline: 3-way Fan-out -> SpreadEngine + PricingEngine + CrossAssetEngine --
             //
             // Pipeline flow:
             //   [Multi-venue feeds] --snapshot_rx--> [SnapshotFanOut]
@@ -198,13 +199,18 @@ async fn main() -> anyhow::Result<()> {
             //                                              |        |
             //                                              |        +--MarketSnapshot (clone)--^
             //                                              |
-            //                                              +--> [PricingEngine] --probability_tx--> (Phase 8)
+            //                                              +--> [PricingEngine] --probability_tx--> [CrossAssetEngine]
+            //                                              |                                              |
+            //                                              +--MarketSnapshot (clone)--------------------->+
+            //                                                                                             |
+            //                                                                              arb_signal_tx --> (Phase 9)
 
-            // Fan-out channels: snapshot_rx -> spread + pricing
+            // Fan-out channels: snapshot_rx -> spread + pricing + signal engine
             let (spread_snap_tx, spread_snap_rx) = mpsc::channel::<MarketSnapshot>(1024);
             let (pricing_snap_tx, pricing_snap_rx) = mpsc::channel::<MarketSnapshot>(1024);
+            let (signal_pred_snap_tx, signal_pred_snap_rx) = mpsc::channel::<MarketSnapshot>(1024);
 
-            // Spawn fan-out task: clone each snapshot to both engines
+            // Spawn fan-out task: clone each snapshot to all three engines
             let fanout_cancel = shutdown_token.child_token();
             tokio::spawn(async move {
                 let mut snapshot_rx = snapshot_rx;
@@ -223,16 +229,25 @@ async fn main() -> anyhow::Result<()> {
                                 break;
                             };
 
+                            // Clone for PricingEngine and CrossAssetEngine before
+                            // blocking send to SpreadEngine
+                            let snap_for_pricing = snapshot.clone();
+                            let snap_for_signal = snapshot.clone();
+
                             // Send to SpreadEngine (blocking -- spread pipeline is primary)
-                            let snapshot_clone = snapshot.clone();
                             if spread_snap_tx.send(snapshot).await.is_err() {
                                 tracing::debug!("spread engine channel closed");
                                 break;
                             }
 
                             // Send to PricingEngine (best-effort, never block spread pipeline)
-                            if let Err(_e) = pricing_snap_tx.try_send(snapshot_clone) {
+                            if let Err(_e) = pricing_snap_tx.try_send(snap_for_pricing) {
                                 tracing::trace!("pricing engine channel full, dropping snapshot");
+                            }
+
+                            // Send to CrossAssetEngine (best-effort, same as PricingEngine)
+                            if let Err(_e) = signal_pred_snap_tx.try_send(snap_for_signal) {
+                                tracing::trace!("signal engine channel full, dropping snapshot");
                             }
                         }
                     }
@@ -268,15 +283,29 @@ async fn main() -> anyhow::Result<()> {
             let pricing_config = config.system.pricing.clone();
             let pricing_engine = PricingEngine::new(pricing_config);
             let pricing_cancel = shutdown_token.child_token();
-            // ImpliedProbability channel: held in scope so PricingEngine's try_send works.
-            // Phase 8 will consume _probability_rx.
-            let (probability_tx, _probability_rx) = mpsc::channel::<ImpliedProbability>(1024);
+            // Probability channel: PricingEngine -> CrossAssetEngine
+            let (probability_tx, probability_rx) = mpsc::channel::<ImpliedProbability>(1024);
             tokio::spawn(pricing_engine.run(pricing_snap_rx, probability_tx, pricing_cancel));
+
+            // ArbSignal output channel: CrossAssetEngine -> downstream (Phase 9)
+            let (arb_signal_tx, _arb_signal_rx) = mpsc::channel::<ArbSignal>(1024);
+
+            // Spawn CrossAssetEngine (consumes probabilities + prediction market snapshots)
+            let signal_config = config.system.signal_generation.clone();
+            let signal_engine = CrossAssetEngine::new(signal_config);
+            let signal_cancel = shutdown_token.child_token();
+            tokio::spawn(signal_engine.run(
+                probability_rx,
+                signal_pred_snap_rx,
+                event_registry.clone(),
+                signal_cancel,
+                arb_signal_tx,
+            ));
 
             tracing::info!(
                 near_expiry_cutoff_hours = config.system.pricing.near_expiry_cutoff_hours,
                 iv_bounds = format!("[{}, {}]", config.system.pricing.solver.iv_min, config.system.pricing.solver.iv_max),
-                "spread engine, paper trade tracker, and pricing engine started"
+                "spread engine, paper trade tracker, pricing engine, and signal engine started"
             );
 
             // Wait for shutdown signal
