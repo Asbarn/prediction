@@ -61,12 +61,17 @@ impl SpreadEngine {
     /// 1. Cancellation token (highest priority)
     /// 2. Stats emission interval tick
     /// 3. Snapshot reception from fan-in channel
+    ///
+    /// If `ptrade_snap_tx` is provided, each received snapshot is forwarded
+    /// (best-effort, non-blocking) to the paper trade tracker for next-tick
+    /// fill and MTM updates.
     pub async fn run(
         mut self,
         mut snapshot_rx: mpsc::Receiver<MarketSnapshot>,
         registry: Arc<RwLock<EventRegistry>>,
         cancel: CancellationToken,
         signal_tx: mpsc::Sender<SpreadResult>,
+        ptrade_snap_tx: Option<mpsc::Sender<MarketSnapshot>>,
     ) {
         let mut stats_interval = tokio::time::interval(Duration::from_secs(
             self.config.stats_emission_interval_secs,
@@ -92,6 +97,10 @@ impl SpreadEngine {
                 snapshot = snapshot_rx.recv() => {
                     match snapshot {
                         Some(snap) => {
+                            // Forward snapshot to paper trade tracker (best effort)
+                            if let Some(ref tx) = ptrade_snap_tx {
+                                let _ = tx.try_send(snap.clone());
+                            }
                             self.process_snapshot(snap, &registry, &signal_tx).await;
                         }
                         None => {

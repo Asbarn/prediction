@@ -6,3 +6,7 @@ pub mod logger;
 pub mod patterns;
 pub mod rolling_stats;
 pub mod threshold;
+
+pub use config::SpreadConfig;
+pub use engine::SpreadEngine;
+pub use patterns::SpreadResult;

@@ -2,13 +2,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use prediction::config::DiscoveryConfig;
 use prediction::events::lifecycle::ContractLifecycleManager;
 use prediction::events::registry::EventRegistry;
 use prediction::feed::pipeline::{self, DataMode};
+use prediction::paper_trade::tracker::PaperTradeTracker;
+use prediction::spread::{SpreadEngine, SpreadResult};
+use prediction::types::MarketSnapshot;
 
 #[derive(Parser)]
 #[command(name = "prediction")]
@@ -146,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Start the multi-venue pipeline
             let recording_dir = PathBuf::from("recordings");
-            let mut snapshot_rx = pipeline::run_multi_venue_pipeline(
+            let snapshot_rx = pipeline::run_multi_venue_pipeline(
                 mode,
                 &config.venues,
                 &config.credentials,
@@ -184,37 +187,39 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!("ContractLifecycleManager started");
             }
 
-            // Simple consumer: log snapshots to prove pipeline works end-to-end
-            let consumer_cancel = shutdown_token.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::select! {
-                        _ = consumer_cancel.cancelled() => {
-                            tracing::info!("snapshot consumer shutting down");
-                            break;
-                        }
-                        snapshot = snapshot_rx.recv() => {
-                            match snapshot {
-                                Some(snap) => {
-                                    tracing::info!(
-                                        venue = %snap.venue,
-                                        instrument = %snap.instrument_id,
-                                        bid = ?snap.bid,
-                                        ask = ?snap.ask,
-                                        stale = snap.is_stale,
-                                        seq = snap.sequence,
-                                        "MarketSnapshot"
-                                    );
-                                }
-                                None => {
-                                    tracing::info!("snapshot channel closed");
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            });
+            // -- Phase 6 Pipeline: SpreadEngine -> PaperTradeTracker --
+            //
+            // Pipeline flow:
+            //   [Multi-venue feeds] --MarketSnapshot--> [SpreadEngine] --SpreadResult--> [PaperTradeTracker]
+            //                                                |                                    ^
+            //                                                +--MarketSnapshot (clone)------------+
+
+            // Signal channel: SpreadEngine -> PaperTradeTracker
+            let (signal_tx, signal_rx) = mpsc::channel::<SpreadResult>(1024);
+
+            // Snapshot forwarding channel: SpreadEngine -> PaperTradeTracker
+            // Paper trade tracker needs snapshots to fill pending positions and update MTM.
+            let (ptrade_snap_tx, ptrade_snap_rx) = mpsc::channel::<MarketSnapshot>(1024);
+
+            // Spawn SpreadEngine
+            let spread_config = config.system.spread.clone();
+            let spread_engine = SpreadEngine::new(spread_config);
+            let spread_cancel = shutdown_token.child_token();
+            tokio::spawn(spread_engine.run(
+                snapshot_rx,
+                event_registry.clone(),
+                spread_cancel,
+                signal_tx,
+                Some(ptrade_snap_tx),
+            ));
+
+            // Spawn PaperTradeTracker
+            let paper_trade_config = config.system.paper_trade.clone();
+            let paper_tracker = PaperTradeTracker::new(paper_trade_config);
+            let ptrade_cancel = shutdown_token.child_token();
+            tokio::spawn(paper_tracker.run(signal_rx, ptrade_snap_rx, ptrade_cancel));
+
+            tracing::info!("spread engine and paper trade tracker started");
 
             // Wait for shutdown signal
             shutdown_token.cancelled().await;
