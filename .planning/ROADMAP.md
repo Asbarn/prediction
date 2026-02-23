@@ -118,14 +118,13 @@ Plans:
   3. Every spread computation (not just signals above threshold) is logged to file for distribution analysis, regime detection, and threshold tuning
   4. Periodic aggregate spread statistics (mean, stddev, percentiles) are emitted to Prometheus metrics and stdout
   5. Paper trade P&L tracking records hypothetical entry/exit at signal time, computes per-signal P&L assuming fill at quoted price, and produces daily/weekly aggregates
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 06-01: Cross-platform spread detection (4 patterns)
-- [ ] 06-02: All-in cost model with staleness gate
-- [ ] 06-03: Continuous spread logging and aggregate statistics
-- [ ] 06-04: Prometheus metrics exporter
-- [ ] 06-05: Paper trade P&L tracker
+- [ ] 06-01-PLAN.md -- Spread config, cost model (Polymarket/Kalshi fees), book walker, rolling statistics
+- [ ] 06-02-PLAN.md -- Prometheus metrics exporter setup, SpreadPattern enum and SpreadResult types
+- [ ] 06-03-PLAN.md -- SpreadEngine with staleness gate, 4-pattern detection, JSONL logging, dynamic threshold
+- [ ] 06-04-PLAN.md -- Paper trade P&L tracker (next-tick entry, MTM, daily rollups) and main.rs integration
 
 ### Phase 7: Options Pricing Engine
 **Goal**: The system extracts implied probabilities from Deribit options data using rigorous quantitative methods -- IV solving, multiple probability extraction methods with call spread replication as primary, vol surface interpolation, and Greeks -- producing ImpliedProbability outputs that carry method, confidence, and skew adjustment metadata.
@@ -189,7 +188,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | 3. Feed Infrastructure | 3/3 | Complete | 2026-02-22 |
 | 4. Multi-Venue Feeds | 3/3 | Complete | 2026-02-22 |
 | 5. Event Mapping | 3/3 | Complete    | 2026-02-22 |
-| 6. Prediction Market Spreads | 0/5 | Not started | - |
+| 6. Prediction Market Spreads | 0/4 | Not started | - |
 | 7. Options Pricing Engine | 0/5 | Not started | - |
 | 8. Cross-Asset Signal Generation | 0/3 | Not started | - |
 | 9. Replay and Hardening | 0/3 | Not started | - |
