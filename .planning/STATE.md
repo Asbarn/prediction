@@ -40,6 +40,7 @@ Progress: [########------] 60% Phase 7 in progress (3/5 plans done)
 - Trend: stable
 
 *Updated after each plan completion*
+| Phase 07 P02 | 8min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,9 @@ Recent decisions affecting current work:
 - [07-03]: Flat extrapolation returns boundary IV (first or last) rather than None for extreme strikes
 - [07-03]: Degraded quality returns flat ATM vol for any strike (graceful fallback)
 - [07-03]: nearest_bracket on exact observed strike returns adjacent strikes (not self-bracket)
+- [Phase 07-02]: near_expiry_cutoff_hours added to SolverConfig (duplicated from PricingConfig) for solver-level access
+- [Phase 07-02]: Brent fallback uses full [iv_min, iv_max] bracket for maximum robustness
+- [Phase 07-02]: Brenner-Subrahmanyam initial guess clamped to [iv_min, iv_max] for safe starting point
 
 ### Pending Todos
 
