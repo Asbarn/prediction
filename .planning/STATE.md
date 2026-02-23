@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 8 of 9 (Cross-Asset Signal Generation)
-Plan: 1 of 2 in current phase
-Status: In Progress
-Last activity: 2026-02-23 -- Completed 08-01 (Signal types, config, and logger)
+Plan: 2 of 2 in current phase
+Status: Phase Complete
+Last activity: 2026-02-23 -- Completed 08-02 (CrossAssetEngine and pipeline wiring)
 
-Progress: [#######-------] 50% Phase 8 in progress (1/2 plans done)
+Progress: [########------] 57% Phase 8 complete (2/2 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 23
+- Total plans completed: 24
 - Average duration: 10min
-- Total execution time: ~3.5 hours
+- Total execution time: ~3.6 hours
 
 **By Phase:**
 
@@ -34,16 +34,17 @@ Progress: [#######-------] 50% Phase 8 in progress (1/2 plans done)
 | 05-event-mapping | 3/3 | 29min | 10min |
 | 06-prediction-market-spreads | 4/4 | 49min | 12min |
 | 07-options-pricing-engine | 5/5 | 33min | 7min |
-| 08-cross-asset-signal-generation | 1/2 | 7min | 7min |
+| 08-cross-asset-signal-generation | 2/2 | 17min | 9min |
 
 **Recent Trend:**
-- Last 5 plans: 11min, 21min, 9min, 8min, 7min
+- Last 5 plans: 21min, 9min, 8min, 7min, 10min
 - Trend: stable
 
 *Updated after each plan completion*
 | Phase 07 P04 | 7min | 2 tasks | 4 files |
 | Phase 07 P05 | 9min | 2 tasks | 3 files |
 | Phase 08 P01 | 7min | 2 tasks | 8 files |
+| Phase 08 P02 | 10min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,10 @@ Recent decisions affecting current work:
 - [Phase 07-05]: _probability_rx held in main scope to prevent channel-closed errors for PricingEngine
 - [Phase 08-01]: Added Deserialize to PricingMethod, ConfidenceComponents, SolverResult, SolverMethod, ThresholdComponents, DualTimestamp for ArbSignal JSON roundtrip
 - [Phase 08-01]: DualTimestamp Deserialize sets mono to Instant::now() since monotonic clock has no meaningful serialized value
+- [Phase 08-02]: Liquidity factor = min(prediction fill_ratio, options ba_proxy) where ba_proxy = max(0.1, 1.0 - ba_spread * 5.0)
+- [Phase 08-02]: Options fee estimate = deribit_taker_fee_rate * underlying_price * |delta| (USD-scale approximate taker fee)
+- [Phase 08-02]: Both ArbDirection variants computed per event update, all logged to JSONL regardless of threshold status
+- [Phase 08-02]: 3-way fan-out: SpreadEngine (blocking) + PricingEngine (try_send) + CrossAssetEngine (try_send)
 
 ### Pending Todos
 
@@ -154,5 +159,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 08-01-PLAN.md (Signal types, config, and logger)
-Resume file: .planning/phases/08-cross-asset-signal-generation/08-01-SUMMARY.md
+Stopped at: Completed 08-02-PLAN.md (CrossAssetEngine and pipeline wiring) -- Phase 8 complete
+Resume file: .planning/phases/08-cross-asset-signal-generation/08-02-SUMMARY.md
