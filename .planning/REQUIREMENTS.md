@@ -41,7 +41,7 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 - [ ] **PRIC-02**: IV solver handles edge cases: deep ITM/OTM options, near-expiry theta collapse, negative time value
 - [ ] **PRIC-03**: Probability extractor computes P(S > K) using multiple methods: naive N(d2), strike-specific vol N(d2), call spread replication, and full smile interpolation
 - [ ] **PRIC-04**: Call spread replication `(C(K-e) - C(K+e)) / 2e` is the primary digital pricing method, producing skew-adjusted probabilities
-- [ ] **PRIC-05**: Implied volatility surface construction interpolates across strikes for pricing at non-traded strikes
+- [x] **PRIC-05**: Implied volatility surface construction interpolates across strikes for pricing at non-traded strikes
 - [x] **PRIC-06**: Each ImpliedProbability output includes: probability value, confidence (based on bid-ask width/depth), pricing method used, skew adjustment factor, and timestamp
 - [ ] **PRIC-07**: Greeks calculator computes delta, gamma, vega, theta for position monitoring and downstream risk assessment
 
@@ -147,7 +147,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | PRIC-02 | Phase 7 | Pending |
 | PRIC-03 | Phase 7 | Pending |
 | PRIC-04 | Phase 7 | Pending |
-| PRIC-05 | Phase 7 | Pending |
+| PRIC-05 | Phase 7 | Complete |
 | PRIC-06 | Phase 7 | Complete |
 | PRIC-07 | Phase 7 | Pending |
 | SGNL-01 | Phase 8 | Pending |

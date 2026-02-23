@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 7 of 9 (Options Pricing Engine)
-Plan: 1 of 5 in current phase
+Plan: 3 of 5 in current phase
 Status: In Progress
-Last activity: 2026-02-23 -- Completed 07-01 (pricing scaffold, Black-76, MarketSnapshot extension)
+Last activity: 2026-02-23 -- Completed 07-03 (vol surface interpolation, quality filtering, bracket finding)
 
-Progress: [###-----------] 20% Phase 7 in progress (1/5 plans done)
+Progress: [########------] 60% Phase 7 in progress (3/5 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 21
+- Total plans completed: 22
 - Average duration: 10min
-- Total execution time: ~3.3 hours
+- Total execution time: ~3.4 hours
 
 **By Phase:**
 
@@ -33,10 +33,10 @@ Progress: [###-----------] 20% Phase 7 in progress (1/5 plans done)
 | 04-multi-venue-feeds | 3/3 | 13min | 4min |
 | 05-event-mapping | 3/3 | 29min | 10min |
 | 06-prediction-market-spreads | 4/4 | 49min | 12min |
-| 07-options-pricing-engine | 1/5 | 11min | 11min |
+| 07-options-pricing-engine | 3/5 | 17min | 6min |
 
 **Recent Trend:**
-- Last 5 plans: 11min, 21min, 9min, 8min, 11min
+- Last 5 plans: 6min, 11min, 21min, 9min, 8min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -121,6 +121,10 @@ Recent decisions affecting current work:
 - [07-01]: Black-76 functions as pub(crate) free functions (no struct wrapper for stateless math)
 - [07-01]: Instrument parser handles 1-digit and 2-digit day formats (e.g., "3JAN26" and "27JUN25")
 - [07-01]: Normal::standard() created per function call (trivial allocation, simpler than lazy_static)
+- [07-03]: partition_point binary search for O(log n) interpolation between observed strikes
+- [07-03]: Flat extrapolation returns boundary IV (first or last) rather than None for extreme strikes
+- [07-03]: Degraded quality returns flat ATM vol for any strike (graceful fallback)
+- [07-03]: nearest_bracket on exact observed strike returns adjacent strikes (not self-bracket)
 
 ### Pending Todos
 
@@ -134,5 +138,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 07-01-PLAN.md (pricing scaffold, Black-76, MarketSnapshot extension)
-Resume file: .planning/phases/07-options-pricing-engine/07-01-SUMMARY.md
+Stopped at: Completed 07-03-PLAN.md (vol surface interpolation, quality filtering, bracket finding)
+Resume file: .planning/phases/07-options-pricing-engine/07-03-SUMMARY.md
