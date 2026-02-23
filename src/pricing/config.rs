@@ -53,6 +53,9 @@ pub struct SolverConfig {
     pub iv_max: f64,
     /// Maximum Brent's method iterations.
     pub brent_max_iterations: u32,
+    /// Near-expiry cutoff in hours. Below this, solver returns intrinsic pricing.
+    /// Mirrors PricingConfig.near_expiry_cutoff_hours for solver-level access.
+    pub near_expiry_cutoff_hours: f64,
 }
 
 impl Default for SolverConfig {
@@ -64,6 +67,7 @@ impl Default for SolverConfig {
             iv_min: 0.01,
             iv_max: 5.0,
             brent_max_iterations: 100,
+            near_expiry_cutoff_hours: 2.0,
         }
     }
 }

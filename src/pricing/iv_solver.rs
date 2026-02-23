@@ -9,6 +9,178 @@ use crate::pricing::black76;
 use crate::pricing::config::SolverConfig;
 use crate::pricing::types::{SolverMethod, SolverResult};
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/// Hours per year for converting cutoff hours to years.
+const HOURS_PER_YEAR: f64 = 8760.0;
+
+/// Two * pi, used in Brenner-Subrahmanyam initial guess.
+const TWO_PI: f64 = std::f64::consts::TAU;
+
+// ---------------------------------------------------------------------------
+// Initial guess
+// ---------------------------------------------------------------------------
+
+/// Brenner-Subrahmanyam approximation for initial IV guess.
+///
+/// sigma_0 = sqrt(2*pi/T) * (C/F) -- works well for near-ATM options.
+/// Clamped to [iv_min, iv_max] to avoid extreme starting points.
+fn initial_guess(market_price: f64, f: f64, t: f64, iv_min: f64, iv_max: f64) -> f64 {
+    if f <= 0.0 || t <= 0.0 {
+        return (iv_min + iv_max) / 2.0;
+    }
+    let sigma_0 = (TWO_PI / t).sqrt() * (market_price / f);
+    sigma_0.clamp(iv_min, iv_max)
+}
+
+// ---------------------------------------------------------------------------
+// Brent's method
+// ---------------------------------------------------------------------------
+
+/// Brent's method for IV solving when Newton-Raphson fails.
+///
+/// Finds sigma in [iv_min, iv_max] such that black76::price(sigma) = market_price.
+/// Combines bisection with inverse quadratic interpolation for superlinear
+/// convergence while maintaining a guaranteed bracket.
+fn brent_solve(
+    market_price: f64,
+    f: f64,
+    k: f64,
+    t: f64,
+    r: f64,
+    is_call: bool,
+    config: &SolverConfig,
+) -> SolverResult {
+    let price_fn = |sigma: f64| -> f64 {
+        black76::price(f, k, t, sigma, r, is_call) - market_price
+    };
+
+    let mut a = config.iv_min;
+    let mut b = config.iv_max;
+    let mut fa = price_fn(a);
+    let mut fb = price_fn(b);
+
+    // If both endpoints have the same sign, no root in bracket.
+    // Return the endpoint with smaller residual.
+    if fa * fb > 0.0 {
+        let (best_sigma, best_residual) = if fa.abs() < fb.abs() {
+            (a, fa.abs())
+        } else {
+            (b, fb.abs())
+        };
+        return SolverResult {
+            iv: best_sigma,
+            method: SolverMethod::Brent,
+            iterations: 0,
+            converged: best_residual < config.price_tolerance,
+            residual: best_residual,
+        };
+    }
+
+    // Ensure |f(a)| >= |f(b)| (b is the better guess)
+    if fa.abs() < fb.abs() {
+        std::mem::swap(&mut a, &mut b);
+        std::mem::swap(&mut fa, &mut fb);
+    }
+
+    let mut c = a;
+    let mut fc = fa;
+    let mut mflag = true;
+    let mut d = 0.0_f64; // previous step size (only used when mflag is false)
+
+    for i in 0..config.brent_max_iterations {
+        if fb.abs() < config.price_tolerance {
+            return SolverResult {
+                iv: b,
+                method: SolverMethod::Brent,
+                iterations: i + 1,
+                converged: true,
+                residual: fb.abs(),
+            };
+        }
+
+        if (b - a).abs() < 1e-15 {
+            return SolverResult {
+                iv: b,
+                method: SolverMethod::Brent,
+                iterations: i + 1,
+                converged: fb.abs() < config.price_tolerance,
+                residual: fb.abs(),
+            };
+        }
+
+        // Attempt inverse quadratic interpolation if all three values differ
+        let s = if (fa - fc).abs() > f64::EPSILON && (fb - fc).abs() > f64::EPSILON {
+            // Inverse quadratic interpolation
+            let s = a * fb * fc / ((fa - fb) * (fa - fc))
+                + b * fa * fc / ((fb - fa) * (fb - fc))
+                + c * fa * fb / ((fc - fa) * (fc - fb));
+            s
+        } else {
+            // Secant method
+            b - fb * (b - a) / (fb - fa)
+        };
+
+        // Conditions for rejecting interpolation in favor of bisection
+        let midpoint = (a + b) / 2.0;
+        let use_bisection = {
+            // s is not between (3a+b)/4 and b
+            let bound1 = (3.0 * a + b) / 4.0;
+            let (lo, hi) = if bound1 < b {
+                (bound1, b)
+            } else {
+                (b, bound1)
+            };
+            s < lo || s > hi
+        } || (mflag && (s - b).abs() >= (b - c).abs() / 2.0)
+            || (!mflag && (s - b).abs() >= (c - d).abs() / 2.0)
+            || (mflag && (b - c).abs() < 1e-15)
+            || (!mflag && (c - d).abs() < 1e-15);
+
+        let s = if use_bisection {
+            mflag = true;
+            midpoint
+        } else {
+            mflag = false;
+            s
+        };
+
+        let fs = price_fn(s);
+        d = c;
+        c = b;
+        fc = fb;
+
+        if fa * fs < 0.0 {
+            b = s;
+            fb = fs;
+        } else {
+            a = s;
+            fa = fs;
+        }
+
+        // Ensure |f(a)| >= |f(b)|
+        if fa.abs() < fb.abs() {
+            std::mem::swap(&mut a, &mut b);
+            std::mem::swap(&mut fa, &mut fb);
+        }
+    }
+
+    // Did not converge within max iterations, return best result
+    SolverResult {
+        iv: b,
+        method: SolverMethod::Brent,
+        iterations: config.brent_max_iterations,
+        converged: fb.abs() < config.price_tolerance,
+        residual: fb.abs(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /// Solve for implied volatility given a market price.
 ///
 /// Uses Newton-Raphson with Brent's method fallback when vega is too small
@@ -34,9 +206,74 @@ pub(crate) fn solve_iv(
     is_call: bool,
     config: &SolverConfig,
 ) -> SolverResult {
-    // TODO: implement in GREEN phase
-    let _ = (market_price, f, k, t, r, is_call, config);
-    unimplemented!("solve_iv not yet implemented")
+    // 1. Near-expiry cutoff: if T is below cutoff, return intrinsic pricing
+    let near_expiry_cutoff_years = config.near_expiry_cutoff_hours / HOURS_PER_YEAR;
+    if t <= 0.0 || t < near_expiry_cutoff_years {
+        return SolverResult {
+            iv: 0.0,
+            method: SolverMethod::NewtonRaphson,
+            iterations: 0,
+            converged: true,
+            residual: 0.0,
+        };
+    }
+
+    // 2. Zero or negative market price: no valid IV
+    if market_price <= 0.0 {
+        return SolverResult {
+            iv: config.iv_min,
+            method: SolverMethod::NewtonRaphson,
+            iterations: 0,
+            converged: false,
+            residual: market_price.abs(),
+        };
+    }
+
+    // 3. Negative time value: market price below intrinsic value
+    let intrinsic = black76::intrinsic_value(f, k, is_call);
+    if market_price < intrinsic {
+        return SolverResult {
+            iv: config.iv_min,
+            method: SolverMethod::NewtonRaphson,
+            iterations: 0,
+            converged: false,
+            residual: (intrinsic - market_price).abs(),
+        };
+    }
+
+    // 4. Compute initial guess (Brenner-Subrahmanyam approximation)
+    let mut sigma = initial_guess(market_price, f, t, config.iv_min, config.iv_max);
+
+    // 5. Newton-Raphson loop
+    for i in 0..config.nr_max_iterations {
+        let model_price = black76::price(f, k, t, sigma, r, is_call);
+        let v = black76::vega(f, k, t, sigma, r);
+
+        // Check vega floor: if vega too small, NR will diverge
+        if v.abs() < config.vega_floor {
+            break; // Fall through to Brent
+        }
+
+        let diff = model_price - market_price;
+
+        // Convergence check
+        if diff.abs() < config.price_tolerance {
+            return SolverResult {
+                iv: sigma,
+                method: SolverMethod::NewtonRaphson,
+                iterations: i + 1,
+                converged: true,
+                residual: diff.abs(),
+            };
+        }
+
+        // NR update
+        sigma -= diff / v;
+        sigma = sigma.clamp(config.iv_min, config.iv_max);
+    }
+
+    // 6. NR failed to converge -- run Brent's method on [iv_min, iv_max]
+    brent_solve(market_price, f, k, t, r, is_call, config)
 }
 
 /// Solve bid IV, ask IV, and mid IV independently.
@@ -55,9 +292,10 @@ pub(crate) fn solve_iv_triple(
     is_call: bool,
     config: &SolverConfig,
 ) -> (SolverResult, SolverResult, SolverResult) {
-    // TODO: implement in GREEN phase
-    let _ = (bid_price, ask_price, mid_price, f, k, t, r, is_call, config);
-    unimplemented!("solve_iv_triple not yet implemented")
+    let bid_result = solve_iv(bid_price, f, k, t, r, is_call, config);
+    let ask_result = solve_iv(ask_price, f, k, t, r, is_call, config);
+    let mid_result = solve_iv(mid_price, f, k, t, r, is_call, config);
+    (bid_result, ask_result, mid_result)
 }
 
 #[cfg(test)]
@@ -160,7 +398,7 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn near_expiry_returns_intrinsic() {
-        let mut config = default_config();
+        let config = default_config();
         // near_expiry_cutoff_hours = 2.0 (default), so cutoff in years = 2/8760
         // T = 0.0001 years ~ 0.876 hours < 2 hours cutoff
         let t = 0.0001;
