@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 7: Options Pricing Engine
+**Current focus:** Phase 8: Cross-Asset Signal Generation
 
 ## Current Position
 
-Phase: 7 of 9 (Options Pricing Engine)
-Plan: 5 of 5 in current phase
-Status: Phase Complete
-Last activity: 2026-02-23 -- Completed 07-05 (PricingEngine pipeline integration)
+Phase: 8 of 9 (Cross-Asset Signal Generation)
+Plan: 1 of 2 in current phase
+Status: In Progress
+Last activity: 2026-02-23 -- Completed 08-01 (Signal types, config, and logger)
 
-Progress: [##############] 100% Phase 7 complete (5/5 plans done)
+Progress: [#######-------] 50% Phase 8 in progress (1/2 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22
+- Total plans completed: 23
 - Average duration: 10min
-- Total execution time: ~3.4 hours
+- Total execution time: ~3.5 hours
 
 **By Phase:**
 
@@ -34,15 +34,16 @@ Progress: [##############] 100% Phase 7 complete (5/5 plans done)
 | 05-event-mapping | 3/3 | 29min | 10min |
 | 06-prediction-market-spreads | 4/4 | 49min | 12min |
 | 07-options-pricing-engine | 5/5 | 33min | 7min |
+| 08-cross-asset-signal-generation | 1/2 | 7min | 7min |
 
 **Recent Trend:**
-- Last 5 plans: 6min, 11min, 21min, 9min, 8min
+- Last 5 plans: 11min, 21min, 9min, 8min, 7min
 - Trend: stable
 
 *Updated after each plan completion*
-| Phase 07 P02 | 8min | 3 tasks | 3 files |
 | Phase 07 P04 | 7min | 2 tasks | 4 files |
 | Phase 07 P05 | 9min | 2 tasks | 3 files |
+| Phase 08 P01 | 7min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,8 @@ Recent decisions affecting current work:
 - [Phase 07-05]: Deribit inverse convention: option_price_usd = option_price_btc * forward for Black-76
 - [Phase 07-05]: Near-expiry intrinsic: confidence=0.3, method=IntrinsicOnly, intrinsic delta, vega/theta=0
 - [Phase 07-05]: _probability_rx held in main scope to prevent channel-closed errors for PricingEngine
+- [Phase 08-01]: Added Deserialize to PricingMethod, ConfidenceComponents, SolverResult, SolverMethod, ThresholdComponents, DualTimestamp for ArbSignal JSON roundtrip
+- [Phase 08-01]: DualTimestamp Deserialize sets mono to Instant::now() since monotonic clock has no meaningful serialized value
 
 ### Pending Todos
 
@@ -151,5 +154,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 07-05-PLAN.md (PricingEngine pipeline integration) -- Phase 7 complete
-Resume file: .planning/phases/07-options-pricing-engine/07-05-SUMMARY.md
+Stopped at: Completed 08-01-PLAN.md (Signal types, config, and logger)
+Resume file: .planning/phases/08-cross-asset-signal-generation/08-01-SUMMARY.md
