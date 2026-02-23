@@ -15,5 +15,6 @@ pub mod black76;
 pub mod config;
 pub mod instrument;
 pub mod iv_solver;
+pub mod probability;
 pub mod types;
 pub mod vol_surface;
