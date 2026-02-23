@@ -10,6 +10,8 @@ use prediction::events::lifecycle::ContractLifecycleManager;
 use prediction::events::registry::EventRegistry;
 use prediction::feed::pipeline::{self, DataMode};
 use prediction::paper_trade::tracker::PaperTradeTracker;
+use prediction::pricing::engine::PricingEngine;
+use prediction::pricing::types::ImpliedProbability;
 use prediction::spread::{SpreadEngine, SpreadResult};
 use prediction::types::MarketSnapshot;
 
@@ -187,12 +189,55 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!("ContractLifecycleManager started");
             }
 
-            // -- Phase 6 Pipeline: SpreadEngine -> PaperTradeTracker --
+            // -- Phase 7 Pipeline: Fan-out -> SpreadEngine + PricingEngine --
             //
             // Pipeline flow:
-            //   [Multi-venue feeds] --MarketSnapshot--> [SpreadEngine] --SpreadResult--> [PaperTradeTracker]
-            //                                                |                                    ^
-            //                                                +--MarketSnapshot (clone)------------+
+            //   [Multi-venue feeds] --snapshot_rx--> [SnapshotFanOut]
+            //                                              |
+            //                                              +--> [SpreadEngine] --signal_tx--> [PaperTradeTracker]
+            //                                              |        |
+            //                                              |        +--MarketSnapshot (clone)--^
+            //                                              |
+            //                                              +--> [PricingEngine] --probability_tx--> (Phase 8)
+
+            // Fan-out channels: snapshot_rx -> spread + pricing
+            let (spread_snap_tx, spread_snap_rx) = mpsc::channel::<MarketSnapshot>(1024);
+            let (pricing_snap_tx, pricing_snap_rx) = mpsc::channel::<MarketSnapshot>(1024);
+
+            // Spawn fan-out task: clone each snapshot to both engines
+            let fanout_cancel = shutdown_token.child_token();
+            tokio::spawn(async move {
+                let mut snapshot_rx = snapshot_rx;
+                loop {
+                    tokio::select! {
+                        biased;
+
+                        _ = fanout_cancel.cancelled() => {
+                            tracing::debug!("snapshot fan-out shutting down");
+                            break;
+                        }
+
+                        snapshot = snapshot_rx.recv() => {
+                            let Some(snapshot) = snapshot else {
+                                tracing::debug!("snapshot fan-out: source channel closed");
+                                break;
+                            };
+
+                            // Send to SpreadEngine (blocking -- spread pipeline is primary)
+                            let snapshot_clone = snapshot.clone();
+                            if spread_snap_tx.send(snapshot).await.is_err() {
+                                tracing::debug!("spread engine channel closed");
+                                break;
+                            }
+
+                            // Send to PricingEngine (best-effort, never block spread pipeline)
+                            if let Err(_e) = pricing_snap_tx.try_send(snapshot_clone) {
+                                tracing::trace!("pricing engine channel full, dropping snapshot");
+                            }
+                        }
+                    }
+                }
+            });
 
             // Signal channel: SpreadEngine -> PaperTradeTracker
             let (signal_tx, signal_rx) = mpsc::channel::<SpreadResult>(1024);
@@ -201,12 +246,12 @@ async fn main() -> anyhow::Result<()> {
             // Paper trade tracker needs snapshots to fill pending positions and update MTM.
             let (ptrade_snap_tx, ptrade_snap_rx) = mpsc::channel::<MarketSnapshot>(1024);
 
-            // Spawn SpreadEngine
+            // Spawn SpreadEngine (receives from fan-out, not directly from pipeline)
             let spread_config = config.system.spread.clone();
             let spread_engine = SpreadEngine::new(spread_config);
             let spread_cancel = shutdown_token.child_token();
             tokio::spawn(spread_engine.run(
-                snapshot_rx,
+                spread_snap_rx,
                 event_registry.clone(),
                 spread_cancel,
                 signal_tx,
@@ -219,7 +264,20 @@ async fn main() -> anyhow::Result<()> {
             let ptrade_cancel = shutdown_token.child_token();
             tokio::spawn(paper_tracker.run(signal_rx, ptrade_snap_rx, ptrade_cancel));
 
-            tracing::info!("spread engine and paper trade tracker started");
+            // Spawn PricingEngine (receives from fan-out, outputs ImpliedProbability)
+            let pricing_config = config.system.pricing.clone();
+            let pricing_engine = PricingEngine::new(pricing_config);
+            let pricing_cancel = shutdown_token.child_token();
+            // ImpliedProbability channel: held in scope so PricingEngine's try_send works.
+            // Phase 8 will consume _probability_rx.
+            let (probability_tx, _probability_rx) = mpsc::channel::<ImpliedProbability>(1024);
+            tokio::spawn(pricing_engine.run(pricing_snap_rx, probability_tx, pricing_cancel));
+
+            tracing::info!(
+                near_expiry_cutoff_hours = config.system.pricing.near_expiry_cutoff_hours,
+                iv_bounds = format!("[{}, {}]", config.system.pricing.solver.iv_min, config.system.pricing.solver.iv_max),
+                "spread engine, paper trade tracker, and pricing engine started"
+            );
 
             // Wait for shutdown signal
             shutdown_token.cancelled().await;
