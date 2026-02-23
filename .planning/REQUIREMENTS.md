@@ -49,12 +49,12 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 
 - [ ] **SGNL-01**: Spread calculator computes spread between prediction market price and options-implied probability for each mapped event
 - [x] **SGNL-02**: Spread calculation adjusts for: transaction fees (Deribit maker/taker, Polymarket dynamic fees up to ~1.56% at 50/50, Kalshi 7% profit fee), slippage estimate from available depth, funding/carry cost, settlement basis risk premium
-- [ ] **SGNL-03**: Every spread calculation validates both sides are fresh (staleness gate) and rejects with logging if either side exceeds threshold
+- [x] **SGNL-03**: Every spread calculation validates both sides are fresh (staleness gate) and rejects with logging if either side exceeds threshold
 - [x] **SGNL-04**: Cross-platform prediction market spread detection (Polymarket vs Kalshi) for 4 patterns: Poly YES + Kalshi NO, inverse, and each direction
 - [ ] **SGNL-05**: Signal generation produces ArbSignal with: event ID, direction, raw spread, net edge after costs, confidence, constituent legs, timestamp, and TTL
 - [ ] **SGNL-06**: Configurable minimum edge threshold after all costs, with dynamic thresholds based on volatility regime and available liquidity
-- [ ] **SGNL-07**: Every spread computation logged to file (not just signals above threshold) for distribution analysis, regime detection, and threshold tuning
-- [ ] **SGNL-08**: Periodic aggregate spread statistics (mean, stddev, percentiles) emitted to metrics and stdout
+- [x] **SGNL-07**: Every spread computation logged to file (not just signals above threshold) for distribution analysis, regime detection, and threshold tuning
+- [x] **SGNL-08**: Periodic aggregate spread statistics (mean, stddev, percentiles) emitted to metrics and stdout
 
 ### Clock & Timestamps
 
@@ -152,12 +152,12 @@ Deferred to future release. Tracked but not in current roadmap.
 | PRIC-07 | Phase 7 | Pending |
 | SGNL-01 | Phase 8 | Pending |
 | SGNL-02 | Phase 6 | Complete |
-| SGNL-03 | Phase 6 | Pending |
+| SGNL-03 | Phase 6 | Complete |
 | SGNL-04 | Phase 6 | Complete |
 | SGNL-05 | Phase 8 | Pending |
 | SGNL-06 | Phase 8 | Pending |
-| SGNL-07 | Phase 6 | Pending |
-| SGNL-08 | Phase 6 | Pending |
+| SGNL-07 | Phase 6 | Complete |
+| SGNL-08 | Phase 6 | Complete |
 | TIME-01 | Phase 3 | Pending |
 | TIME-02 | Phase 3 | Pending |
 | TIME-03 | Phase 3 | Pending |

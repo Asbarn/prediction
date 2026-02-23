@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 6 of 9 (Pricing Engine)
-Plan: 3 of 4 in current phase
+Plan: 4 of 4 in current phase
 Status: In Progress
-Last activity: 2026-02-23 -- Completed 06-02 (Prometheus exporter and spread pattern types)
+Last activity: 2026-02-23 -- Completed 06-03 (SpreadEngine, JSONL logger, dynamic threshold)
 
-Progress: [########------] 50% Phase 6 in progress (2/4 plans done)
+Progress: [##########----] 75% Phase 6 in progress (3/4 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 18
+- Total plans completed: 19
 - Average duration: 10min
-- Total execution time: ~2.9 hours
+- Total execution time: ~3.0 hours
 
 **By Phase:**
 
@@ -32,10 +32,10 @@ Progress: [########------] 50% Phase 6 in progress (2/4 plans done)
 | 03-feed-infrastructure | 3/3 | 32min | 11min |
 | 04-multi-venue-feeds | 3/3 | 13min | 4min |
 | 05-event-mapping | 3/3 | 29min | 10min |
-| 06-prediction-market-spreads | 2/4 | 32min | 16min |
+| 06-prediction-market-spreads | 3/4 | 41min | 14min |
 
 **Recent Trend:**
-- Last 5 plans: 11min, 4min, 14min, 11min, 21min
+- Last 5 plans: 4min, 14min, 11min, 21min, 9min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -110,6 +110,10 @@ Recent decisions affecting current work:
 - [06-02]: metrics-exporter-prometheus 0.18 (not 0.16) -- matches metrics ^0.24 with no hyper conflicts
 - [06-02]: Prometheus setup failure is non-fatal -- logs warning and continues without metrics
 - [06-02]: Probability import is cfg(test) only -- type resolved through field access in production code
+- [06-03]: Staleness thresholds per-venue: 5s Polymarket (WebSocket), 15s Kalshi (REST-polled)
+- [06-03]: min_samples in ThresholdConfig for configurable cold start transition (default 30)
+- [06-03]: SpreadLogger periodic flush every 100 writes for I/O performance
+- [06-03]: Signal delivery via try_send (non-blocking) -- engine never blocks on slow downstream
 
 ### Pending Todos
 
@@ -123,5 +127,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 06-02-PLAN.md (Prometheus exporter and spread pattern types)
-Resume file: .planning/phases/06-prediction-market-spreads/06-02-SUMMARY.md
+Stopped at: Completed 06-03-PLAN.md (SpreadEngine, JSONL logger, dynamic threshold)
+Resume file: .planning/phases/06-prediction-market-spreads/06-03-SUMMARY.md

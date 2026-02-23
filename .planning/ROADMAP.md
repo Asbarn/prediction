@@ -121,9 +121,9 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 06-01-PLAN.md -- Spread config, cost model (Polymarket/Kalshi fees), book walker, rolling statistics
-- [ ] 06-02-PLAN.md -- Prometheus metrics exporter setup, SpreadPattern enum and SpreadResult types
-- [ ] 06-03-PLAN.md -- SpreadEngine with staleness gate, 4-pattern detection, JSONL logging, dynamic threshold
+- [x] 06-01-PLAN.md -- Spread config, cost model (Polymarket/Kalshi fees), book walker, rolling statistics
+- [x] 06-02-PLAN.md -- Prometheus metrics exporter setup, SpreadPattern enum and SpreadResult types
+- [x] 06-03-PLAN.md -- SpreadEngine with staleness gate, 4-pattern detection, JSONL logging, dynamic threshold
 - [ ] 06-04-PLAN.md -- Paper trade P&L tracker (next-tick entry, MTM, daily rollups) and main.rs integration
 
 ### Phase 7: Options Pricing Engine
