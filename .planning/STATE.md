@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 7 of 9 (Options Pricing Engine)
-Plan: 4 of 5 in current phase
-Status: In Progress
-Last activity: 2026-02-23 -- Completed 07-04 (probability extraction, Greeks, confidence scoring)
+Plan: 5 of 5 in current phase
+Status: Phase Complete
+Last activity: 2026-02-23 -- Completed 07-05 (PricingEngine pipeline integration)
 
-Progress: [##########----] 80% Phase 7 in progress (4/5 plans done)
+Progress: [##############] 100% Phase 7 complete (5/5 plans done)
 
 ## Performance Metrics
 
@@ -33,7 +33,7 @@ Progress: [##########----] 80% Phase 7 in progress (4/5 plans done)
 | 04-multi-venue-feeds | 3/3 | 13min | 4min |
 | 05-event-mapping | 3/3 | 29min | 10min |
 | 06-prediction-market-spreads | 4/4 | 49min | 12min |
-| 07-options-pricing-engine | 4/5 | 24min | 6min |
+| 07-options-pricing-engine | 5/5 | 33min | 7min |
 
 **Recent Trend:**
 - Last 5 plans: 6min, 11min, 21min, 9min, 8min
@@ -42,6 +42,7 @@ Progress: [##########----] 80% Phase 7 in progress (4/5 plans done)
 *Updated after each plan completion*
 | Phase 07 P02 | 8min | 3 tasks | 3 files |
 | Phase 07 P04 | 7min | 2 tasks | 4 files |
+| Phase 07 P05 | 9min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -133,6 +134,10 @@ Recent decisions affecting current work:
 - [Phase 07-04]: ATM delta tolerance 0.05 (Black-76 N(d1) = 0.54 for sigma=0.20/T=1.0, not exactly 0.5)
 - [Phase 07-04]: CallSpreadResult/Nd2Result pub visibility to match ProbabilityExtraction pub struct
 - [Phase 07-04]: Vega normalized to per-1%-vol-move (raw_vega / 100) for practical interpretation
+- [Phase 07-05]: Fan-out: blocking send to SpreadEngine (primary), try_send to PricingEngine (best-effort)
+- [Phase 07-05]: Deribit inverse convention: option_price_usd = option_price_btc * forward for Black-76
+- [Phase 07-05]: Near-expiry intrinsic: confidence=0.3, method=IntrinsicOnly, intrinsic delta, vega/theta=0
+- [Phase 07-05]: _probability_rx held in main scope to prevent channel-closed errors for PricingEngine
 
 ### Pending Todos
 
@@ -146,5 +151,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 07-04-PLAN.md (probability extraction, Greeks, confidence scoring)
-Resume file: .planning/phases/07-options-pricing-engine/07-04-SUMMARY.md
+Stopped at: Completed 07-05-PLAN.md (PricingEngine pipeline integration) -- Phase 7 complete
+Resume file: .planning/phases/07-options-pricing-engine/07-05-SUMMARY.md

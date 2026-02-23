@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Multi-Venue Feeds** - Polymarket and Kalshi feed integration with graceful degradation on feed loss
 - [x] **Phase 5: Event Mapping** - Cross-venue instrument registry with settlement basis risk scoring and contract lifecycle management
 - [x] **Phase 6: Prediction Market Spreads** - Cross-platform spread detection between prediction markets with fee-adjusted costs, paper P&L tracking, and Prometheus metrics
-- [ ] **Phase 7: Options Pricing Engine** - Black-76 pricing, IV solver, call spread replication for digital payoffs, vol surface construction, and Greeks
+- [x] **Phase 7: Options Pricing Engine** - Black-76 pricing, IV solver, call spread replication for digital payoffs, vol surface construction, and Greeks (completed 2026-02-23)
 - [ ] **Phase 8: Cross-Asset Signal Generation** - Full spread calculation between options-implied probabilities and prediction market prices with signal generation and threshold engine
 - [ ] **Phase 9: Replay and Hardening** - Deterministic replay from recorded feeds, stable JSONL schema, and health endpoint for operational monitoring
 
@@ -189,6 +189,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | 4. Multi-Venue Feeds | 3/3 | Complete | 2026-02-22 |
 | 5. Event Mapping | 3/3 | Complete    | 2026-02-22 |
 | 6. Prediction Market Spreads | 4/4 | Complete | 2026-02-23 |
-| 7. Options Pricing Engine | 0/5 | Planned | - |
+| 7. Options Pricing Engine | 5/5 | Complete   | 2026-02-23 |
 | 8. Cross-Asset Signal Generation | 0/3 | Not started | - |
 | 9. Replay and Hardening | 0/3 | Not started | - |
