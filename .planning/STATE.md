@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 9 of 9 (Replay and Hardening)
-Plan: 1 of 2 in current phase
-Status: In Progress
-Last activity: 2026-02-23 -- Completed 09-01 (Health endpoint and JSONL schema stabilization)
+Plan: 2 of 2 in current phase
+Status: Complete
+Last activity: 2026-02-23 -- Completed 09-02 (Multi-venue replay pipeline with staleness bypass)
 
-Progress: [###########---] 78% Phase 9 in progress (1/2 plans done)
+Progress: [##############] 100% All 9 phases complete (2/2 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 25
+- Total plans completed: 26
 - Average duration: 10min
-- Total execution time: ~4.1 hours
+- Total execution time: ~4.2 hours
 
 **By Phase:**
 
@@ -35,11 +35,11 @@ Progress: [###########---] 78% Phase 9 in progress (1/2 plans done)
 | 06-prediction-market-spreads | 4/4 | 49min | 12min |
 | 07-options-pricing-engine | 5/5 | 33min | 7min |
 | 08-cross-asset-signal-generation | 2/2 | 17min | 9min |
-| 09-replay-and-hardening | 1/2 | 29min | 29min |
+| 09-replay-and-hardening | 2/2 | 41min | 21min |
 
 **Recent Trend:**
-- Last 5 plans: 9min, 8min, 7min, 10min, 29min
-- Trend: stable (09-01 larger scope with pipeline refactor + golden tests)
+- Last 5 plans: 8min, 7min, 10min, 29min, 12min
+- Trend: stable
 
 *Updated after each plan completion*
 | Phase 07 P04 | 7min | 2 tasks | 4 files |
@@ -47,6 +47,7 @@ Progress: [###########---] 78% Phase 9 in progress (1/2 plans done)
 | Phase 08 P01 | 7min | 2 tasks | 8 files |
 | Phase 08 P02 | 10min | 2 tasks | 4 files |
 | Phase 09 P01 | 29min | 2 tasks | 13 files |
+| Phase 09 P02 | 12min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -153,6 +154,11 @@ Recent decisions affecting current work:
 - [Phase 09-01]: PipelineHandles struct returns snapshot_rx + venue_health from run_multi_venue_pipeline
 - [Phase 09-01]: TradeEvent made pub for offline tooling access from integration tests
 - [Phase 09-01]: Schema documentation as inline doc comments (JSONL Schema v1.0) on all 4 output types
+- [Phase 09-02]: ReplaySource enum (File vs Records) avoids temp file overhead for multi-venue replay
+- [Phase 09-02]: Recorded local_ts used for DualTimestamp wall clock (mono=Instant::now(), no meaningful replay value)
+- [Phase 09-02]: replay_mode bypasses all wall-clock staleness gates (simplest approach per research)
+- [Phase 09-02]: forward_snapshots made pub for reuse from replay module
+- [Phase 09-02]: DataMode::Replay routes to run_replay_pipeline (multi-venue) not run_pipeline (single-file)
 
 ### Pending Todos
 
@@ -166,5 +172,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 09-01-PLAN.md (Health endpoint and JSONL schema stabilization)
-Resume file: .planning/phases/09-replay-and-hardening/09-01-SUMMARY.md
+Stopped at: Completed 09-02-PLAN.md (Multi-venue replay pipeline with staleness bypass) -- ALL PHASES COMPLETE
+Resume file: .planning/phases/09-replay-and-hardening/09-02-SUMMARY.md
