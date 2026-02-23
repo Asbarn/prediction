@@ -5,12 +5,12 @@
 //! history, and final settlement P&L.
 
 use rust_decimal::Decimal;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::spread::patterns::{SpreadPattern, SpreadResult};
 
 /// Position lifecycle status.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PositionStatus {
     /// Signal received, awaiting next-tick fill.
     Pending,
@@ -25,7 +25,7 @@ pub enum PositionStatus {
 /// Tracks the full lifecycle from signal (Pending) through fill (Open)
 /// to settlement (Settled), capturing adverse selection, MTM history,
 /// and final P&L.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaperPosition {
     /// Unique trade identifier (sequential).
     pub id: String,
@@ -61,7 +61,7 @@ pub struct PaperPosition {
 }
 
 /// A single mark-to-market snapshot during position lifetime.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MtmSnapshot {
     /// Timestamp of this MTM observation.
     pub timestamp_ms: i64,

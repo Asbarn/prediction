@@ -122,10 +122,18 @@ impl TradeLogger {
 }
 
 /// Trade event types logged to JSONL.
-#[derive(Debug, serde::Serialize)]
+///
+/// ## JSONL Schema (v1.0)
+///
+/// Tagged enum with `type` discriminator field. Possible types:
+/// - `"signal"`: Signal received, position pending. Fields: trade_id, event_id, pattern, signal_spread, notional, timestamp_ms
+/// - `"entry"`: Position filled at next-tick prices. Fields: trade_id, event_id, entry_price_buy, entry_price_sell, adverse_selection, timestamp_ms
+/// - `"mtm"`: Mark-to-market update. Fields: trade_id, event_id, current_spread, unrealized_pnl, timestamp_ms
+/// - `"settlement"`: Position settled. Fields: trade_id, event_id, settlement_pnl, timestamp_ms
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[allow(dead_code)]
-enum TradeEvent {
+pub enum TradeEvent {
     /// Signal received, position pending.
     #[serde(rename = "signal")]
     Signal {

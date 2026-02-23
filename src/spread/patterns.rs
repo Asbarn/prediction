@@ -6,7 +6,7 @@
 //! evaluation.
 
 use rust_decimal::Decimal;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::types::{MarketSnapshot, Venue};
 #[cfg(test)]
@@ -18,7 +18,7 @@ use crate::types::Probability;
 /// Patterns 3 and 4 are algebraically equivalent to 1 and 2 in gross spread,
 /// but produce different net spreads when walk-the-book uses different depth
 /// sides (asks vs bids).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SpreadPattern {
     /// Buy Polymarket YES (at ask), Sell Kalshi YES (at bid).
     BuyPolyYesSellKalshiYes,
@@ -77,7 +77,7 @@ impl SpreadPattern {
 /// Result of a gross spread computation for a single pattern.
 ///
 /// Captures the raw spread before fee and cost adjustments.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrossSpread {
     /// Which directional pattern produced this spread.
     pub pattern: SpreadPattern,
@@ -156,7 +156,30 @@ pub fn compute_gross_spread(
 ///
 /// Produced by the SpreadEngine (Plan 03) after applying the full cost
 /// model including walk-the-book, fees, and carry costs.
-#[derive(Debug, Clone, Serialize)]
+///
+/// ## JSONL Schema (v1.0)
+///
+/// | Field | JSON Type | Description |
+/// |-------|-----------|-------------|
+/// | `event_id` | string | Mapped event ID linking both venues |
+/// | `pattern` | string | Directional spread pattern enum variant name |
+/// | `gross_spread` | string (decimal) | Gross spread before cost adjustments |
+/// | `net_spread` | string (decimal) | Net spread after all costs |
+/// | `buy_fill_price` | string (decimal) | Average fill price on buy side |
+/// | `sell_fill_price` | string (decimal) | Average fill price on sell side |
+/// | `buy_fee` | string (decimal) | Fee paid on buy side |
+/// | `sell_fee` | string (decimal) | Fee paid on sell side |
+/// | `carry_cost` | string (decimal) | Carry cost for holding the position |
+/// | `total_cost` | string (decimal) | Total cost (buy_fee + sell_fee + carry_cost) |
+/// | `buy_fill_ratio` | string (decimal) | Ratio of filled vs target on buy side |
+/// | `sell_fill_ratio` | string (decimal) | Ratio of filled vs target on sell side |
+/// | `target_notional` | string (decimal) | Target notional for walk-the-book |
+/// | `timestamp_ms` | integer | Local timestamp in milliseconds |
+/// | `poly_exchange_ts` | integer\|null | Polymarket exchange timestamp |
+/// | `kalshi_exchange_ts` | integer\|null | Kalshi exchange timestamp |
+/// | `threshold` | string (decimal)\|null | Dynamic threshold at computation time |
+/// | `threshold_components` | object\|null | Breakdown of threshold factors |
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpreadResult {
     /// The mapped event ID linking both venues.
     pub event_id: String,

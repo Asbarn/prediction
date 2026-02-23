@@ -107,6 +107,31 @@ pub struct LegInfo {
 ///
 /// Carries all required fields (per SGNL-05) plus rich metadata for logging,
 /// threshold analysis, and downstream consumption by the execution layer.
+///
+/// ## JSONL Schema (v1.0)
+///
+/// | Field | JSON Type | Description |
+/// |-------|-----------|-------------|
+/// | `signal_id` | string | UUID v7 signal identifier |
+/// | `event_id` | string | Mapped event ID linking prediction and options |
+/// | `direction` | string | "BuyPredictionSellOptions" or "SellPredictionBuyOptions" |
+/// | `raw_spread` | string (decimal) | Raw spread before cost adjustments |
+/// | `net_edge` | string (decimal) | Net edge after all costs |
+/// | `confidence` | number (f64) | Composite confidence score (0.0-1.0) |
+/// | `prediction_leg` | object | Prediction market leg details |
+/// | `options_leg` | object | Options market leg details |
+/// | `timestamp` | string (ISO 8601) | Wall-clock timestamp |
+/// | `ttl_secs` | integer | Time-to-live in seconds |
+/// | `pricing_method` | string | Probability extraction method |
+/// | `confidence_components` | object | Individual confidence scores |
+/// | `solver_meta` | object\|null | IV solver metadata |
+/// | `iv_spread` | number (f64) | IV bid-ask spread |
+/// | `skew_adjustment` | number (f64) | Skew adjustment magnitude |
+/// | `cost_breakdown` | object | Full cost breakdown |
+/// | `prediction_venue` | string | Prediction venue name |
+/// | `threshold_status` | string | Threshold evaluation result |
+/// | `threshold_value` | string (decimal) | Threshold value used |
+/// | `threshold_components` | object\|null | Threshold component breakdown |
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbSignal {
     // -- Required fields (SGNL-05) --

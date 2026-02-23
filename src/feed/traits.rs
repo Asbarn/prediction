@@ -48,6 +48,16 @@ pub trait NormalizedDataSource: Send + 'static {
 ///
 /// Contains both the raw WebSocket frame and parsed metadata for efficient
 /// filtering without re-parsing.
+///
+/// ## JSONL Schema (v1.0)
+///
+/// | Field | JSON Type | Description |
+/// |-------|-----------|-------------|
+/// | `raw` | string | Exact WebSocket text frame |
+/// | `local_ts` | string (ISO 8601) | Local wall-clock time when message was received |
+/// | `venue` | string | Venue name: "deribit", "polymarket", or "kalshi" |
+/// | `channel` | string | Channel name (e.g., "book.BTC-27JUN25-100000-C.none.20.100ms") |
+/// | `instrument` | string\|null | Instrument name extracted from channel, if applicable |
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RecordLine {
     /// The exact WebSocket text frame.
