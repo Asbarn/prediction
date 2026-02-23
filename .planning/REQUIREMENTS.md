@@ -39,11 +39,11 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 
 - [x] **PRIC-01**: Implied volatility solver extracts IV from Deribit option mid-prices using Newton-Raphson or Brent's method with Black-76 model
 - [x] **PRIC-02**: IV solver handles edge cases: deep ITM/OTM options, near-expiry theta collapse, negative time value
-- [ ] **PRIC-03**: Probability extractor computes P(S > K) using multiple methods: naive N(d2), strike-specific vol N(d2), call spread replication, and full smile interpolation
-- [ ] **PRIC-04**: Call spread replication `(C(K-e) - C(K+e)) / 2e` is the primary digital pricing method, producing skew-adjusted probabilities
+- [x] **PRIC-03**: Probability extractor computes P(S > K) using multiple methods: naive N(d2), strike-specific vol N(d2), call spread replication, and full smile interpolation
+- [x] **PRIC-04**: Call spread replication `(C(K-e) - C(K+e)) / 2e` is the primary digital pricing method, producing skew-adjusted probabilities
 - [x] **PRIC-05**: Implied volatility surface construction interpolates across strikes for pricing at non-traded strikes
 - [x] **PRIC-06**: Each ImpliedProbability output includes: probability value, confidence (based on bid-ask width/depth), pricing method used, skew adjustment factor, and timestamp
-- [ ] **PRIC-07**: Greeks calculator computes delta, gamma, vega, theta for position monitoring and downstream risk assessment
+- [x] **PRIC-07**: Greeks calculator computes delta, gamma, vega, theta for position monitoring and downstream risk assessment
 
 ### Signal Generation
 
@@ -145,11 +145,11 @@ Deferred to future release. Tracked but not in current roadmap.
 | EVNT-05 | Phase 5 | Pending |
 | PRIC-01 | Phase 7 | Complete |
 | PRIC-02 | Phase 7 | Complete |
-| PRIC-03 | Phase 7 | Pending |
-| PRIC-04 | Phase 7 | Pending |
+| PRIC-03 | Phase 7 | Complete |
+| PRIC-04 | Phase 7 | Complete |
 | PRIC-05 | Phase 7 | Complete |
 | PRIC-06 | Phase 7 | Complete |
-| PRIC-07 | Phase 7 | Pending |
+| PRIC-07 | Phase 7 | Complete |
 | SGNL-01 | Phase 8 | Pending |
 | SGNL-02 | Phase 6 | Complete |
 | SGNL-03 | Phase 6 | Complete |

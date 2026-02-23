@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 7 of 9 (Options Pricing Engine)
-Plan: 3 of 5 in current phase
+Plan: 4 of 5 in current phase
 Status: In Progress
-Last activity: 2026-02-23 -- Completed 07-03 (vol surface interpolation, quality filtering, bracket finding)
+Last activity: 2026-02-23 -- Completed 07-04 (probability extraction, Greeks, confidence scoring)
 
-Progress: [########------] 60% Phase 7 in progress (3/5 plans done)
+Progress: [##########----] 80% Phase 7 in progress (4/5 plans done)
 
 ## Performance Metrics
 
@@ -33,7 +33,7 @@ Progress: [########------] 60% Phase 7 in progress (3/5 plans done)
 | 04-multi-venue-feeds | 3/3 | 13min | 4min |
 | 05-event-mapping | 3/3 | 29min | 10min |
 | 06-prediction-market-spreads | 4/4 | 49min | 12min |
-| 07-options-pricing-engine | 3/5 | 17min | 6min |
+| 07-options-pricing-engine | 4/5 | 24min | 6min |
 
 **Recent Trend:**
 - Last 5 plans: 6min, 11min, 21min, 9min, 8min
@@ -41,6 +41,7 @@ Progress: [########------] 60% Phase 7 in progress (3/5 plans done)
 
 *Updated after each plan completion*
 | Phase 07 P02 | 8min | 3 tasks | 3 files |
+| Phase 07 P04 | 7min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,9 @@ Recent decisions affecting current work:
 - [Phase 07-02]: near_expiry_cutoff_hours added to SolverConfig (duplicated from PricingConfig) for solver-level access
 - [Phase 07-02]: Brent fallback uses full [iv_min, iv_max] bracket for maximum robustness
 - [Phase 07-02]: Brenner-Subrahmanyam initial guess clamped to [iv_min, iv_max] for safe starting point
+- [Phase 07-04]: ATM delta tolerance 0.05 (Black-76 N(d1) = 0.54 for sigma=0.20/T=1.0, not exactly 0.5)
+- [Phase 07-04]: CallSpreadResult/Nd2Result pub visibility to match ProbabilityExtraction pub struct
+- [Phase 07-04]: Vega normalized to per-1%-vol-move (raw_vega / 100) for practical interpretation
 
 ### Pending Todos
 
@@ -142,5 +146,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 07-03-PLAN.md (vol surface interpolation, quality filtering, bracket finding)
-Resume file: .planning/phases/07-options-pricing-engine/07-03-SUMMARY.md
+Stopped at: Completed 07-04-PLAN.md (probability extraction, Greeks, confidence scoring)
+Resume file: .planning/phases/07-options-pricing-engine/07-04-SUMMARY.md
