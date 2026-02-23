@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 8: Cross-Asset Signal Generation
+**Current focus:** Phase 9: Replay and Hardening
 
 ## Current Position
 
-Phase: 8 of 9 (Cross-Asset Signal Generation)
-Plan: 2 of 2 in current phase
-Status: Phase Complete
-Last activity: 2026-02-23 -- Completed 08-02 (CrossAssetEngine and pipeline wiring)
+Phase: 9 of 9 (Replay and Hardening)
+Plan: 1 of 2 in current phase
+Status: In Progress
+Last activity: 2026-02-23 -- Completed 09-01 (Health endpoint and JSONL schema stabilization)
 
-Progress: [########------] 57% Phase 8 complete (2/2 plans done)
+Progress: [###########---] 78% Phase 9 in progress (1/2 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 24
+- Total plans completed: 25
 - Average duration: 10min
-- Total execution time: ~3.6 hours
+- Total execution time: ~4.1 hours
 
 **By Phase:**
 
@@ -35,16 +35,18 @@ Progress: [########------] 57% Phase 8 complete (2/2 plans done)
 | 06-prediction-market-spreads | 4/4 | 49min | 12min |
 | 07-options-pricing-engine | 5/5 | 33min | 7min |
 | 08-cross-asset-signal-generation | 2/2 | 17min | 9min |
+| 09-replay-and-hardening | 1/2 | 29min | 29min |
 
 **Recent Trend:**
-- Last 5 plans: 21min, 9min, 8min, 7min, 10min
-- Trend: stable
+- Last 5 plans: 9min, 8min, 7min, 10min, 29min
+- Trend: stable (09-01 larger scope with pipeline refactor + golden tests)
 
 *Updated after each plan completion*
 | Phase 07 P04 | 7min | 2 tasks | 4 files |
 | Phase 07 P05 | 9min | 2 tasks | 3 files |
 | Phase 08 P01 | 7min | 2 tasks | 8 files |
 | Phase 08 P02 | 10min | 2 tasks | 4 files |
+| Phase 09 P01 | 29min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -146,6 +148,11 @@ Recent decisions affecting current work:
 - [Phase 08-02]: Options fee estimate = deribit_taker_fee_rate * underlying_price * |delta| (USD-scale approximate taker fee)
 - [Phase 08-02]: Both ArbDirection variants computed per event update, all logged to JSONL regardless of threshold status
 - [Phase 08-02]: 3-way fan-out: SpreadEngine (blocking) + PricingEngine (try_send) + CrossAssetEngine (try_send)
+- [Phase 09-01]: axum 0.8 with http1 feature required for axum::serve (json+tokio alone insufficient)
+- [Phase 09-01]: VenueHealth created in pipeline per venue (supervisors don't accept health trackers yet)
+- [Phase 09-01]: PipelineHandles struct returns snapshot_rx + venue_health from run_multi_venue_pipeline
+- [Phase 09-01]: TradeEvent made pub for offline tooling access from integration tests
+- [Phase 09-01]: Schema documentation as inline doc comments (JSONL Schema v1.0) on all 4 output types
 
 ### Pending Todos
 
@@ -159,5 +166,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 08-02-PLAN.md (CrossAssetEngine and pipeline wiring) -- Phase 8 complete
-Resume file: .planning/phases/08-cross-asset-signal-generation/08-02-SUMMARY.md
+Stopped at: Completed 09-01-PLAN.md (Health endpoint and JSONL schema stabilization)
+Resume file: .planning/phases/09-replay-and-hardening/09-01-SUMMARY.md
