@@ -11,7 +11,9 @@ pub use events::{
     ExpiryThreshold, KalshiMapping, LifecycleStatus, PolymarketMapping, RiskWeightsConfig,
     SettlementMetadata, SourcePairWeights,
 };
-pub use system::{LoggingConfig, SignalConfig, StalenessConfig, SystemConfig};
+pub use system::{
+    LoggingConfig, PaperTradeConfig, PrometheusConfig, SignalConfig, StalenessConfig, SystemConfig,
+};
 pub use venues::{DeribitConfig, KalshiConfig, PolymarketConfig, VenuesConfig};
 
 use crate::error::ConfigError;

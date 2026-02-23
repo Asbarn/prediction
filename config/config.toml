@@ -10,3 +10,36 @@ max_skew_ms = 2000
 [signals]
 min_spread_bps = 100    # 1% minimum spread
 cooldown_ms = 5000      # Don't re-signal same event within 5s
+
+[spread]
+target_notional = "500.0"           # Walk-the-book notional size ($USD)
+stats_emission_interval_secs = 60   # Aggregate stats to stdout/metrics
+rolling_window_secs = 14400         # 4 hours default
+rolling_min_samples = 30            # Min samples before dynamic threshold activates
+log_dir = "spread_logs"
+
+[spread.threshold]
+static_floor = "0.01"              # 1% minimum threshold
+k = "2.0"                          # Standard deviations above mean
+liquidity_penalty_scale = "0.02"   # Max penalty for empty book
+cold_start_multiplier = "2.0"      # Floor multiplier during cold start
+
+[spread.polymarket_fees]
+fee_rate = "0.25"                  # Default to crypto-tier (conservative)
+exponent = 2                       # Crypto markets use squared
+
+[spread.kalshi_fees]
+taker_coefficient = "0.07"         # Kalshi taker fee coefficient
+use_ceiling = true                 # Round up per Kalshi convention
+
+[spread.carry]
+annualized_rate = "0.05"           # 5% annualized carry cost
+reference_holding_days = 30        # Expected holding period for carry computation
+
+[paper_trade]
+notional_per_trade = "500.0"       # Fixed notional per paper trade
+log_mtm = true                     # Log mark-to-market over position lifetime
+log_dir = "paper_trades"           # Output directory for paper trade JSONL
+
+[prometheus]
+port = 9000                        # Prometheus scrape port

@@ -1,15 +1,26 @@
 use serde::{Deserialize, Serialize};
 
+use crate::spread::config::SpreadConfig;
+
 /// System-wide configuration loaded from `config.toml`.
 ///
-/// Contains logging settings, staleness thresholds, and signal generation
-/// parameters. All required fields must be present -- no `#[serde(default)]`
-/// to enforce fail-fast behavior.
+/// Contains logging settings, staleness thresholds, signal generation
+/// parameters, and spread computation configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SystemConfig {
     pub logging: LoggingConfig,
     pub staleness: StalenessConfig,
     pub signals: SignalConfig,
+    /// Spread computation configuration (fee models, thresholds, rolling stats).
+    /// Uses `#[serde(default)]` so existing config files without `[spread]` still load.
+    #[serde(default)]
+    pub spread: SpreadConfig,
+    /// Prometheus metrics exporter configuration.
+    #[serde(default)]
+    pub prometheus: PrometheusConfig,
+    /// Paper trade tracker configuration (placeholder for Plan 04).
+    #[serde(default)]
+    pub paper_trade: PaperTradeConfig,
 }
 
 /// Logging output configuration.
@@ -50,4 +61,41 @@ pub struct SignalConfig {
     /// Cooldown period in milliseconds -- don't re-signal the same event
     /// within this window.
     pub cooldown_ms: u64,
+}
+
+/// Prometheus metrics exporter configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PrometheusConfig {
+    /// Port for the Prometheus HTTP scrape endpoint.
+    pub port: u16,
+}
+
+impl Default for PrometheusConfig {
+    fn default() -> Self {
+        Self { port: 9000 }
+    }
+}
+
+/// Paper trade tracker configuration (placeholder for Plan 04).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PaperTradeConfig {
+    /// Fixed notional per paper trade.
+    #[serde(with = "rust_decimal::serde::str")]
+    pub notional_per_trade: rust_decimal::Decimal,
+    /// Whether to log mark-to-market values over position lifetime.
+    pub log_mtm: bool,
+    /// Output directory for paper trade JSONL logs.
+    pub log_dir: String,
+}
+
+impl Default for PaperTradeConfig {
+    fn default() -> Self {
+        Self {
+            notional_per_trade: rust_decimal::Decimal::new(500, 0),
+            log_mtm: true,
+            log_dir: "paper_trades".to_string(),
+        }
+    }
 }
