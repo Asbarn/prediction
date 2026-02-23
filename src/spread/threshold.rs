@@ -29,7 +29,7 @@ pub fn compute_threshold(
     sell_fill_ratio: Decimal,
 ) -> (Decimal, ThresholdComponents) {
     let static_floor = config.static_floor;
-    let is_cold_start = stats.count() < config.min_samples_for_dynamic();
+    let is_cold_start = stats.count() < config.min_samples;
     let mean = stats.mean();
     let stddev = stats.stddev();
 
@@ -75,21 +75,6 @@ pub fn compute_threshold(
     };
 
     (final_threshold, components)
-}
-
-/// Extension trait to access min_samples from ThresholdConfig.
-///
-/// Uses the rolling_min_samples from SpreadConfig, but since ThresholdConfig
-/// doesn't directly hold it, we add a default method.
-impl ThresholdConfig {
-    /// Minimum samples before dynamic threshold activates.
-    ///
-    /// Returns a reasonable default of 30 if not configured.
-    pub fn min_samples_for_dynamic(&self) -> usize {
-        // This is stored at SpreadConfig level; ThresholdConfig provides
-        // a default that matches SpreadConfig::default().rolling_min_samples.
-        30
-    }
 }
 
 #[cfg(test)]
@@ -185,6 +170,7 @@ mod tests {
             k: dec("2"),
             liquidity_penalty_scale: dec("0.02"),
             cold_start_multiplier: dec("2"),
+            min_samples: 30,
         };
         let stats = make_warm_stats();
 

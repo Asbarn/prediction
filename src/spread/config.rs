@@ -86,6 +86,10 @@ pub struct ThresholdConfig {
     /// (insufficient rolling window samples).
     #[serde(with = "rust_decimal::serde::str")]
     pub cold_start_multiplier: Decimal,
+
+    /// Minimum samples in rolling window before dynamic threshold activates.
+    /// Below this count, cold start mode is used.
+    pub min_samples: usize,
 }
 
 impl Default for ThresholdConfig {
@@ -95,6 +99,7 @@ impl Default for ThresholdConfig {
             k: Decimal::new(2, 0),                      // 2.0
             liquidity_penalty_scale: Decimal::new(2, 2), // 0.02
             cold_start_multiplier: Decimal::new(2, 0),   // 2.0
+            min_samples: 30,
         }
     }
 }
