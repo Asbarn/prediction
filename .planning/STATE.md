@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 9 of 9 (Replay and Hardening)
-Plan: 2 of 2 in current phase
+Plan: 3 of 3 in current phase
 Status: Complete
-Last activity: 2026-02-23 -- Completed 09-02 (Multi-venue replay pipeline with staleness bypass)
+Last activity: 2026-02-23 -- Completed 09-03 (VenueHealth wiring to supervisors - OBSV-05 gap closure)
 
-Progress: [##############] 100% All 9 phases complete (2/2 plans done)
+Progress: [##############] 100% All 9 phases complete (3/3 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 26
+- Total plans completed: 27
 - Average duration: 10min
 - Total execution time: ~4.2 hours
 
@@ -35,7 +35,7 @@ Progress: [##############] 100% All 9 phases complete (2/2 plans done)
 | 06-prediction-market-spreads | 4/4 | 49min | 12min |
 | 07-options-pricing-engine | 5/5 | 33min | 7min |
 | 08-cross-asset-signal-generation | 2/2 | 17min | 9min |
-| 09-replay-and-hardening | 2/2 | 41min | 21min |
+| 09-replay-and-hardening | 3/3 | 47min | 16min |
 
 **Recent Trend:**
 - Last 5 plans: 8min, 7min, 10min, 29min, 12min
@@ -48,6 +48,7 @@ Progress: [##############] 100% All 9 phases complete (2/2 plans done)
 | Phase 08 P02 | 10min | 2 tasks | 4 files |
 | Phase 09 P01 | 29min | 2 tasks | 13 files |
 | Phase 09 P02 | 12min | 2 tasks | 8 files |
+| Phase 09 P03 | 6min | 1 task | 5 files |
 
 ## Accumulated Context
 
@@ -159,6 +160,7 @@ Recent decisions affecting current work:
 - [Phase 09-02]: replay_mode bypasses all wall-clock staleness gates (simplest approach per research)
 - [Phase 09-02]: forward_snapshots made pub for reuse from replay module
 - [Phase 09-02]: DataMode::Replay routes to run_replay_pipeline (multi-venue) not run_pipeline (single-file)
+- [Phase 09-03]: VenueHealth passed as Arc to supervisor constructors; forward_snapshots uses Option<Arc<VenueHealth>> for replay/mock compatibility
 
 ### Pending Todos
 
@@ -172,5 +174,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 09-02-PLAN.md (Multi-venue replay pipeline with staleness bypass) -- ALL PHASES COMPLETE
-Resume file: .planning/phases/09-replay-and-hardening/09-02-SUMMARY.md
+Stopped at: Completed 09-03-PLAN.md (VenueHealth wiring gap closure) -- ALL PHASES COMPLETE with OBSV-05 closed
+Resume file: .planning/phases/09-replay-and-hardening/09-03-SUMMARY.md
