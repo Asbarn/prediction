@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use rust_decimal::Decimal;
 
 use super::config::{CarryConfig, KalshiFeeConfig, PolymarketFeeConfig};
@@ -85,6 +83,8 @@ pub fn total_cost(fee: Decimal, carry: Decimal) -> Decimal {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use crate::spread::config::{CarryConfig, KalshiFeeConfig, PolymarketFeeConfig};
 
