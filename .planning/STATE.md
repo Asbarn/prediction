@@ -11,17 +11,17 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 
 Phase: 6 of 9 (Pricing Engine)
 Plan: 4 of 4 in current phase
-Status: In Progress
-Last activity: 2026-02-23 -- Completed 06-03 (SpreadEngine, JSONL logger, dynamic threshold)
+Status: Phase Complete
+Last activity: 2026-02-23 -- Completed 06-04 (PaperTradeTracker, pipeline wiring)
 
-Progress: [##########----] 75% Phase 6 in progress (3/4 plans done)
+Progress: [##############] 100% Phase 6 complete (4/4 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 19
+- Total plans completed: 20
 - Average duration: 10min
-- Total execution time: ~3.0 hours
+- Total execution time: ~3.1 hours
 
 **By Phase:**
 
@@ -32,10 +32,10 @@ Progress: [##########----] 75% Phase 6 in progress (3/4 plans done)
 | 03-feed-infrastructure | 3/3 | 32min | 11min |
 | 04-multi-venue-feeds | 3/3 | 13min | 4min |
 | 05-event-mapping | 3/3 | 29min | 10min |
-| 06-prediction-market-spreads | 3/4 | 41min | 14min |
+| 06-prediction-market-spreads | 4/4 | 49min | 12min |
 
 **Recent Trend:**
-- Last 5 plans: 4min, 14min, 11min, 21min, 9min
+- Last 5 plans: 14min, 11min, 21min, 9min, 8min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -114,6 +114,9 @@ Recent decisions affecting current work:
 - [06-03]: min_samples in ThresholdConfig for configurable cold start transition (default 30)
 - [06-03]: SpreadLogger periodic flush every 100 writes for I/O performance
 - [06-03]: Signal delivery via try_send (non-blocking) -- engine never blocks on slow downstream
+- [06-04]: Fill prices use top-of-book probabilities as proxy for walk-the-book fills in paper trade v1
+- [06-04]: SpreadEngine::run takes optional ptrade_snap_tx for backward-compatible snapshot forwarding
+- [06-04]: Fill snapshot generates initial MTM data point since position is Open when MTM pass runs
 
 ### Pending Todos
 
@@ -127,5 +130,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 06-03-PLAN.md (SpreadEngine, JSONL logger, dynamic threshold)
-Resume file: .planning/phases/06-prediction-market-spreads/06-03-SUMMARY.md
+Stopped at: Completed 06-04-PLAN.md (PaperTradeTracker, pipeline wiring) -- Phase 6 complete
+Resume file: .planning/phases/06-prediction-market-spreads/06-04-SUMMARY.md

@@ -67,7 +67,7 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 - [x] **OBSV-01**: All parameters configurable via TOML: strike filters, staleness thresholds, fee assumptions, signal thresholds, log rotation, venue credentials
 - [x] **OBSV-02**: Structured logging via `tracing` with JSON output, including correlation IDs linking signals to their constituent market data
 - [x] **OBSV-03**: Prometheus metrics exporter with key metrics: spread by event (histogram), signal count, fill rate proxy, feed-to-signal latency, feed health, margin utilization proxy
-- [ ] **OBSV-04**: Paper trade P&L tracking: hypothetical entry/exit at signal time, per-signal P&L assuming fill at quoted price, daily/weekly aggregates
+- [x] **OBSV-04**: Paper trade P&L tracking: hypothetical entry/exit at signal time, per-signal P&L assuming fill at quoted price, daily/weekly aggregates
 - [ ] **OBSV-05**: HTTP `/health` endpoint reporting: per-feed connection status, last update time per feed, active event count, system uptime
 - [ ] **OBSV-06**: JSONL schema for all recorded data (feeds, spreads, signals, P&L) is stable and documented for offline analysis tooling (Python/Jupyter)
 
@@ -164,7 +164,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | OBSV-01 | Phase 1 | Complete |
 | OBSV-02 | Phase 1 | Complete |
 | OBSV-03 | Phase 6 | Complete |
-| OBSV-04 | Phase 6 | Pending |
+| OBSV-04 | Phase 6 | Complete |
 | OBSV-05 | Phase 9 | Pending |
 | OBSV-06 | Phase 9 | Pending |
 | TEST-01 | Phase 2 | Pending |

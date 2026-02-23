@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Feed Infrastructure** - Reliability layer with automatic reconnection, heartbeat monitoring, staleness detection, rate limiting, and timestamp tracking
 - [x] **Phase 4: Multi-Venue Feeds** - Polymarket and Kalshi feed integration with graceful degradation on feed loss
 - [x] **Phase 5: Event Mapping** - Cross-venue instrument registry with settlement basis risk scoring and contract lifecycle management
-- [ ] **Phase 6: Prediction Market Spreads** - Cross-platform spread detection between prediction markets with fee-adjusted costs, paper P&L tracking, and Prometheus metrics
+- [x] **Phase 6: Prediction Market Spreads** - Cross-platform spread detection between prediction markets with fee-adjusted costs, paper P&L tracking, and Prometheus metrics
 - [ ] **Phase 7: Options Pricing Engine** - Black-76 pricing, IV solver, call spread replication for digital payoffs, vol surface construction, and Greeks
 - [ ] **Phase 8: Cross-Asset Signal Generation** - Full spread calculation between options-implied probabilities and prediction market prices with signal generation and threshold engine
 - [ ] **Phase 9: Replay and Hardening** - Deterministic replay from recorded feeds, stable JSONL schema, and health endpoint for operational monitoring
@@ -124,7 +124,7 @@ Plans:
 - [x] 06-01-PLAN.md -- Spread config, cost model (Polymarket/Kalshi fees), book walker, rolling statistics
 - [x] 06-02-PLAN.md -- Prometheus metrics exporter setup, SpreadPattern enum and SpreadResult types
 - [x] 06-03-PLAN.md -- SpreadEngine with staleness gate, 4-pattern detection, JSONL logging, dynamic threshold
-- [ ] 06-04-PLAN.md -- Paper trade P&L tracker (next-tick entry, MTM, daily rollups) and main.rs integration
+- [x] 06-04-PLAN.md -- Paper trade P&L tracker (next-tick entry, MTM, daily rollups) and main.rs integration
 
 ### Phase 7: Options Pricing Engine
 **Goal**: The system extracts implied probabilities from Deribit options data using rigorous quantitative methods -- IV solving, multiple probability extraction methods with call spread replication as primary, vol surface interpolation, and Greeks -- producing ImpliedProbability outputs that carry method, confidence, and skew adjustment metadata.
@@ -188,7 +188,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | 3. Feed Infrastructure | 3/3 | Complete | 2026-02-22 |
 | 4. Multi-Venue Feeds | 3/3 | Complete | 2026-02-22 |
 | 5. Event Mapping | 3/3 | Complete    | 2026-02-22 |
-| 6. Prediction Market Spreads | 0/4 | Not started | - |
+| 6. Prediction Market Spreads | 4/4 | Complete | 2026-02-23 |
 | 7. Options Pricing Engine | 0/5 | Not started | - |
 | 8. Cross-Asset Signal Generation | 0/3 | Not started | - |
 | 9. Replay and Hardening | 0/3 | Not started | - |
