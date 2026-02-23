@@ -3,6 +3,7 @@ pub mod error;
 pub mod events;
 pub mod feed;
 pub mod logging;
+pub mod metrics_export;
 pub mod shutdown;
 pub mod spread;
 pub mod types;

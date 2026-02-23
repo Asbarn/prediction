@@ -80,6 +80,20 @@ async fn main() -> anyhow::Result<()> {
                 "prediction system starting"
             );
 
+            // Install Prometheus metrics recorder BEFORE any task spawning.
+            // This activates all existing metrics::counter!/gauge!/histogram!
+            // calls throughout the feed layer. If setup fails (e.g., port in
+            // use), log a warning and continue -- metrics are valuable but not
+            // critical enough to block startup.
+            let prometheus_port = config.system.prometheus.port;
+            if let Err(e) = prediction::metrics_export::setup_prometheus(prometheus_port) {
+                tracing::warn!(
+                    port = prometheus_port,
+                    error = %e,
+                    "failed to start Prometheus metrics exporter, continuing without metrics"
+                );
+            }
+
             // Setup graceful shutdown
             let shutdown_token = CancellationToken::new();
             tokio::spawn(prediction::shutdown::shutdown_signal(shutdown_token.clone()));
