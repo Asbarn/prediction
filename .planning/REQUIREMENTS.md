@@ -50,7 +50,7 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 - [ ] **SGNL-01**: Spread calculator computes spread between prediction market price and options-implied probability for each mapped event
 - [x] **SGNL-02**: Spread calculation adjusts for: transaction fees (Deribit maker/taker, Polymarket dynamic fees up to ~1.56% at 50/50, Kalshi 7% profit fee), slippage estimate from available depth, funding/carry cost, settlement basis risk premium
 - [ ] **SGNL-03**: Every spread calculation validates both sides are fresh (staleness gate) and rejects with logging if either side exceeds threshold
-- [ ] **SGNL-04**: Cross-platform prediction market spread detection (Polymarket vs Kalshi) for 4 patterns: Poly YES + Kalshi NO, inverse, and each direction
+- [x] **SGNL-04**: Cross-platform prediction market spread detection (Polymarket vs Kalshi) for 4 patterns: Poly YES + Kalshi NO, inverse, and each direction
 - [ ] **SGNL-05**: Signal generation produces ArbSignal with: event ID, direction, raw spread, net edge after costs, confidence, constituent legs, timestamp, and TTL
 - [ ] **SGNL-06**: Configurable minimum edge threshold after all costs, with dynamic thresholds based on volatility regime and available liquidity
 - [ ] **SGNL-07**: Every spread computation logged to file (not just signals above threshold) for distribution analysis, regime detection, and threshold tuning
@@ -66,7 +66,7 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 
 - [x] **OBSV-01**: All parameters configurable via TOML: strike filters, staleness thresholds, fee assumptions, signal thresholds, log rotation, venue credentials
 - [x] **OBSV-02**: Structured logging via `tracing` with JSON output, including correlation IDs linking signals to their constituent market data
-- [ ] **OBSV-03**: Prometheus metrics exporter with key metrics: spread by event (histogram), signal count, fill rate proxy, feed-to-signal latency, feed health, margin utilization proxy
+- [x] **OBSV-03**: Prometheus metrics exporter with key metrics: spread by event (histogram), signal count, fill rate proxy, feed-to-signal latency, feed health, margin utilization proxy
 - [ ] **OBSV-04**: Paper trade P&L tracking: hypothetical entry/exit at signal time, per-signal P&L assuming fill at quoted price, daily/weekly aggregates
 - [ ] **OBSV-05**: HTTP `/health` endpoint reporting: per-feed connection status, last update time per feed, active event count, system uptime
 - [ ] **OBSV-06**: JSONL schema for all recorded data (feeds, spreads, signals, P&L) is stable and documented for offline analysis tooling (Python/Jupyter)
@@ -153,7 +153,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | SGNL-01 | Phase 8 | Pending |
 | SGNL-02 | Phase 6 | Complete |
 | SGNL-03 | Phase 6 | Pending |
-| SGNL-04 | Phase 6 | Pending |
+| SGNL-04 | Phase 6 | Complete |
 | SGNL-05 | Phase 8 | Pending |
 | SGNL-06 | Phase 8 | Pending |
 | SGNL-07 | Phase 6 | Pending |
@@ -163,7 +163,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | TIME-03 | Phase 3 | Pending |
 | OBSV-01 | Phase 1 | Complete |
 | OBSV-02 | Phase 1 | Complete |
-| OBSV-03 | Phase 6 | Pending |
+| OBSV-03 | Phase 6 | Complete |
 | OBSV-04 | Phase 6 | Pending |
 | OBSV-05 | Phase 9 | Pending |
 | OBSV-06 | Phase 9 | Pending |
