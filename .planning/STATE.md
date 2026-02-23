@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 6: Pricing Engine
+**Current focus:** Phase 7: Options Pricing Engine
 
 ## Current Position
 
-Phase: 6 of 9 (Pricing Engine)
-Plan: 4 of 4 in current phase
-Status: Phase Complete
-Last activity: 2026-02-23 -- Completed 06-04 (PaperTradeTracker, pipeline wiring)
+Phase: 7 of 9 (Options Pricing Engine)
+Plan: 1 of 5 in current phase
+Status: In Progress
+Last activity: 2026-02-23 -- Completed 07-01 (pricing scaffold, Black-76, MarketSnapshot extension)
 
-Progress: [##############] 100% Phase 6 complete (4/4 plans done)
+Progress: [###-----------] 20% Phase 7 in progress (1/5 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 20
+- Total plans completed: 21
 - Average duration: 10min
-- Total execution time: ~3.1 hours
+- Total execution time: ~3.3 hours
 
 **By Phase:**
 
@@ -33,9 +33,10 @@ Progress: [##############] 100% Phase 6 complete (4/4 plans done)
 | 04-multi-venue-feeds | 3/3 | 13min | 4min |
 | 05-event-mapping | 3/3 | 29min | 10min |
 | 06-prediction-market-spreads | 4/4 | 49min | 12min |
+| 07-options-pricing-engine | 1/5 | 11min | 11min |
 
 **Recent Trend:**
-- Last 5 plans: 14min, 11min, 21min, 9min, 8min
+- Last 5 plans: 11min, 21min, 9min, 8min, 11min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -117,6 +118,9 @@ Recent decisions affecting current work:
 - [06-04]: Fill prices use top-of-book probabilities as proxy for walk-the-book fills in paper trade v1
 - [06-04]: SpreadEngine::run takes optional ptrade_snap_tx for backward-compatible snapshot forwarding
 - [06-04]: Fill snapshot generates initial MTM data point since position is Open when MTM pass runs
+- [07-01]: Black-76 functions as pub(crate) free functions (no struct wrapper for stateless math)
+- [07-01]: Instrument parser handles 1-digit and 2-digit day formats (e.g., "3JAN26" and "27JUN25")
+- [07-01]: Normal::standard() created per function call (trivial allocation, simpler than lazy_static)
 
 ### Pending Todos
 
@@ -124,11 +128,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 7]: statrs 0.18 requires Rust 1.87+ -- verify toolchain or implement Normal CDF manually
+- [Phase 7]: statrs 0.18 confirmed working on Rust 1.92 (MSRV 1.65) -- resolved
 - [Phase 7]: Risk premium calibration needs 2-4 weeks of parallel data collection before signals are meaningful
 
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 06-04-PLAN.md (PaperTradeTracker, pipeline wiring) -- Phase 6 complete
-Resume file: .planning/phases/06-prediction-market-spreads/06-04-SUMMARY.md
+Stopped at: Completed 07-01-PLAN.md (pricing scaffold, Black-76, MarketSnapshot extension)
+Resume file: .planning/phases/07-options-pricing-engine/07-01-SUMMARY.md
