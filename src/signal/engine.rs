@@ -48,6 +48,9 @@ pub struct CrossAssetEngine {
     signal_count: u64,
     /// Count of signals filtered by threshold.
     filtered_count: u64,
+    /// When true, wall-clock staleness gates are bypassed.
+    /// Used in replay mode where historical data would otherwise be rejected.
+    replay_mode: bool,
 }
 
 impl CrossAssetEngine {
@@ -62,7 +65,17 @@ impl CrossAssetEngine {
             logger,
             signal_count: 0,
             filtered_count: 0,
+            replay_mode: false,
         }
+    }
+
+    /// Enable or disable replay mode.
+    ///
+    /// When replay mode is active, wall-clock staleness checks are bypassed
+    /// so that historical data is not rejected as stale.
+    pub fn with_replay_mode(mut self, replay: bool) -> Self {
+        self.replay_mode = replay;
+        self
     }
 
     /// Main event loop: consume probabilities and prediction market snapshots,
@@ -231,42 +244,48 @@ impl CrossAssetEngine {
             None => return,
         };
 
-        // --- Staleness gate ---
+        // Current wall-clock time for staleness checks and rolling stats.
         let now_ms = chrono::Utc::now().timestamp_millis();
 
-        // Check options-implied probability staleness
-        let prob_age_ms = now_ms - prob.timestamp.wall().timestamp_millis();
-        if prob_age_ms > self.config.options_staleness_ms as i64 {
-            tracing::debug!(
-                event_id = event_id,
-                age_ms = prob_age_ms,
-                threshold_ms = self.config.options_staleness_ms,
-                "options probability stale, skipping"
-            );
-            metrics::counter!("arb_staleness_rejections").increment(1);
-            return;
-        }
+        // --- Staleness gate ---
+        // In replay mode, skip all wall-clock staleness gates since
+        // historical data would always appear stale relative to current time.
+        if !self.replay_mode {
 
-        // Check prediction market snapshot staleness
-        let pred_staleness_ms = match pred_venue {
-            Venue::Polymarket => self.config.polymarket_staleness_ms,
-            Venue::Kalshi => self.config.kalshi_staleness_ms,
-            _ => self.config.polymarket_staleness_ms,
-        };
-        let pred_ts_ms = snap
-            .exchange_timestamp
-            .unwrap_or_else(|| snap.timestamp.wall().timestamp_millis());
-        let pred_age_ms = now_ms - pred_ts_ms;
-        if pred_age_ms > pred_staleness_ms as i64 {
-            tracing::debug!(
-                event_id = event_id,
-                venue = ?pred_venue,
-                age_ms = pred_age_ms,
-                threshold_ms = pred_staleness_ms,
-                "prediction market snapshot stale, skipping"
-            );
-            metrics::counter!("arb_staleness_rejections").increment(1);
-            return;
+            // Check options-implied probability staleness
+            let prob_age_ms = now_ms - prob.timestamp.wall().timestamp_millis();
+            if prob_age_ms > self.config.options_staleness_ms as i64 {
+                tracing::debug!(
+                    event_id = event_id,
+                    age_ms = prob_age_ms,
+                    threshold_ms = self.config.options_staleness_ms,
+                    "options probability stale, skipping"
+                );
+                metrics::counter!("arb_staleness_rejections").increment(1);
+                return;
+            }
+
+            // Check prediction market snapshot staleness
+            let pred_staleness_ms = match pred_venue {
+                Venue::Polymarket => self.config.polymarket_staleness_ms,
+                Venue::Kalshi => self.config.kalshi_staleness_ms,
+                _ => self.config.polymarket_staleness_ms,
+            };
+            let pred_ts_ms = snap
+                .exchange_timestamp
+                .unwrap_or_else(|| snap.timestamp.wall().timestamp_millis());
+            let pred_age_ms = now_ms - pred_ts_ms;
+            if pred_age_ms > pred_staleness_ms as i64 {
+                tracing::debug!(
+                    event_id = event_id,
+                    venue = ?pred_venue,
+                    age_ms = pred_age_ms,
+                    threshold_ms = pred_staleness_ms,
+                    "prediction market snapshot stale, skipping"
+                );
+                metrics::counter!("arb_staleness_rejections").increment(1);
+                return;
+            }
         }
 
         // --- Extract probabilities ---

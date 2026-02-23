@@ -7,6 +7,7 @@ pub mod logging;
 pub mod metrics_export;
 pub mod paper_trade;
 pub mod pricing;
+pub mod replay;
 pub mod shutdown;
 pub mod signal;
 pub mod spread;

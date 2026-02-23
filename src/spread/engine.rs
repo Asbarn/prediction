@@ -40,6 +40,9 @@ pub struct SpreadEngine {
     logger: SpreadLogger,
     /// Count of signals above threshold (for metrics).
     signal_count: u64,
+    /// When true, wall-clock staleness gates are bypassed.
+    /// Used in replay mode where historical data would otherwise be rejected.
+    replay_mode: bool,
 }
 
 impl SpreadEngine {
@@ -52,7 +55,18 @@ impl SpreadEngine {
             config,
             logger,
             signal_count: 0,
+            replay_mode: false,
         }
+    }
+
+    /// Enable or disable replay mode.
+    ///
+    /// When replay mode is active, wall-clock staleness checks are bypassed
+    /// so that historical data is not rejected as stale. The processor-level
+    /// `is_stale` flag on MarketSnapshot still functions normally.
+    pub fn with_replay_mode(mut self, replay: bool) -> Self {
+        self.replay_mode = replay;
+        self
     }
 
     /// Main event loop: consume snapshots, compute spreads, emit signals.
@@ -245,12 +259,19 @@ impl SpreadEngine {
     /// Check staleness gate on both legs.
     ///
     /// Returns true if both snapshots pass; false if either is stale.
+    /// In replay mode, wall-clock timestamp age checks are bypassed since
+    /// historical data would always appear stale relative to current time.
     fn passes_staleness_gate(
         &self,
         event_id: &str,
         poly: &MarketSnapshot,
         kalshi: &MarketSnapshot,
     ) -> bool {
+        // In replay mode, skip all wall-clock staleness gates
+        if self.replay_mode {
+            return true;
+        }
+
         let now_ms = chrono::Utc::now().timestamp_millis();
 
         // Check Polymarket staleness

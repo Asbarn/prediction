@@ -313,7 +313,7 @@ fn load_kalshi_key_from_file(config: &VenuesConfig) -> Option<String> {
 /// Exits when either the venue's receiver closes (venue processor stopped)
 /// or the venue's CancellationToken is cancelled. The shared sender is dropped
 /// on exit, which is critical for the fan-in channel to eventually close.
-async fn forward_snapshots(
+pub async fn forward_snapshots(
     mut venue_rx: mpsc::Receiver<MarketSnapshot>,
     fan_in_tx: mpsc::Sender<MarketSnapshot>,
     venue: Venue,
