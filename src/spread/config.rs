@@ -22,6 +22,14 @@ pub struct SpreadConfig {
     /// Minimum samples before dynamic threshold activates.
     pub rolling_min_samples: usize,
 
+    /// Staleness threshold for Polymarket snapshots (milliseconds).
+    /// Snapshots with exchange_timestamp older than this are rejected.
+    pub staleness_threshold_ms: u64,
+
+    /// Staleness threshold for Kalshi snapshots (milliseconds).
+    /// More permissive than Polymarket because Kalshi is REST-polled.
+    pub kalshi_staleness_threshold_ms: u64,
+
     /// Directory for spread computation JSONL logs.
     pub log_dir: String,
 
@@ -45,6 +53,8 @@ impl Default for SpreadConfig {
             stats_emission_interval_secs: 60,
             rolling_window_secs: 14400,
             rolling_min_samples: 30,
+            staleness_threshold_ms: 5_000,
+            kalshi_staleness_threshold_ms: 15_000,
             log_dir: "spread_logs".to_string(),
             threshold: ThresholdConfig::default(),
             polymarket_fees: PolymarketFeeConfig::default(),
