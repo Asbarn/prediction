@@ -14,6 +14,7 @@
 pub mod black76;
 pub mod confidence;
 pub mod config;
+pub mod engine;
 pub mod greeks;
 pub mod instrument;
 pub mod iv_solver;
