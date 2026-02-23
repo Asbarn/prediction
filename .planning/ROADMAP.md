@@ -171,7 +171,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 09-01-PLAN.md -- Health endpoint, JSONL schema stabilization with Deserialize derives and golden tests
+- [x] 09-01-PLAN.md -- Health endpoint, JSONL schema stabilization with Deserialize derives and golden tests
 - [ ] 09-02-PLAN.md -- Deterministic multi-venue replay with staleness bypass and CLI integration
 
 ## Progress
@@ -189,4 +189,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | 6. Prediction Market Spreads | 4/4 | Complete | 2026-02-23 |
 | 7. Options Pricing Engine | 5/5 | Complete   | 2026-02-23 |
 | 8. Cross-Asset Signal Generation | 2/2 | Complete | 2026-02-23 |
-| 9. Replay and Hardening | 0/3 | Not started | - |
+| 9. Replay and Hardening | 1/2 | In Progress | - |
