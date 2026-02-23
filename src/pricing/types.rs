@@ -5,7 +5,7 @@
 //! newtype for pipeline consistency.
 
 use chrono::NaiveDate;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::types::{DualTimestamp, InstrumentId, Probability};
 
@@ -53,14 +53,14 @@ pub struct ParsedInstrument {
 // ---------------------------------------------------------------------------
 
 /// Method used by the IV solver.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SolverMethod {
     NewtonRaphson,
     Brent,
 }
 
 /// Result of an IV solve attempt.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolverResult {
     /// Solved implied volatility (annualized).
     pub iv: f64,
@@ -79,7 +79,7 @@ pub struct SolverResult {
 // ---------------------------------------------------------------------------
 
 /// Method used for probability extraction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PricingMethod {
     /// Call spread replication using real adjacent strikes.
     CallSpreadReplication,
@@ -94,7 +94,7 @@ pub enum PricingMethod {
 // ---------------------------------------------------------------------------
 
 /// Individual confidence component scores (each 0.0-1.0).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfidenceComponents {
     /// IV bid-ask spread score (tight spread = high).
     pub iv_spread: f64,

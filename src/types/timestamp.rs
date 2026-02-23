@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Dual timestamp capturing both monotonic and wall-clock time.
 ///
@@ -35,5 +35,19 @@ impl DualTimestamp {
 impl Serialize for DualTimestamp {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.wall.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DualTimestamp {
+    /// Deserialize from wall-clock time only.
+    ///
+    /// The monotonic instant is set to `Instant::now()` since it has no
+    /// meaningful value when reconstructed from serialized data.
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wall = DateTime::<Utc>::deserialize(deserializer)?;
+        Ok(Self {
+            mono: tokio::time::Instant::now(),
+            wall,
+        })
     }
 }

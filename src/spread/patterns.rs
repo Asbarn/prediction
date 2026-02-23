@@ -213,7 +213,7 @@ pub struct SpreadResult {
 /// max(static_floor, rolling_mean + k * rolling_stddev) + liquidity_penalty
 ///
 /// This allows post-hoc analysis of which factor drives useful signals.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct ThresholdComponents {
     /// Static minimum threshold.
     #[serde(with = "rust_decimal::serde::str")]
