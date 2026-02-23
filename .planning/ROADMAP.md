@@ -136,14 +136,14 @@ Plans:
   3. Implied volatility surface interpolates across strikes, enabling pricing at non-traded strikes needed for call spread replication epsilon offsets
   4. Each ImpliedProbability output includes: probability value, confidence (based on bid-ask width/depth), pricing method used, skew adjustment factor, and timestamp
   5. Greeks calculator (delta, gamma, vega, theta) produces values for each priced instrument, ready for downstream position monitoring
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 07-01: Black-76 model and IV solver (Newton-Raphson/Brent)
-- [ ] 07-02: Digital probability extraction methods
-- [ ] 07-03: Implied volatility surface construction
-- [ ] 07-04: Greeks calculator
-- [ ] 07-05: ImpliedProbability output assembly with metadata
+- [ ] 07-01-PLAN.md -- Pricing module scaffold (types, config, Black-76 pricer, instrument parser, MarketSnapshot extension)
+- [ ] 07-02-PLAN.md -- IV solver with Newton-Raphson + Brent fallback (TDD)
+- [ ] 07-03-PLAN.md -- Implied volatility surface construction (per-expiry linear interpolation with quality filtering)
+- [ ] 07-04-PLAN.md -- Probability extraction (call spread replication + N(d2)), Greeks, confidence scoring
+- [ ] 07-05-PLAN.md -- PricingEngine async pipeline integration and main.rs wiring
 
 ### Phase 8: Cross-Asset Signal Generation
 **Goal**: The system computes spreads between options-implied probabilities and prediction market prices for each mapped event, generates ArbSignal outputs with full metadata, and applies configurable edge thresholds with dynamic adjustment -- completing the core arbitrage detection pipeline.
@@ -189,6 +189,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | 4. Multi-Venue Feeds | 3/3 | Complete | 2026-02-22 |
 | 5. Event Mapping | 3/3 | Complete    | 2026-02-22 |
 | 6. Prediction Market Spreads | 4/4 | Complete | 2026-02-23 |
-| 7. Options Pricing Engine | 0/5 | Not started | - |
+| 7. Options Pricing Engine | 0/5 | Planned | - |
 | 8. Cross-Asset Signal Generation | 0/3 | Not started | - |
 | 9. Replay and Hardening | 0/3 | Not started | - |
