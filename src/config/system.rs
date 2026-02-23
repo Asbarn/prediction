@@ -30,6 +30,33 @@ pub struct SystemConfig {
     /// Uses `#[serde(default)]` so existing config files without `[signal_generation]` still load.
     #[serde(default)]
     pub signal_generation: SignalGenerationConfig,
+    /// Health endpoint configuration (Phase 9).
+    /// Uses `#[serde(default)]` so existing config files without `[health]` still load.
+    #[serde(default)]
+    pub health: HealthConfig,
+}
+
+/// Health endpoint configuration.
+///
+/// Controls the HTTP `/health` endpoint that reports per-feed connection
+/// status, active event count, and system uptime.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct HealthConfig {
+    /// Port for the HTTP /health endpoint. Default: 9001.
+    /// Separate from Prometheus metrics exporter (default port 9000).
+    pub port: u16,
+    /// Whether to enable the health endpoint.
+    pub enabled: bool,
+}
+
+impl Default for HealthConfig {
+    fn default() -> Self {
+        Self {
+            port: 9001,
+            enabled: true,
+        }
+    }
 }
 
 /// Logging output configuration.

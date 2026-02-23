@@ -2,6 +2,7 @@ pub mod config;
 pub mod error;
 pub mod events;
 pub mod feed;
+pub mod health;
 pub mod logging;
 pub mod metrics_export;
 pub mod paper_trade;

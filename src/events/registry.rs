@@ -84,6 +84,14 @@ impl EventRegistry {
         self.mappings.len()
     }
 
+    /// Total number of registered event mappings.
+    ///
+    /// Used by the health endpoint to report active event count.
+    /// Includes all mappings (active, expiring, expired, pending).
+    pub fn event_count(&self) -> usize {
+        self.mappings.len()
+    }
+
     /// Count of active, approved mappings.
     pub fn active_count(&self) -> usize {
         self.mappings

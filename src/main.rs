@@ -9,6 +9,7 @@ use prediction::config::DiscoveryConfig;
 use prediction::events::lifecycle::ContractLifecycleManager;
 use prediction::events::registry::EventRegistry;
 use prediction::feed::pipeline::{self, DataMode};
+use prediction::health::{HealthState, start_health_server};
 use prediction::paper_trade::tracker::PaperTradeTracker;
 use prediction::pricing::engine::PricingEngine;
 use prediction::pricing::types::ImpliedProbability;
@@ -152,7 +153,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Start the multi-venue pipeline
             let recording_dir = PathBuf::from("recordings");
-            let snapshot_rx = pipeline::run_multi_venue_pipeline(
+            let pipeline_handles = pipeline::run_multi_venue_pipeline(
                 mode,
                 &config.venues,
                 &config.credentials,
@@ -161,6 +162,19 @@ async fn main() -> anyhow::Result<()> {
                 Some(event_registry.clone()),
             )
             .await?;
+            let snapshot_rx = pipeline_handles.snapshot_rx;
+
+            // Start HTTP /health endpoint (Phase 9)
+            if config.system.health.enabled {
+                let health_state = HealthState {
+                    venue_health: pipeline_handles.venue_health,
+                    event_registry: event_registry.clone(),
+                    started_at: chrono::Utc::now(),
+                };
+                let health_port = config.system.health.port;
+                tokio::spawn(start_health_server(health_state, health_port));
+                tracing::info!(port = health_port, "health endpoint enabled");
+            }
 
             // Start ContractLifecycleManager in Live mode only
             // (Mock/Replay modes don't need REST polling)

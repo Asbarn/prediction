@@ -74,3 +74,5 @@ rand = "0.8"
 
 # Statistics (Normal CDF/PDF for Black-76 pricing, Phase 7)
 statrs = "0.18"
+# HTTP health endpoint (Phase 9)
+axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"] }

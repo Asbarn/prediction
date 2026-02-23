@@ -26,6 +26,7 @@ use crate::config::{Credentials, VenuesConfig, DeribitConfig};
 use crate::events::registry::EventRegistry;
 use crate::feed::deribit::normalize::DeribitProcessor;
 use crate::feed::deribit::supervisor::DeribitSupervisor;
+use crate::feed::health::VenueHealth;
 use crate::feed::kalshi::auth::load_kalshi_private_key;
 use crate::feed::kalshi::normalize::KalshiProcessor;
 use crate::feed::kalshi::supervisor::KalshiSupervisor;
@@ -37,6 +38,17 @@ use crate::feed::recording::RecordingService;
 use crate::feed::reliability::VenueRateLimiter;
 use crate::feed::traits::{RawDataSource, RawMessage};
 use crate::types::{MarketSnapshot, Venue};
+
+/// Pipeline output handles containing the snapshot receiver and per-venue health trackers.
+///
+/// Returned by `run_multi_venue_pipeline()` so that `main.rs` can pass the
+/// `VenueHealth` references to the health endpoint.
+pub struct PipelineHandles {
+    /// Receiver for normalized market snapshots from all venues.
+    pub snapshot_rx: mpsc::Receiver<MarketSnapshot>,
+    /// Per-venue health trackers (populated in Live mode, empty in Mock/Replay).
+    pub venue_health: Vec<Arc<VenueHealth>>,
+}
 
 /// Selects how the pipeline receives raw market data.
 #[derive(Debug)]
@@ -72,22 +84,31 @@ pub async fn run_multi_venue_pipeline(
     recording_dir: PathBuf,
     cancel: CancellationToken,
     _event_registry: Option<Arc<RwLock<EventRegistry>>>,
-) -> anyhow::Result<mpsc::Receiver<MarketSnapshot>> {
+) -> anyhow::Result<PipelineHandles> {
     match mode {
         DataMode::Live => {
             run_live_multi_venue(config, credentials, recording_dir, cancel).await
         }
         DataMode::Replay { path, speed } => {
-            run_pipeline(
+            let snapshot_rx = run_pipeline(
                 DataMode::Replay { path, speed },
                 &config.deribit,
                 recording_dir,
                 cancel,
             )
-            .await
+            .await?;
+            Ok(PipelineHandles {
+                snapshot_rx,
+                venue_health: vec![],
+            })
         }
         DataMode::Mock => {
-            run_pipeline(DataMode::Mock, &config.deribit, recording_dir, cancel).await
+            let snapshot_rx =
+                run_pipeline(DataMode::Mock, &config.deribit, recording_dir, cancel).await?;
+            Ok(PipelineHandles {
+                snapshot_rx,
+                venue_health: vec![],
+            })
         }
     }
 }
@@ -98,11 +119,14 @@ async fn run_live_multi_venue(
     credentials: &Credentials,
     recording_dir: PathBuf,
     cancel: CancellationToken,
-) -> anyhow::Result<mpsc::Receiver<MarketSnapshot>> {
+) -> anyhow::Result<PipelineHandles> {
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<MarketSnapshot>(FAN_IN_BUFFER);
+    let mut venue_health_handles: Vec<Arc<VenueHealth>> = Vec::new();
 
     // --- Deribit pipeline ---
     {
+        let health = VenueHealth::new(Venue::Deribit);
+        venue_health_handles.push(health.clone());
         let venue_cancel = cancel.child_token();
         let deribit_recording = RecordingService::start(
             recording_dir.join("deribit"),
@@ -149,6 +173,9 @@ async fn run_live_multi_venue(
 
     // --- Polymarket pipeline ---
     {
+        let health = VenueHealth::new(Venue::Polymarket);
+        venue_health_handles.push(health.clone());
+
         let venue_cancel = cancel.child_token();
         let poly_recording = RecordingService::start(
             recording_dir.join("polymarket"),
@@ -184,6 +211,9 @@ async fn run_live_multi_venue(
 
     // --- Kalshi pipeline ---
     {
+        let health = VenueHealth::new(Venue::Kalshi);
+        venue_health_handles.push(health.clone());
+
         let api_key_id = credentials.kalshi_api_key_id.clone();
         let private_key_pem = credentials
             .kalshi_private_key
@@ -253,7 +283,10 @@ async fn run_live_multi_venue(
     drop(snapshot_tx);
 
     tracing::info!("multi-venue pipeline started");
-    Ok(snapshot_rx)
+    Ok(PipelineHandles {
+        snapshot_rx,
+        venue_health: venue_health_handles,
+    })
 }
 
 /// Try to load Kalshi private key from a file path specified in config.
