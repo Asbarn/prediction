@@ -30,8 +30,9 @@ pub struct Cli {
     #[arg(long)]
     pub mock: bool,
 
-    /// Replay from a JSONL recording file
-    #[arg(long, value_name = "FILE")]
+    /// Replay from a recordings directory (e.g., recordings/) containing
+    /// per-venue subdirectories (deribit/, polymarket/, kalshi/) with JSONL files
+    #[arg(long, value_name = "DIR")]
     pub replay: Option<PathBuf>,
 
     /// Replay speed multiplier (0=instant, 1=realtime, 10=fast)
@@ -113,13 +114,16 @@ async fn main() -> anyhow::Result<()> {
                 )?;
 
             // Determine data mode from CLI flags
-            let is_live = cli.replay.is_none() && !cli.mock;
+            let is_replay = cli.replay.is_some();
+            let is_live = !is_replay && !cli.mock;
 
             let mode = if let Some(ref path) = cli.replay {
                 tracing::info!(
                     path = %path.display(),
                     speed = cli.speed,
-                    "starting in replay mode"
+                    replay_mode = true,
+                    staleness_bypass = true,
+                    "starting in replay mode (multi-venue recordings directory)"
                 );
                 DataMode::Replay {
                     path: path.clone(),
@@ -277,7 +281,8 @@ async fn main() -> anyhow::Result<()> {
 
             // Spawn SpreadEngine (receives from fan-out, not directly from pipeline)
             let spread_config = config.system.spread.clone();
-            let spread_engine = SpreadEngine::new(spread_config);
+            let spread_engine = SpreadEngine::new(spread_config)
+                .with_replay_mode(is_replay);
             let spread_cancel = shutdown_token.child_token();
             tokio::spawn(spread_engine.run(
                 spread_snap_rx,
@@ -306,7 +311,8 @@ async fn main() -> anyhow::Result<()> {
 
             // Spawn CrossAssetEngine (consumes probabilities + prediction market snapshots)
             let signal_config = config.system.signal_generation.clone();
-            let signal_engine = CrossAssetEngine::new(signal_config);
+            let signal_engine = CrossAssetEngine::new(signal_config)
+                .with_replay_mode(is_replay);
             let signal_cancel = shutdown_token.child_token();
             tokio::spawn(signal_engine.run(
                 probability_rx,
@@ -319,6 +325,7 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!(
                 near_expiry_cutoff_hours = config.system.pricing.near_expiry_cutoff_hours,
                 iv_bounds = format!("[{}, {}]", config.system.pricing.solver.iv_min, config.system.pricing.solver.iv_max),
+                replay_mode = is_replay,
                 "spread engine, paper trade tracker, pricing engine, and signal engine started"
             );
 

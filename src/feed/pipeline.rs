@@ -90,17 +90,7 @@ pub async fn run_multi_venue_pipeline(
             run_live_multi_venue(config, credentials, recording_dir, cancel).await
         }
         DataMode::Replay { path, speed } => {
-            let snapshot_rx = run_pipeline(
-                DataMode::Replay { path, speed },
-                &config.deribit,
-                recording_dir,
-                cancel,
-            )
-            .await?;
-            Ok(PipelineHandles {
-                snapshot_rx,
-                venue_health: vec![],
-            })
+            crate::replay::run_replay_pipeline(path, config, speed, cancel).await
         }
         DataMode::Mock => {
             let snapshot_rx =
