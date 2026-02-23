@@ -154,6 +154,133 @@ impl VolSmile {
     pub fn is_empty(&self) -> bool {
         self.points.is_empty()
     }
+
+    // -----------------------------------------------------------------------
+    // Interpolation
+    // -----------------------------------------------------------------------
+
+    /// Interpolate implied volatility at an arbitrary strike.
+    ///
+    /// - **Empty** quality: returns `None`.
+    /// - **Degraded** quality with ATM IV: returns flat ATM vol for any strike.
+    /// - **Single point**: returns that point's IV for any strike.
+    /// - **Below minimum strike**: flat extrapolation (first point's IV).
+    /// - **Above maximum strike**: flat extrapolation (last point's IV).
+    /// - **Between two points**: linear interpolation.
+    pub fn interpolate(&self, strike: f64) -> Option<f64> {
+        if self.quality == SmileQuality::Empty {
+            return None;
+        }
+
+        // Degraded quality: flat ATM vol fallback
+        if self.quality == SmileQuality::Degraded {
+            if let Some(atm) = self.atm_iv {
+                return Some(atm);
+            }
+            // Degraded with no ATM IV shouldn't happen (we set ATM if any
+            // points exist), but handle gracefully.
+            return self.points.first().map(|p| p.iv);
+        }
+
+        // Single point: return its IV for any strike
+        if self.points.len() == 1 {
+            return Some(self.points[0].iv);
+        }
+
+        let first = &self.points[0];
+        let last = &self.points[self.points.len() - 1];
+
+        // Flat extrapolation below minimum strike
+        if strike <= first.strike {
+            return Some(first.iv);
+        }
+
+        // Flat extrapolation above maximum strike
+        if strike >= last.strike {
+            return Some(last.iv);
+        }
+
+        // Binary search for the two surrounding points
+        // partition_point returns the first index where strike <= points[i].strike
+        let idx = self
+            .points
+            .partition_point(|p| p.strike < strike);
+
+        // idx should be in [1, len-1] at this point since we handled boundary cases
+        let upper = &self.points[idx];
+        let lower = &self.points[idx - 1];
+
+        // Exact match on an observed strike
+        if (upper.strike - strike).abs() < f64::EPSILON {
+            return Some(upper.iv);
+        }
+        if (lower.strike - strike).abs() < f64::EPSILON {
+            return Some(lower.iv);
+        }
+
+        // Linear interpolation
+        let t = (strike - lower.strike) / (upper.strike - lower.strike);
+        let iv = lower.iv + (upper.iv - lower.iv) * t;
+        Some(iv)
+    }
+
+    // -----------------------------------------------------------------------
+    // Bracket finding
+    // -----------------------------------------------------------------------
+
+    /// Find the nearest observed strikes bracketing the target strike.
+    ///
+    /// Returns `(k_lower, k_upper)` where `k_lower < target < k_upper`.
+    /// If the target is exactly on an observed strike, uses the adjacent
+    /// strikes on both sides.
+    ///
+    /// Returns `None` if the target is below all or above all observed
+    /// strikes (cannot bracket), or if fewer than 2 points exist.
+    pub fn nearest_bracket(&self, target_strike: f64) -> Option<(f64, f64)> {
+        if self.points.len() < 2 {
+            return None;
+        }
+
+        let first = self.points[0].strike;
+        let last = self.points[self.points.len() - 1].strike;
+
+        // Cannot bracket if target is outside observed range
+        if target_strike <= first || target_strike >= last {
+            return None;
+        }
+
+        let idx = self.points.partition_point(|p| p.strike < target_strike);
+
+        // If target lands exactly on an observed strike, use adjacent strikes
+        if idx < self.points.len() && (self.points[idx].strike - target_strike).abs() < f64::EPSILON
+        {
+            // Need both sides to exist
+            if idx == 0 || idx >= self.points.len() - 1 {
+                return None;
+            }
+            return Some((self.points[idx - 1].strike, self.points[idx + 1].strike));
+        }
+
+        // idx is the first point >= target; idx-1 is the last point < target
+        if idx == 0 || idx >= self.points.len() {
+            return None;
+        }
+
+        Some((self.points[idx - 1].strike, self.points[idx].strike))
+    }
+
+    // -----------------------------------------------------------------------
+    // Skew
+    // -----------------------------------------------------------------------
+
+    /// Compute skew at a given strike: `strike_iv - atm_iv`.
+    ///
+    /// Returns `None` if ATM IV is unavailable or interpolation fails.
+    pub fn skew_at(&self, strike: f64) -> Option<f64> {
+        let atm = self.atm_iv?;
+        let strike_iv = self.interpolate(strike)?;
+        Some(strike_iv - atm)
+    }
 }
 
 #[cfg(test)]
@@ -286,5 +413,223 @@ mod tests {
         assert_eq!(smile.excluded.len(), 2);
         assert!(smile.excluded.iter().all(|(_, reason)| reason == "non-positive IV"));
         assert_eq!(smile.quality, SmileQuality::Minimum);
+    }
+
+    // =======================================================================
+    // Interpolation tests
+    // =======================================================================
+
+    fn make_good_smile() -> VolSmile {
+        let config = default_config();
+        let points = vec![
+            make_point(90000.0, 0.60, 0.05),
+            make_point(95000.0, 0.55, 0.04),
+            make_point(100000.0, 0.50, 0.03),
+            make_point(105000.0, 0.52, 0.04),
+            make_point(110000.0, 0.58, 0.06),
+        ];
+        let expiry = NaiveDate::from_ymd_opt(2025, 6, 27).unwrap();
+        VolSmile::new(expiry, points, &config, 100000.0)
+    }
+
+    /// Test g: Interpolation at exact observed strike returns that IV.
+    #[test]
+    fn interpolate_exact_strike() {
+        let smile = make_good_smile();
+        let iv = smile.interpolate(100000.0).unwrap();
+        assert!(
+            (iv - 0.50).abs() < 1e-10,
+            "expected 0.50 at exact strike, got {iv}"
+        );
+
+        let iv_low = smile.interpolate(90000.0).unwrap();
+        assert!(
+            (iv_low - 0.60).abs() < 1e-10,
+            "expected 0.60 at lowest strike, got {iv_low}"
+        );
+    }
+
+    /// Test h: Interpolation between two strikes returns linear blend.
+    #[test]
+    fn interpolate_between_strikes() {
+        let smile = make_good_smile();
+        // Between 90000 (0.60) and 95000 (0.55) at midpoint 92500
+        let iv = smile.interpolate(92500.0).unwrap();
+        let expected = 0.60 + (0.55 - 0.60) * (92500.0 - 90000.0) / (95000.0 - 90000.0);
+        assert!(
+            (iv - expected).abs() < 1e-10,
+            "expected {expected}, got {iv}"
+        );
+        // Verify it's strictly between the two surrounding IVs
+        assert!(iv > 0.55 && iv < 0.60, "IV should be between 0.55 and 0.60, got {iv}");
+    }
+
+    /// Test i: Extrapolation below minimum strike returns first IV (flat).
+    #[test]
+    fn extrapolate_below() {
+        let smile = make_good_smile();
+        let iv = smile.interpolate(80000.0).unwrap();
+        assert!(
+            (iv - 0.60).abs() < 1e-10,
+            "expected flat extrapolation = 0.60, got {iv}"
+        );
+    }
+
+    /// Test j: Extrapolation above maximum strike returns last IV (flat).
+    #[test]
+    fn extrapolate_above() {
+        let smile = make_good_smile();
+        let iv = smile.interpolate(120000.0).unwrap();
+        assert!(
+            (iv - 0.58).abs() < 1e-10,
+            "expected flat extrapolation = 0.58, got {iv}"
+        );
+    }
+
+    /// Test k: nearest_bracket returns correct surrounding strikes.
+    #[test]
+    fn nearest_bracket_between() {
+        let smile = make_good_smile();
+        let (lower, upper) = smile.nearest_bracket(97000.0).unwrap();
+        assert!(
+            (lower - 95000.0).abs() < f64::EPSILON,
+            "expected lower=95000, got {lower}"
+        );
+        assert!(
+            (upper - 100000.0).abs() < f64::EPSILON,
+            "expected upper=100000, got {upper}"
+        );
+    }
+
+    /// Test l: nearest_bracket returns None for out-of-range strikes.
+    #[test]
+    fn nearest_bracket_out_of_range() {
+        let smile = make_good_smile();
+        assert!(smile.nearest_bracket(80000.0).is_none(), "below all strikes");
+        assert!(smile.nearest_bracket(120000.0).is_none(), "above all strikes");
+        // Exactly on boundary
+        assert!(smile.nearest_bracket(90000.0).is_none(), "on first strike");
+        assert!(smile.nearest_bracket(110000.0).is_none(), "on last strike");
+    }
+
+    /// Test m: nearest_bracket on exact observed strike uses adjacent strikes.
+    #[test]
+    fn nearest_bracket_exact_strike() {
+        let smile = make_good_smile();
+        // Target = 100000 (exact observed strike), expect (95000, 105000)
+        let (lower, upper) = smile.nearest_bracket(100000.0).unwrap();
+        assert!(
+            (lower - 95000.0).abs() < f64::EPSILON,
+            "expected lower=95000, got {lower}"
+        );
+        assert!(
+            (upper - 105000.0).abs() < f64::EPSILON,
+            "expected upper=105000, got {upper}"
+        );
+    }
+
+    /// Test n: skew_at returns correct skew relative to ATM.
+    #[test]
+    fn skew_at_various_strikes() {
+        let smile = make_good_smile();
+        // ATM IV = 0.50 (at strike 100000)
+        // At ATM: skew should be 0
+        let skew_atm = smile.skew_at(100000.0).unwrap();
+        assert!(
+            skew_atm.abs() < 1e-10,
+            "ATM skew should be ~0, got {skew_atm}"
+        );
+
+        // At 90000: IV = 0.60, skew = 0.60 - 0.50 = 0.10
+        let skew_low = smile.skew_at(90000.0).unwrap();
+        assert!(
+            (skew_low - 0.10).abs() < 1e-10,
+            "expected skew=0.10, got {skew_low}"
+        );
+
+        // At 110000: IV = 0.58, skew = 0.58 - 0.50 = 0.08
+        let skew_high = smile.skew_at(110000.0).unwrap();
+        assert!(
+            (skew_high - 0.08).abs() < 1e-10,
+            "expected skew=0.08, got {skew_high}"
+        );
+    }
+
+    /// Test o: Degraded quality returns flat ATM vol for any strike.
+    #[test]
+    fn degraded_returns_flat_atm() {
+        let config = default_config();
+        let points = vec![
+            make_point(100000.0, 0.50, 0.03),
+            make_point(105000.0, 0.52, 0.04),
+        ];
+        let expiry = NaiveDate::from_ymd_opt(2025, 6, 27).unwrap();
+        let smile = VolSmile::new(expiry, points, &config, 100000.0);
+
+        assert_eq!(smile.quality, SmileQuality::Degraded);
+
+        // Should return ATM IV (0.50) for any strike
+        let iv_low = smile.interpolate(80000.0).unwrap();
+        let iv_mid = smile.interpolate(100000.0).unwrap();
+        let iv_high = smile.interpolate(120000.0).unwrap();
+        assert!((iv_low - 0.50).abs() < 1e-10, "degraded should return ATM IV, got {iv_low}");
+        assert!((iv_mid - 0.50).abs() < 1e-10, "degraded should return ATM IV, got {iv_mid}");
+        assert!((iv_high - 0.50).abs() < 1e-10, "degraded should return ATM IV, got {iv_high}");
+    }
+
+    /// Test p: Empty quality returns None for interpolation.
+    #[test]
+    fn empty_returns_none() {
+        let config = default_config();
+        let expiry = NaiveDate::from_ymd_opt(2025, 6, 27).unwrap();
+        let smile = VolSmile::new(expiry, Vec::new(), &config, 100000.0);
+
+        assert!(smile.interpolate(100000.0).is_none());
+        assert!(smile.nearest_bracket(100000.0).is_none());
+        assert!(smile.skew_at(100000.0).is_none());
+    }
+
+    /// Test q: Single point returns its IV for any strike.
+    #[test]
+    fn single_point_returns_its_iv() {
+        let config = VolSurfaceConfig {
+            min_usable_strikes: 1, // set to 1 so single point is not Degraded
+            good_strike_count: 5,
+            max_iv_spread_filter: 0.50,
+        };
+        let points = vec![make_point(100000.0, 0.50, 0.03)];
+        let expiry = NaiveDate::from_ymd_opt(2025, 6, 27).unwrap();
+        let smile = VolSmile::new(expiry, points, &config, 100000.0);
+
+        let iv = smile.interpolate(80000.0).unwrap();
+        assert!((iv - 0.50).abs() < 1e-10);
+        let iv = smile.interpolate(120000.0).unwrap();
+        assert!((iv - 0.50).abs() < 1e-10);
+    }
+
+    /// Test r: Interpolation monotonicity check -- interpolated value is strictly
+    /// between the two surrounding IVs (for cases where IVs differ).
+    #[test]
+    fn interpolation_monotonicity() {
+        let smile = make_good_smile();
+        // Check many points between each pair of observed strikes
+        let strikes = &smile.points;
+        for w in strikes.windows(2) {
+            let (k_lo, iv_lo) = (w[0].strike, w[0].iv);
+            let (k_hi, iv_hi) = (w[1].strike, w[1].iv);
+            let lo_iv = iv_lo.min(iv_hi);
+            let hi_iv = iv_lo.max(iv_hi);
+
+            // Test 10 interior points
+            for i in 1..10 {
+                let frac = i as f64 / 10.0;
+                let k = k_lo + (k_hi - k_lo) * frac;
+                let iv = smile.interpolate(k).unwrap();
+                assert!(
+                    iv >= lo_iv - 1e-10 && iv <= hi_iv + 1e-10,
+                    "interpolated IV {iv} outside [{lo_iv}, {hi_iv}] at strike {k}"
+                );
+            }
+        }
     }
 }
