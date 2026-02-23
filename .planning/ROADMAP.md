@@ -153,12 +153,11 @@ Plans:
   1. Spread calculator computes the spread between each prediction market price and its corresponding options-implied probability for every mapped event, using the pricing engine output
   2. Signal generation produces ArbSignal outputs with: event ID, direction, raw spread, net edge after costs, confidence, constituent legs, timestamp, and TTL
   3. Configurable minimum edge threshold after all costs filters signals, with dynamic thresholds that adjust based on volatility regime and available liquidity
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 08-01: Cross-asset spread calculator
-- [ ] 08-02: ArbSignal generation with full metadata
-- [ ] 08-03: Dynamic threshold engine
+- [ ] 08-01-PLAN.md -- Signal module types (ArbSignal, ArbDirection, CostBreakdown, LegInfo), config, and JSONL logger
+- [ ] 08-02-PLAN.md -- CrossAssetEngine (dual-input event loop, spread computation, dynamic threshold) and main.rs pipeline wiring
 
 ### Phase 9: Replay and Hardening
 **Goal**: The system supports deterministic replay from recorded feed data, exposes a health endpoint for operational monitoring, and stabilizes the JSONL schema for offline analysis -- turning accumulated data into a validated testing and analysis corpus.
