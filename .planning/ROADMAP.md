@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Prediction Market Spreads** - Cross-platform spread detection between prediction markets with fee-adjusted costs, paper P&L tracking, and Prometheus metrics
 - [x] **Phase 7: Options Pricing Engine** - Black-76 pricing, IV solver, call spread replication for digital payoffs, vol surface construction, and Greeks (completed 2026-02-23)
 - [x] **Phase 8: Cross-Asset Signal Generation** - Full spread calculation between options-implied probabilities and prediction market prices with signal generation and threshold engine (completed 2026-02-23)
-- [ ] **Phase 9: Replay and Hardening** - Deterministic replay from recorded feeds, stable JSONL schema, and health endpoint for operational monitoring
+- [x] **Phase 9: Replay and Hardening** - Deterministic replay from recorded feeds, stable JSONL schema, and health endpoint for operational monitoring (completed 2026-02-23)
 
 ## Phase Details
 
@@ -173,7 +173,7 @@ Plans:
 Plans:
 - [x] 09-01-PLAN.md -- Health endpoint, JSONL schema stabilization with Deserialize derives and golden tests
 - [x] 09-02-PLAN.md -- Deterministic multi-venue replay with staleness bypass and CLI integration
-- [ ] 09-03-PLAN.md -- Gap closure: Wire VenueHealth to supervisors for accurate /health endpoint reporting
+- [x] 09-03-PLAN.md -- Gap closure: Wire VenueHealth to supervisors for accurate /health endpoint reporting
 
 ## Progress
 
