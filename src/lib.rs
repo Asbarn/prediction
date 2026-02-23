@@ -5,6 +5,7 @@ pub mod feed;
 pub mod logging;
 pub mod metrics_export;
 pub mod paper_trade;
+pub mod pricing;
 pub mod shutdown;
 pub mod spread;
 pub mod types;

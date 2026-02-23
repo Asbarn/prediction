@@ -43,3 +43,8 @@ log_dir = "paper_trades"           # Output directory for paper trade JSONL
 
 [prometheus]
 port = 9000                        # Prometheus scrape port
+
+# [pricing]
+# Options pricing engine configuration (Phase 7).
+# All defaults are sensible -- uncomment and override as needed.
+# See src/pricing/config.rs for all parameters.

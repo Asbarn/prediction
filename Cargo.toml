@@ -71,3 +71,6 @@ http = "1.2"
 
 # Mock data generation
 rand = "0.8"
+
+# Statistics (Normal CDF/PDF for Black-76 pricing, Phase 7)
+statrs = "0.18"

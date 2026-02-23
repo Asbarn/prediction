@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::pricing::config::PricingConfig;
 use crate::spread::config::SpreadConfig;
 
 /// System-wide configuration loaded from `config.toml`.
@@ -21,6 +22,9 @@ pub struct SystemConfig {
     /// Paper trade tracker configuration (placeholder for Plan 04).
     #[serde(default)]
     pub paper_trade: PaperTradeConfig,
+    /// Options pricing engine configuration (Phase 7).
+    #[serde(default)]
+    pub pricing: PricingConfig,
 }
 
 /// Logging output configuration.
