@@ -138,6 +138,7 @@ async fn run_live_multi_venue(
             config.deribit.instruments.clone(),
             venue_cancel.clone(),
             rate_limiter,
+            health.clone(),
         );
         tokio::spawn(supervisor.run(supervisor_tx));
 
@@ -156,6 +157,7 @@ async fn run_live_multi_venue(
             fan_in_tx,
             Venue::Deribit,
             venue_cancel,
+            Some(health.clone()),
         ));
 
         tracing::info!(venue = "deribit", "Deribit pipeline started");
@@ -177,6 +179,7 @@ async fn run_live_multi_venue(
         let supervisor = PolymarketSupervisor::new(
             config.polymarket.clone(),
             venue_cancel.clone(),
+            health.clone(),
         );
         tokio::spawn(supervisor.run(supervisor_tx));
 
@@ -194,6 +197,7 @@ async fn run_live_multi_venue(
             fan_in_tx,
             Venue::Polymarket,
             venue_cancel,
+            Some(health.clone()),
         ));
 
         tracing::info!(venue = "polymarket", "Polymarket pipeline started");
@@ -227,6 +231,7 @@ async fn run_live_multi_venue(
                             key_id,
                             private_key,
                             venue_cancel.clone(),
+                            health.clone(),
                         );
                         tokio::spawn(supervisor.run(supervisor_tx));
 
@@ -244,6 +249,7 @@ async fn run_live_multi_venue(
                             fan_in_tx,
                             Venue::Kalshi,
                             venue_cancel,
+                            Some(health.clone()),
                         ));
 
                         tracing::info!(venue = "kalshi", "Kalshi pipeline started");
@@ -308,6 +314,7 @@ pub async fn forward_snapshots(
     fan_in_tx: mpsc::Sender<MarketSnapshot>,
     venue: Venue,
     cancel: CancellationToken,
+    health: Option<Arc<VenueHealth>>,
 ) {
     loop {
         tokio::select! {
@@ -321,6 +328,9 @@ pub async fn forward_snapshots(
             snapshot = venue_rx.recv() => {
                 match snapshot {
                     Some(snap) => {
+                        if let Some(h) = &health {
+                            h.record_message();
+                        }
                         if fan_in_tx.send(snap).await.is_err() {
                             tracing::warn!(
                                 venue = %venue,
@@ -369,12 +379,14 @@ pub async fn run_pipeline(
                 rate_limit = config.rate_limit_per_second,
                 "rate limiter configured"
             );
+            let health = VenueHealth::new(Venue::Deribit);
             let (supervisor_tx, supervisor_rx) = mpsc::channel::<RawMessage>(1024);
             let supervisor = DeribitSupervisor::new(
                 config.clone(),
                 config.instruments.clone(),
                 cancel.clone(),
                 rate_limiter,
+                health,
             );
             tokio::spawn(supervisor.run(supervisor_tx));
             supervisor_rx

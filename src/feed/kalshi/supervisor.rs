@@ -4,6 +4,7 @@
 //! reconnection. Creates fresh auth signatures on each attempt since
 //! the timestamp is part of the signing message.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use backoff::backoff::Backoff;
@@ -13,6 +14,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::KalshiConfig;
+use crate::feed::health::VenueHealth;
 use crate::feed::kalshi::client::KalshiClient;
 use crate::feed::traits::RawMessage;
 
@@ -25,6 +27,7 @@ pub struct KalshiSupervisor {
     api_key_id: String,
     private_key: RsaPrivateKey,
     cancel: CancellationToken,
+    health: Arc<VenueHealth>,
 }
 
 impl KalshiSupervisor {
@@ -33,12 +36,14 @@ impl KalshiSupervisor {
         api_key_id: String,
         private_key: RsaPrivateKey,
         cancel: CancellationToken,
+        health: Arc<VenueHealth>,
     ) -> Self {
         Self {
             config,
             api_key_id,
             private_key,
             cancel,
+            health,
         }
     }
 
@@ -62,6 +67,7 @@ impl KalshiSupervisor {
             }
 
             attempt += 1;
+            self.health.increment_connections();
             tracing::info!(attempt = attempt, "KalshiSupervisor connecting...");
 
             // Fresh client per attempt = fresh auth signature
@@ -95,6 +101,7 @@ impl KalshiSupervisor {
                                         if !received_first {
                                             received_first = true;
                                             backoff.reset();
+                                            self.health.mark_available();
                                             tracing::info!(
                                                 "KalshiSupervisor: first message received, backoff reset"
                                             );
@@ -107,6 +114,7 @@ impl KalshiSupervisor {
                                         }
                                     }
                                     None => {
+                                        self.health.mark_unavailable("connection lost".to_string());
                                         tracing::warn!(
                                             attempt = attempt,
                                             "KalshiSupervisor: connection lost, will reconnect"
@@ -119,6 +127,7 @@ impl KalshiSupervisor {
                     }
                 }
                 Err(e) => {
+                    self.health.mark_unavailable(format!("connection failed: {e}"));
                     tracing::error!(
                         attempt = attempt,
                         error = %e,

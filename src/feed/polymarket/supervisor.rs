@@ -3,6 +3,7 @@
 //! Long-lived task that wraps PolymarketClient with exponential backoff
 //! reconnection, following the DeribitSupervisor pattern.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use backoff::backoff::Backoff;
@@ -11,6 +12,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::PolymarketConfig;
+use crate::feed::health::VenueHealth;
 use crate::feed::polymarket::client::PolymarketClient;
 use crate::feed::traits::RawMessage;
 
@@ -21,11 +23,12 @@ use crate::feed::traits::RawMessage;
 pub struct PolymarketSupervisor {
     config: PolymarketConfig,
     cancel: CancellationToken,
+    health: Arc<VenueHealth>,
 }
 
 impl PolymarketSupervisor {
-    pub fn new(config: PolymarketConfig, cancel: CancellationToken) -> Self {
-        Self { config, cancel }
+    pub fn new(config: PolymarketConfig, cancel: CancellationToken, health: Arc<VenueHealth>) -> Self {
+        Self { config, cancel, health }
     }
 
     /// Run the reconnection loop, forwarding all messages to `tx`.
@@ -48,6 +51,7 @@ impl PolymarketSupervisor {
             }
 
             attempt += 1;
+            self.health.increment_connections();
             tracing::info!(attempt = attempt, "PolymarketSupervisor connecting...");
 
             let client = PolymarketClient::new(self.config.clone(), self.cancel.clone());
@@ -75,6 +79,7 @@ impl PolymarketSupervisor {
                                         if !received_first {
                                             received_first = true;
                                             backoff.reset();
+                                            self.health.mark_available();
                                             tracing::info!(
                                                 "PolymarketSupervisor: first message received, backoff reset"
                                             );
@@ -87,6 +92,7 @@ impl PolymarketSupervisor {
                                         }
                                     }
                                     None => {
+                                        self.health.mark_unavailable("connection lost".to_string());
                                         tracing::warn!(
                                             attempt = attempt,
                                             "PolymarketSupervisor: connection lost, will reconnect"
@@ -99,6 +105,7 @@ impl PolymarketSupervisor {
                     }
                 }
                 Err(e) => {
+                    self.health.mark_unavailable(format!("connection failed: {e}"));
                     tracing::error!(
                         attempt = attempt,
                         error = %e,

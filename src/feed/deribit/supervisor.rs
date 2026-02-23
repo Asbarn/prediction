@@ -5,6 +5,7 @@
 //! forwards messages to the pipeline, and re-enters the backoff loop on
 //! connection drop.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use backoff::backoff::Backoff;
@@ -14,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::DeribitConfig;
 use crate::feed::deribit::client::DeribitClient;
+use crate::feed::health::VenueHealth;
 use crate::feed::reliability::VenueRateLimiter;
 use crate::feed::traits::RawMessage;
 
@@ -29,6 +31,7 @@ pub struct DeribitSupervisor {
     instruments: Vec<String>,
     cancel: CancellationToken,
     rate_limiter: VenueRateLimiter,
+    health: Arc<VenueHealth>,
 }
 
 impl DeribitSupervisor {
@@ -37,12 +40,14 @@ impl DeribitSupervisor {
         instruments: Vec<String>,
         cancel: CancellationToken,
         rate_limiter: VenueRateLimiter,
+        health: Arc<VenueHealth>,
     ) -> Self {
         Self {
             config,
             instruments,
             cancel,
             rate_limiter,
+            health,
         }
     }
 
@@ -76,6 +81,7 @@ impl DeribitSupervisor {
             }
 
             attempt += 1;
+            self.health.increment_connections();
             tracing::info!(attempt = attempt, "DeribitSupervisor connecting...");
 
             // Create a fresh client for each attempt, passing the rate limiter
@@ -112,6 +118,7 @@ impl DeribitSupervisor {
                                             // Reset backoff on first message
                                             // (confirms connection is actually working)
                                             backoff.reset();
+                                            self.health.mark_available();
                                             tracing::info!(
                                                 "DeribitSupervisor: first message received, backoff reset"
                                             );
@@ -125,6 +132,7 @@ impl DeribitSupervisor {
                                     }
                                     None => {
                                         // Client channel closed = connection lost
+                                        self.health.mark_unavailable("connection lost".to_string());
                                         tracing::warn!(
                                             attempt = attempt,
                                             "DeribitSupervisor: connection lost, will reconnect"
@@ -137,6 +145,7 @@ impl DeribitSupervisor {
                     }
                 }
                 Err(e) => {
+                    self.health.mark_unavailable(format!("connection failed: {e}"));
                     tracing::error!(
                         attempt = attempt,
                         error = %e,

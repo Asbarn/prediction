@@ -227,6 +227,7 @@ pub async fn run_replay_pipeline(
             fan_in_tx,
             venue,
             venue_cancel,
+            None,
         ));
 
         tracing::info!(
