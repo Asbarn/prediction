@@ -184,3 +184,264 @@ pub struct ActiveAlert {
     /// Number of consecutive evaluations where the condition was true.
     pub count: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- Display tests ---
+
+    #[test]
+    fn display_feed_silence_includes_venue_and_duration() {
+        let alert = AlertCondition::FeedSilence {
+            venue: "deribit".to_string(),
+            silence_secs: 150,
+            threshold_secs: 120,
+        };
+        let display = format!("{alert}");
+        assert!(display.contains("deribit"), "should contain venue name");
+        assert!(display.contains("150"), "should contain silence duration");
+    }
+
+    #[test]
+    fn display_partial_coverage_includes_counts() {
+        let alert = AlertCondition::PartialCoverage {
+            active_venues: 1,
+            expected_venues: 3,
+        };
+        let display = format!("{alert}");
+        assert!(display.contains("1"), "should contain active count");
+        assert!(display.contains("3"), "should contain expected count");
+    }
+
+    #[test]
+    fn display_signal_gap_includes_gap_and_threshold() {
+        let alert = AlertCondition::SignalGap {
+            gap_secs: 400,
+            threshold_secs: 300,
+        };
+        let display = format!("{alert}");
+        assert!(display.contains("400"), "should contain gap");
+        assert!(display.contains("300"), "should contain threshold");
+    }
+
+    #[test]
+    fn display_stage_liveness_includes_stage_name() {
+        let alert = AlertCondition::StageLiveness {
+            stage: "spread".to_string(),
+            gap_secs: 200,
+            threshold_secs: 180,
+        };
+        let display = format!("{alert}");
+        assert!(display.contains("spread"), "should contain stage name");
+    }
+
+    // --- Severity tests ---
+
+    #[test]
+    fn severity_feed_silence_is_warning() {
+        let alert = AlertCondition::FeedSilence {
+            venue: "deribit".to_string(),
+            silence_secs: 150,
+            threshold_secs: 120,
+        };
+        assert_eq!(alert.severity(), AlertSeverity::Warning);
+    }
+
+    #[test]
+    fn severity_stage_liveness_is_warning() {
+        let alert = AlertCondition::StageLiveness {
+            stage: "spread".to_string(),
+            gap_secs: 200,
+            threshold_secs: 180,
+        };
+        assert_eq!(alert.severity(), AlertSeverity::Warning);
+    }
+
+    #[test]
+    fn severity_partial_coverage_warning_within_threshold() {
+        // 2 of 3 venues: more than half, so Warning
+        let alert = AlertCondition::PartialCoverage {
+            active_venues: 2,
+            expected_venues: 3,
+        };
+        assert_eq!(alert.severity(), AlertSeverity::Warning);
+    }
+
+    #[test]
+    fn severity_partial_coverage_critical_beyond_threshold() {
+        // 1 of 3 venues: less than half (1*2 = 2 < 3), so Critical
+        let alert = AlertCondition::PartialCoverage {
+            active_venues: 1,
+            expected_venues: 3,
+        };
+        assert_eq!(alert.severity(), AlertSeverity::Critical);
+    }
+
+    #[test]
+    fn severity_partial_coverage_zero_active_is_critical() {
+        let alert = AlertCondition::PartialCoverage {
+            active_venues: 0,
+            expected_venues: 3,
+        };
+        assert_eq!(alert.severity(), AlertSeverity::Critical);
+    }
+
+    #[test]
+    fn severity_signal_gap_warning_within_2x() {
+        // gap=500, threshold=300: 500 <= 600, so Warning
+        let alert = AlertCondition::SignalGap {
+            gap_secs: 500,
+            threshold_secs: 300,
+        };
+        assert_eq!(alert.severity(), AlertSeverity::Warning);
+    }
+
+    #[test]
+    fn severity_signal_gap_critical_beyond_2x() {
+        // gap=700, threshold=300: 700 > 600, so Critical
+        let alert = AlertCondition::SignalGap {
+            gap_secs: 700,
+            threshold_secs: 300,
+        };
+        assert_eq!(alert.severity(), AlertSeverity::Critical);
+    }
+
+    // --- Dedup key tests ---
+
+    #[test]
+    fn dedup_key_feed_silence() {
+        let alert = AlertCondition::FeedSilence {
+            venue: "deribit".to_string(),
+            silence_secs: 150,
+            threshold_secs: 120,
+        };
+        assert_eq!(alert.dedup_key(), "feed_silence:deribit");
+    }
+
+    #[test]
+    fn dedup_key_partial_coverage() {
+        let alert = AlertCondition::PartialCoverage {
+            active_venues: 1,
+            expected_venues: 3,
+        };
+        assert_eq!(alert.dedup_key(), "partial_coverage");
+    }
+
+    #[test]
+    fn dedup_key_signal_gap() {
+        let alert = AlertCondition::SignalGap {
+            gap_secs: 400,
+            threshold_secs: 300,
+        };
+        assert_eq!(alert.dedup_key(), "signal_gap");
+    }
+
+    #[test]
+    fn dedup_key_stage_liveness() {
+        let alert = AlertCondition::StageLiveness {
+            stage: "spread".to_string(),
+            gap_secs: 200,
+            threshold_secs: 180,
+        };
+        assert_eq!(alert.dedup_key(), "stage_liveness:spread");
+    }
+
+    // --- Prometheus labels tests ---
+
+    #[test]
+    fn prometheus_labels_feed_silence() {
+        let alert = AlertCondition::FeedSilence {
+            venue: "deribit".to_string(),
+            silence_secs: 150,
+            threshold_secs: 120,
+        };
+        let labels = alert.prometheus_labels();
+        assert!(labels.contains(&("alert_type", "feed_silence".to_string())));
+        assert!(labels.contains(&("venue", "deribit".to_string())));
+        assert!(labels.contains(&("silence_secs", "150".to_string())));
+    }
+
+    #[test]
+    fn prometheus_labels_partial_coverage() {
+        let alert = AlertCondition::PartialCoverage {
+            active_venues: 1,
+            expected_venues: 3,
+        };
+        let labels = alert.prometheus_labels();
+        assert!(labels.contains(&("alert_type", "partial_coverage".to_string())));
+        assert!(labels.contains(&("active_venues", "1".to_string())));
+        assert!(labels.contains(&("expected_venues", "3".to_string())));
+    }
+
+    #[test]
+    fn prometheus_labels_signal_gap() {
+        let alert = AlertCondition::SignalGap {
+            gap_secs: 400,
+            threshold_secs: 300,
+        };
+        let labels = alert.prometheus_labels();
+        assert!(labels.contains(&("alert_type", "signal_gap".to_string())));
+        assert!(labels.contains(&("gap_secs", "400".to_string())));
+        assert!(labels.contains(&("threshold_secs", "300".to_string())));
+    }
+
+    #[test]
+    fn prometheus_labels_stage_liveness() {
+        let alert = AlertCondition::StageLiveness {
+            stage: "spread".to_string(),
+            gap_secs: 200,
+            threshold_secs: 180,
+        };
+        let labels = alert.prometheus_labels();
+        assert!(labels.contains(&("alert_type", "stage_liveness".to_string())));
+        assert!(labels.contains(&("stage", "spread".to_string())));
+        assert!(labels.contains(&("gap_secs", "200".to_string())));
+    }
+
+    // --- ActiveAlert tests ---
+
+    #[test]
+    fn active_alert_creation() {
+        let now = Utc::now();
+        let alert = ActiveAlert {
+            condition: AlertCondition::FeedSilence {
+                venue: "deribit".to_string(),
+                silence_secs: 150,
+                threshold_secs: 120,
+            },
+            first_seen: now,
+            last_seen: now,
+            count: 1,
+        };
+        assert_eq!(alert.count, 1);
+        assert_eq!(alert.first_seen, alert.last_seen);
+    }
+
+    #[test]
+    fn active_alert_count_incrementing() {
+        let now = Utc::now();
+        let mut alert = ActiveAlert {
+            condition: AlertCondition::SignalGap {
+                gap_secs: 400,
+                threshold_secs: 300,
+            },
+            first_seen: now,
+            last_seen: now,
+            count: 1,
+        };
+        // Simulate subsequent evaluations
+        alert.count += 1;
+        alert.last_seen = Utc::now();
+        assert_eq!(alert.count, 2);
+        assert!(alert.last_seen >= alert.first_seen);
+    }
+
+    // --- AlertSeverity display ---
+
+    #[test]
+    fn severity_display() {
+        assert_eq!(format!("{}", AlertSeverity::Warning), "WARNING");
+        assert_eq!(format!("{}", AlertSeverity::Critical), "CRITICAL");
+    }
+}

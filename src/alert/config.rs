@@ -42,3 +42,49 @@ impl Default for AlertConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_values() {
+        let config = AlertConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.check_interval_secs, 30);
+        assert_eq!(config.feed_silence_threshold_secs, 120);
+        assert_eq!(config.expected_venue_count, 3);
+        assert_eq!(config.signal_gap_threshold_secs, 300);
+        assert_eq!(config.stage_liveness_threshold_secs, 180);
+        assert_eq!(config.alert_cooldown_secs, 300);
+    }
+
+    #[test]
+    fn serde_round_trip() {
+        let config = AlertConfig::default();
+        let toml_str = toml::to_string(&config).expect("serialize");
+        let deserialized: AlertConfig = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(config, deserialized);
+    }
+
+    #[test]
+    fn partial_toml_uses_defaults() {
+        let toml_str = r#"enabled = false"#;
+        let config: AlertConfig = toml::from_str(toml_str).expect("deserialize");
+        assert!(!config.enabled);
+        // All other fields should get defaults
+        assert_eq!(config.check_interval_secs, 30);
+        assert_eq!(config.feed_silence_threshold_secs, 120);
+        assert_eq!(config.expected_venue_count, 3);
+        assert_eq!(config.signal_gap_threshold_secs, 300);
+        assert_eq!(config.stage_liveness_threshold_secs, 180);
+        assert_eq!(config.alert_cooldown_secs, 300);
+    }
+
+    #[test]
+    fn empty_toml_uses_all_defaults() {
+        let toml_str = "";
+        let config: AlertConfig = toml::from_str(toml_str).expect("deserialize");
+        assert_eq!(config, AlertConfig::default());
+    }
+}
