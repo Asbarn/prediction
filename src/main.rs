@@ -107,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
             tokio::spawn(prediction::shutdown::shutdown_signal(shutdown_token.clone()));
 
             // Start config hot-reload
-            let (_config_reloader, _config_rx) =
+            let (_config_reloader, config_rx) =
                 prediction::config::reload::ConfigReloader::start(
                     cli.config_dir.clone(),
                     config.clone(),
@@ -208,6 +208,43 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!("ContractLifecycleManager started");
             }
 
+            // Config hot-reload: refresh EventRegistry on TOML changes (live mode only)
+            // Replay must be deterministic so we skip config watching in non-live modes.
+            if is_live {
+                let config_cancel = shutdown_token.child_token();
+                let config_registry = event_registry.clone();
+                tokio::spawn(async move {
+                    let mut config_rx = config_rx;
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = config_cancel.cancelled() => {
+                                tracing::debug!("config watch subscriber shutting down");
+                                break;
+                            }
+                            result = config_rx.changed() => {
+                                match result {
+                                    Ok(()) => {
+                                        let new_config = config_rx.borrow_and_update().clone();
+                                        let mut reg = config_registry.write().await;
+                                        reg.refresh(&new_config.events);
+                                        tracing::info!(
+                                            mappings = reg.mapping_count(),
+                                            "EventRegistry refreshed from config hot-reload"
+                                        );
+                                    }
+                                    Err(_) => {
+                                        tracing::debug!("config watch channel closed");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                tracing::info!("config hot-reload subscriber started");
+            }
+
             // -- Phase 8 Pipeline: 3-way Fan-out -> SpreadEngine + PricingEngine + CrossAssetEngine --
             //
             // Pipeline flow:
@@ -306,8 +343,8 @@ async fn main() -> anyhow::Result<()> {
             let (probability_tx, probability_rx) = mpsc::channel::<ImpliedProbability>(1024);
             tokio::spawn(pricing_engine.run(pricing_snap_rx, probability_tx, pricing_cancel));
 
-            // ArbSignal output channel: CrossAssetEngine -> downstream (Phase 9)
-            let (arb_signal_tx, _arb_signal_rx) = mpsc::channel::<ArbSignal>(1024);
+            // ArbSignal output channel: CrossAssetEngine -> downstream consumer
+            let (arb_signal_tx, arb_signal_rx) = mpsc::channel::<ArbSignal>(1024);
 
             // Spawn CrossAssetEngine (consumes probabilities + prediction market snapshots)
             let signal_config = config.system.signal_generation.clone();
@@ -321,6 +358,42 @@ async fn main() -> anyhow::Result<()> {
                 signal_cancel,
                 arb_signal_tx,
             ));
+
+            // ArbSignal consumer: log and meter signals (execution is v2)
+            let arb_cancel = shutdown_token.child_token();
+            tokio::spawn(async move {
+                let mut arb_signal_rx = arb_signal_rx;
+                loop {
+                    tokio::select! {
+                        biased;
+                        _ = arb_cancel.cancelled() => {
+                            tracing::debug!("ArbSignal consumer shutting down");
+                            break;
+                        }
+                        signal = arb_signal_rx.recv() => {
+                            match signal {
+                                Some(sig) => {
+                                    tracing::info!(
+                                        event_id = %sig.event_id,
+                                        direction = ?sig.direction,
+                                        net_edge = %sig.net_edge,
+                                        confidence = sig.confidence,
+                                        signal_id = %sig.signal_id,
+                                        "ArbSignal received"
+                                    );
+                                    metrics::counter!("arb_signals_consumed_total",
+                                        "direction" => format!("{:?}", sig.direction)
+                                    ).increment(1);
+                                }
+                                None => {
+                                    tracing::debug!("ArbSignal channel closed");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
             tracing::info!(
                 near_expiry_cutoff_hours = config.system.pricing.near_expiry_cutoff_hours,

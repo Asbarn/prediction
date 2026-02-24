@@ -313,6 +313,7 @@ async fn multi_venue_replay_pipeline_processes_deribit_recordings() {
         &config,
         0.0, // instant replay
         cancel.clone(),
+        None, // no event registry for test
     )
     .await
     .expect("replay pipeline should start");
@@ -395,6 +396,7 @@ async fn multi_venue_replay_graceful_empty_dir() {
         &config,
         0.0,
         cancel.clone(),
+        None, // no event registry for test
     )
     .await
     .expect("replay pipeline should handle empty dir gracefully");
