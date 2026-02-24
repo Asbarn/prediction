@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 9: Replay and Hardening
+**Current focus:** Phase 10: Critical Pipeline Wiring
 
 ## Current Position
 
-Phase: 9 of 9 (Replay and Hardening)
-Plan: 3 of 3 in current phase
+Phase: 10 of 10 (Critical Pipeline Wiring)
+Plan: 1 of 1 in current phase
 Status: Complete
-Last activity: 2026-02-23 -- Completed 09-03 (VenueHealth wiring to supervisors - OBSV-05 gap closure)
+Last activity: 2026-02-24 -- Completed 10-01 (Critical pipeline wiring - OBSV-04, SGNL-05, OBSV-01 gap closure)
 
-Progress: [##############] 100% All 9 phases complete (3/3 plans done)
+Progress: [##############] 100% All 10 phases complete (1/1 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 27
+- Total plans completed: 28
 - Average duration: 10min
-- Total execution time: ~4.2 hours
+- Total execution time: ~4.3 hours
 
 **By Phase:**
 
@@ -36,9 +36,10 @@ Progress: [##############] 100% All 9 phases complete (3/3 plans done)
 | 07-options-pricing-engine | 5/5 | 33min | 7min |
 | 08-cross-asset-signal-generation | 2/2 | 17min | 9min |
 | 09-replay-and-hardening | 3/3 | 47min | 16min |
+| 10-critical-pipeline-wiring | 1/1 | 6min | 6min |
 
 **Recent Trend:**
-- Last 5 plans: 8min, 7min, 10min, 29min, 12min
+- Last 5 plans: 10min, 29min, 12min, 6min, 6min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -49,6 +50,7 @@ Progress: [##############] 100% All 9 phases complete (3/3 plans done)
 | Phase 09 P01 | 29min | 2 tasks | 13 files |
 | Phase 09 P02 | 12min | 2 tasks | 8 files |
 | Phase 09 P03 | 6min | 1 task | 5 files |
+| Phase 10 P01 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -161,6 +163,10 @@ Recent decisions affecting current work:
 - [Phase 09-02]: forward_snapshots made pub for reuse from replay module
 - [Phase 09-02]: DataMode::Replay routes to run_replay_pipeline (multi-venue) not run_pipeline (single-file)
 - [Phase 09-03]: VenueHealth passed as Arc to supervisor constructors; forward_snapshots uses Option<Arc<VenueHealth>> for replay/mock compatibility
+- [Phase 10-01]: forward_snapshots annotates event_id via EventRegistry lookup before fan-in send
+- [Phase 10-01]: borrow_and_update() in config watch subscriber to properly mark value as seen
+- [Phase 10-01]: Config hot-reload subscriber only spawned in live mode (replay must be deterministic)
+- [Phase 10-01]: ArbSignal consumer uses metrics::counter! with direction label for Prometheus
 
 ### Pending Todos
 
@@ -173,6 +179,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-23
-Stopped at: Completed 09-03-PLAN.md (VenueHealth wiring gap closure) -- ALL PHASES COMPLETE with OBSV-05 closed
-Resume file: .planning/phases/09-replay-and-hardening/09-03-SUMMARY.md
+Last session: 2026-02-24
+Stopped at: Completed 10-01-PLAN.md (Critical pipeline wiring - OBSV-04, SGNL-05, OBSV-01 gap closure)
+Resume file: .planning/phases/10-critical-pipeline-wiring/10-01-SUMMARY.md
