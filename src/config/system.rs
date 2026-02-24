@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::alert::config::AlertConfig;
 use crate::pricing::config::PricingConfig;
 use crate::signal::config::SignalGenerationConfig;
 use crate::spread::config::SpreadConfig;
@@ -34,6 +35,10 @@ pub struct SystemConfig {
     /// Uses `#[serde(default)]` so existing config files without `[health]` still load.
     #[serde(default)]
     pub health: HealthConfig,
+    /// Failure alerting configuration (Phase 14).
+    /// Uses `#[serde(default)]` so existing config files without `[alerting]` still load.
+    #[serde(default)]
+    pub alerting: AlertConfig,
 }
 
 /// Health endpoint configuration.
