@@ -304,6 +304,7 @@ async fn multi_venue_replay_pipeline_processes_deribit_recordings() {
             rate_limit_per_second: 10,
             market_tickers: vec![],
             private_key_path: None,
+            heartbeat_timeout_ms: 30_000,
         },
     };
 
@@ -387,6 +388,7 @@ async fn multi_venue_replay_graceful_empty_dir() {
             rate_limit_per_second: 10,
             market_tickers: vec![],
             private_key_path: None,
+            heartbeat_timeout_ms: 30_000,
         },
     };
 

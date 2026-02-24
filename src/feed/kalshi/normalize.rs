@@ -43,6 +43,9 @@ pub struct KalshiProcessor {
     staleness_threshold_ms: u64,
     books: HashMap<String, KalshiBook>,
     sequence: AtomicU64,
+    /// Last exchange timestamp (ISO 8601) seen from orderbook_delta messages, per market.
+    /// Used for best-effort exchange_timestamp on MarketSnapshot.
+    last_exchange_ts: HashMap<String, String>,
 }
 
 impl KalshiProcessor {
@@ -64,6 +67,7 @@ impl KalshiProcessor {
             staleness_threshold_ms,
             books: HashMap::new(),
             sequence: AtomicU64::new(1),
+            last_exchange_ts: HashMap::new(),
         };
         (processor, snapshot_rx)
     }
@@ -129,6 +133,12 @@ impl KalshiProcessor {
             KalshiMessage::OrderbookDelta(data) => {
                 let book = self.books.entry(data.market_ticker.clone()).or_default();
                 book.apply_delta(&data.side, data.price, data.delta);
+
+                // Track last exchange timestamp from delta (best-effort)
+                if let Some(ref ts) = data.ts {
+                    self.last_exchange_ts
+                        .insert(data.market_ticker.clone(), ts.clone());
+                }
 
                 tracing::debug!(
                     market = %data.market_ticker,
@@ -219,11 +229,36 @@ impl KalshiProcessor {
             })
             .collect();
 
-        // No exchange timestamp available in Kalshi orderbook messages;
-        // staleness is purely time-based from local receipt.
+        // Best-effort exchange timestamp from Kalshi orderbook_delta `ts` field.
+        // Protocol limitation: second-precision ISO 8601, not all message types include ts.
+        // Snapshots after initial connect may have None until first delta arrives.
+        let exchange_ts_ms: Option<i64> =
+            self.last_exchange_ts
+                .get(market_ticker)
+                .and_then(|ts_str| {
+                    chrono::DateTime::parse_from_rfc3339(ts_str)
+                        .map(|dt| dt.timestamp_millis())
+                        .map_err(|e| {
+                            tracing::warn!(
+                                ts = %ts_str,
+                                error = %e,
+                                "failed to parse Kalshi exchange timestamp"
+                            );
+                            e
+                        })
+                        .ok()
+                });
+
         let is_stale = false;
 
-        // Latency metrics
+        // Latency metrics -- only when exchange timestamp available.
+        // Note: Kalshi ts is second-precision ISO 8601; latency values have up to ~999ms jitter.
+        if let Some(exchange_ts) = exchange_ts_ms {
+            let local_ms = received_at.wall().timestamp_millis();
+            let latency_ms = (local_ms - exchange_ts) as f64;
+            metrics::histogram!("feed_latency_ms", "venue" => "kalshi").record(latency_ms);
+            metrics::gauge!("feed_last_latency_ms", "venue" => "kalshi").set(latency_ms);
+        }
         metrics::counter!("feed_messages_total", "venue" => "kalshi").increment(1);
 
         let snapshot = MarketSnapshot {
@@ -249,7 +284,7 @@ impl KalshiProcessor {
             ask_iv: None,
             underlying_price: None,
             underlying_index: None,
-            exchange_timestamp: None,
+            exchange_timestamp: exchange_ts_ms,
             timestamp: received_at,
             sequence: seq,
             trace_id: TraceId::new(),
@@ -435,5 +470,114 @@ mod tests {
         // If best NO bid = 58, YES ask = 42 cents = 0.42
         let ask_cents = 100 - 58;
         assert_eq!(cents_to_probability(ask_cents), Decimal::new(42, 2));
+    }
+
+    #[tokio::test]
+    async fn processor_propagates_exchange_timestamp() {
+        let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
+        let cancel = CancellationToken::new();
+        let (processor, mut snapshot_rx) =
+            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000);
+
+        let handle = tokio::spawn(processor.run());
+
+        // Send a snapshot (no ts field on snapshots)
+        let snapshot_json = r#"{
+            "type": "orderbook_snapshot",
+            "market_ticker": "KXTEST-TS",
+            "yes": [[42, 100]],
+            "no": [[55, 150]]
+        }"#;
+
+        raw_tx
+            .send(RawMessage {
+                text: snapshot_json.to_string(),
+                received_at: ts(),
+            })
+            .await
+            .unwrap();
+
+        let snap = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            snapshot_rx.recv(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        // Snapshot before any delta: exchange_timestamp should be None
+        assert_eq!(snap.exchange_timestamp, None);
+
+        // Send a delta with ts field
+        let delta_json = r#"{
+            "type": "orderbook_delta",
+            "market_ticker": "KXTEST-TS",
+            "price": 48,
+            "delta": 300,
+            "side": "yes",
+            "ts": "2024-01-15T10:30:00Z"
+        }"#;
+
+        raw_tx
+            .send(RawMessage {
+                text: delta_json.to_string(),
+                received_at: ts(),
+            })
+            .await
+            .unwrap();
+
+        let snap = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            snapshot_rx.recv(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        // Delta with ts: exchange_timestamp should be populated
+        // "2024-01-15T10:30:00Z" = 1705314600000 millis
+        assert_eq!(snap.exchange_timestamp, Some(1705314600000));
+
+        cancel.cancel();
+        handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn processor_no_exchange_ts_on_snapshot_only() {
+        let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
+        let cancel = CancellationToken::new();
+        let (processor, mut snapshot_rx) =
+            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000);
+
+        let handle = tokio::spawn(processor.run());
+
+        // Send only a snapshot (no prior delta with ts)
+        let snapshot_json = r#"{
+            "type": "orderbook_snapshot",
+            "market_ticker": "KXTEST-NOTS",
+            "yes": [[50, 200]],
+            "no": [[60, 100]]
+        }"#;
+
+        raw_tx
+            .send(RawMessage {
+                text: snapshot_json.to_string(),
+                received_at: ts(),
+            })
+            .await
+            .unwrap();
+
+        let snap = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            snapshot_rx.recv(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(snap.exchange_timestamp, None);
+
+        cancel.cancel();
+        handle.await.unwrap();
     }
 }
