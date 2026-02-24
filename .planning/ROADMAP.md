@@ -67,11 +67,11 @@ Plans:
   3. Signal analysis accumulator state (counters, running totals) survives restart via checkpoint
   4. Recovery replays JSONL trade events after the checkpoint timestamp to reconstruct any state changes between the last checkpoint and the shutdown
   5. Checkpoint files are written atomically (write-to-temp-then-rename) so partial writes never corrupt the active checkpoint
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 15-01: TBD
-- [ ] 15-02: TBD
+- [ ] 15-01-PLAN.md -- CheckpointState types, atomic write utility, PersistenceConfig, snapshot/restore methods
+- [ ] 15-02-PLAN.md -- Recovery loading, JSONL replay, periodic checkpointing, main.rs integration
 
 ### Phase 16: Settlement Outcome Tracking
 **Goal**: The system knows how prediction market events and options expirations actually resolved, enabling paper trade positions to be settled and providing ground truth for signal analysis
@@ -117,6 +117,6 @@ Phases 14 and 15 can execute in parallel (no dependency between them). Phase 16 
 |-------|-----------|----------------|--------|-----------|
 | 1-13 | v1.0 MVP | 36/36 | Complete | 2026-02-24 |
 | 14. Failure Alerting | 2/2 | Complete    | 2026-02-24 | - |
-| 15. State Persistence | v1.1 | 0/TBD | Not started | - |
+| 15. State Persistence | v1.1 | 0/2 | Planned | - |
 | 16. Settlement Outcome Tracking | v1.1 | 0/TBD | Not started | - |
 | 17. Signal Analysis Tooling | v1.1 | 0/TBD | Not started | - |
