@@ -217,7 +217,10 @@ Plans:
   1. Kalshi supervisor detects dead connections via heartbeat monitoring analogous to Deribit heartbeat protocol
   2. Kalshi feed provides best-effort exchange timestamp estimation and documents the protocol limitation
   3. Kalshi latency metrics emit best-effort values where exchange timestamps are unavailable
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 12-01-PLAN.md -- Kalshi heartbeat timeout, nested message parsing with ts field, exchange timestamp propagation, and latency metrics
 
 ### Phase 13: Phase 4 Verification & Cleanup
 **Goal**: Perform formal goal-backward verification of Phase 4 (Multi-Venue Feeds) requirements and clean up dead code (NormalizedDataSource trait).
