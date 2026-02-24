@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-21)
 ## Current Position
 
 Phase: 11 of 11 (Basis Risk Consumption)
-Plan: 1 of 2 in current phase
-Status: In Progress
-Last activity: 2026-02-24 -- Completed 11-01 (BasisRiskCache types and lifecycle integration)
+Plan: 2 of 2 in current phase
+Status: Complete
+Last activity: 2026-02-24 -- Completed 11-02 (BasisRiskCache engine consumption)
 
-Progress: [##############-] 93% Phase 11 in progress (1/2 plans done)
+Progress: [################] 100% Phase 11 complete (2/2 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 29
+- Total plans completed: 30
 - Average duration: 10min
-- Total execution time: ~4.4 hours
+- Total execution time: ~4.6 hours
 
 **By Phase:**
 
@@ -37,10 +37,10 @@ Progress: [##############-] 93% Phase 11 in progress (1/2 plans done)
 | 08-cross-asset-signal-generation | 2/2 | 17min | 9min |
 | 09-replay-and-hardening | 3/3 | 47min | 16min |
 | 10-critical-pipeline-wiring | 1/1 | 6min | 6min |
-| 11-basis-risk-consumption | 1/2 | 5min | 5min |
+| 11-basis-risk-consumption | 2/2 | 15min | 8min |
 
 **Recent Trend:**
-- Last 5 plans: 29min, 12min, 6min, 6min, 5min
+- Last 5 plans: 12min, 6min, 6min, 5min, 10min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -53,6 +53,7 @@ Progress: [##############-] 93% Phase 11 in progress (1/2 plans done)
 | Phase 09 P03 | 6min | 1 task | 5 files |
 | Phase 10 P01 | 6min | 2 tasks | 4 files |
 | Phase 11 P01 | 5min | 2 tasks | 6 files |
+| Phase 11 P02 | 10min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -174,6 +175,11 @@ Recent decisions affecting current work:
 - [Phase 11-01]: temporal_mismatch_hours reverse-derived from settlement_time_risk / time_per_hour
 - [Phase 11-01]: basis_risk_scale defaults to 0.01 with serde(default) for backward-compatible TOML loading
 - [Phase 11-01]: main.rs updated to pass new_basis_risk_cache() to lifecycle manager constructor (Rule 3 auto-fix)
+- [Phase 11-02]: BasisRiskCache shared across all modes: created before pipeline, passed to lifecycle manager and both engines
+- [Phase 11-02]: Non-blocking try_read() on cache returns zero premium if lock contended (never blocks engine hot path)
+- [Phase 11-02]: Replay/mock pre-populates cache from active_approved() mappings since lifecycle manager doesn't run
+- [Phase 11-02]: Near-expiry threshold inflation: threshold_value *= risk_inflation_factor before status check
+- [Phase 11-02]: basis_risk_premium field uses serde(default) for backward-compatible JSONL deserialization
 
 ### Pending Todos
 
@@ -187,5 +193,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 11-01-PLAN.md (BasisRiskCache types and lifecycle integration)
-Resume file: .planning/phases/11-basis-risk-consumption/11-01-SUMMARY.md
+Stopped at: Completed 11-02-PLAN.md (BasisRiskCache engine consumption -- Phase 11 complete)
+Resume file: .planning/phases/11-basis-risk-consumption/11-02-SUMMARY.md

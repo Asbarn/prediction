@@ -22,7 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 8: Cross-Asset Signal Generation** - Full spread calculation between options-implied probabilities and prediction market prices with signal generation and threshold engine (completed 2026-02-23)
 - [x] **Phase 9: Replay and Hardening** - Deterministic replay from recorded feeds, stable JSONL schema, and health endpoint for operational monitoring (completed 2026-02-23)
 - [x] **Phase 10: Critical Pipeline Wiring** - Fix three broken E2E flows by wiring orphaned channels and populating missing event_id data across venue normalizers and main.rs (completed 2026-02-24)
-- [ ] **Phase 11: BasisRiskScore Downstream Consumption** - Connect BasisRiskScore from EventRegistry to spread and signal cost models for settlement risk premium
+- [x] **Phase 11: BasisRiskScore Downstream Consumption** - Connect BasisRiskScore from EventRegistry to spread and signal cost models for settlement risk premium (completed 2026-02-24)
 - [ ] **Phase 12: Kalshi Feed Hardening** - Add heartbeat monitoring for Kalshi supervisor and handle exchange timestamp protocol limitations
 - [ ] **Phase 13: Phase 4 Verification & Cleanup** - Formal Phase 4 verification and NormalizedDataSource dead code cleanup
 
@@ -246,6 +246,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | 8. Cross-Asset Signal Generation | 2/2 | Complete | 2026-02-23 |
 | 9. Replay and Hardening | 3/3 | Complete | 2026-02-23 |
 | 10. Critical Pipeline Wiring | 1/1 | Complete    | 2026-02-24 |
-| 11. BasisRiskScore Downstream Consumption | 1/2 | In Progress|  |
+| 11. BasisRiskScore Downstream Consumption | 2/2 | Complete   | 2026-02-24 |
 | 12. Kalshi Feed Hardening | 0/0 | Pending | - |
 | 13. Phase 4 Verification & Cleanup | 0/0 | Pending | - |
