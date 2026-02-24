@@ -51,11 +51,11 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   3. System logs a structured warning when no signals have been evaluated for longer than the configured gap threshold
   4. Operator can query Prometheus for active alert conditions (feed silence, partial coverage, signal gap, pipeline stage liveness)
   5. Each pipeline stage (spread computation, signal evaluation, settlement check) has a liveness timestamp that the alert monitor inspects
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 14-01: TBD
-- [ ] 14-02: TBD
+- [ ] 14-01-PLAN.md -- Alert types, config, and pipeline liveness infrastructure
+- [ ] 14-02-PLAN.md -- AlertMonitor implementation and pipeline wiring
 
 ### Phase 15: State Persistence
 **Goal**: Multi-week paper trading sessions survive process restarts without data loss -- paper trade positions, daily rollups, and signal analysis accumulators are recoverable
