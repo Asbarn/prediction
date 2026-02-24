@@ -92,3 +92,75 @@ impl fmt::Debug for PipelineLiveness {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_returns_all_ages_as_none() {
+        let liveness = PipelineLiveness::new();
+        assert!(liveness.last_spread_age_secs().is_none());
+        assert!(liveness.last_signal_eval_age_secs().is_none());
+        assert!(liveness.last_settlement_check_age_secs().is_none());
+    }
+
+    #[test]
+    fn record_spread_then_age_is_small() {
+        let liveness = PipelineLiveness::new();
+        liveness.record_spread();
+        let age = liveness.last_spread_age_secs().expect("should be Some after recording");
+        // Just recorded, so age should be 0 or 1 second at most
+        assert!(age <= 1, "spread age should be <= 1s, got {age}");
+    }
+
+    #[test]
+    fn record_signal_eval_then_age_is_small() {
+        let liveness = PipelineLiveness::new();
+        liveness.record_signal_eval();
+        let age = liveness
+            .last_signal_eval_age_secs()
+            .expect("should be Some after recording");
+        assert!(age <= 1, "signal eval age should be <= 1s, got {age}");
+    }
+
+    #[test]
+    fn record_settlement_check_then_age_is_small() {
+        let liveness = PipelineLiveness::new();
+        liveness.record_settlement_check();
+        let age = liveness
+            .last_settlement_check_age_secs()
+            .expect("should be Some after recording");
+        assert!(age <= 1, "settlement check age should be <= 1s, got {age}");
+    }
+
+    #[test]
+    fn recording_one_stage_does_not_affect_others() {
+        let liveness = PipelineLiveness::new();
+
+        // Record only spread
+        liveness.record_spread();
+
+        // Spread should be Some, others should remain None
+        assert!(liveness.last_spread_age_secs().is_some());
+        assert!(liveness.last_signal_eval_age_secs().is_none());
+        assert!(liveness.last_settlement_check_age_secs().is_none());
+
+        // Record signal eval
+        liveness.record_signal_eval();
+
+        // Now spread and signal should be Some, settlement still None
+        assert!(liveness.last_spread_age_secs().is_some());
+        assert!(liveness.last_signal_eval_age_secs().is_some());
+        assert!(liveness.last_settlement_check_age_secs().is_none());
+    }
+
+    #[test]
+    fn debug_format_shows_ages() {
+        let liveness = PipelineLiveness::new();
+        let debug = format!("{:?}", liveness);
+        assert!(debug.contains("PipelineLiveness"));
+        assert!(debug.contains("spread_age_secs"));
+        assert!(debug.contains("None"));
+    }
+}
