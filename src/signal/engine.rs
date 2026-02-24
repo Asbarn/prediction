@@ -15,6 +15,7 @@ use rust_decimal::Decimal;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::alert::PipelineLiveness;
 use crate::events::registry::EventRegistry;
 use crate::events::risk::BasisRiskCache;
 use crate::pricing::types::ImpliedProbability;
@@ -55,6 +56,8 @@ pub struct CrossAssetEngine {
     /// Optional shared cache of basis risk data per event.
     /// Populated by ContractLifecycleManager, read here for premium and threshold inflation.
     basis_risk_cache: Option<BasisRiskCache>,
+    /// Optional pipeline liveness tracker for AlertMonitor.
+    liveness: Option<Arc<PipelineLiveness>>,
 }
 
 impl CrossAssetEngine {
@@ -71,6 +74,7 @@ impl CrossAssetEngine {
             filtered_count: 0,
             replay_mode: false,
             basis_risk_cache: None,
+            liveness: None,
         }
     }
 
@@ -87,6 +91,12 @@ impl CrossAssetEngine {
     /// and near-expiry threshold inflation.
     pub fn with_basis_risk_cache(mut self, cache: BasisRiskCache) -> Self {
         self.basis_risk_cache = Some(cache);
+        self
+    }
+
+    /// Attach a PipelineLiveness tracker for AlertMonitor stage liveness.
+    pub fn with_liveness(mut self, liveness: Arc<PipelineLiveness>) -> Self {
+        self.liveness = Some(liveness);
         self
     }
 
@@ -567,6 +577,11 @@ impl CrossAssetEngine {
             metrics::histogram!("arb_signal_net_edge_bps").record(net_edge_f64 * 10000.0);
             metrics::histogram!("arb_signal_confidence").record(prob.confidence);
             metrics::counter!("arb_computations_total").increment(1);
+        }
+
+        // Record liveness timestamp for AlertMonitor (Phase 14).
+        if let Some(ref liveness) = self.liveness {
+            liveness.record_signal_eval();
         }
     }
 

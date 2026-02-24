@@ -14,6 +14,7 @@ use rust_decimal::Decimal;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use crate::alert::PipelineLiveness;
 use crate::events::registry::EventRegistry;
 use crate::events::risk::BasisRiskCache;
 use crate::spread::book_walker::{walk_the_book, WalkResult};
@@ -47,6 +48,8 @@ pub struct SpreadEngine {
     /// Optional shared cache of basis risk data per event.
     /// Populated by ContractLifecycleManager, read here for premium calculation.
     basis_risk_cache: Option<BasisRiskCache>,
+    /// Optional pipeline liveness tracker for AlertMonitor.
+    liveness: Option<Arc<PipelineLiveness>>,
 }
 
 impl SpreadEngine {
@@ -61,6 +64,7 @@ impl SpreadEngine {
             signal_count: 0,
             replay_mode: false,
             basis_risk_cache: None,
+            liveness: None,
         }
     }
 
@@ -77,6 +81,12 @@ impl SpreadEngine {
     /// Attach a shared BasisRiskCache for settlement risk premium lookups.
     pub fn with_basis_risk_cache(mut self, cache: BasisRiskCache) -> Self {
         self.basis_risk_cache = Some(cache);
+        self
+    }
+
+    /// Attach a PipelineLiveness tracker for AlertMonitor stage liveness.
+    pub fn with_liveness(mut self, liveness: Arc<PipelineLiveness>) -> Self {
+        self.liveness = Some(liveness);
         self
     }
 
@@ -292,6 +302,11 @@ impl SpreadEngine {
                 // Send to paper trade tracker (best effort)
                 let _ = signal_tx.try_send(result);
             }
+        }
+
+        // Record liveness timestamp for AlertMonitor (Phase 14).
+        if let Some(ref liveness) = self.liveness {
+            liveness.record_spread();
         }
     }
 
