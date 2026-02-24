@@ -25,7 +25,7 @@ use crate::events::discovery::{
     find_cross_venue_candidates, flag_novel_instruments, DiscoveredInstrument,
 };
 use crate::events::registry::EventRegistry;
-use crate::events::risk::{check_expiry_warning, inflate_risk_score, compute_risk_for_mapping};
+use crate::events::risk::{check_expiry_warning, inflate_risk_score, compute_risk_for_mapping, BasisRiskCache, CachedRiskInfo};
 use crate::events::toml_writer::{append_candidate_to_toml, mark_expired_in_toml, CandidateMapping, CandidateVenues};
 use crate::feed::kalshi::auth::load_kalshi_private_key;
 use crate::types::Venue;
@@ -47,12 +47,15 @@ pub struct ContractLifecycleManager {
     venues_config: VenuesConfig,
     credentials: Credentials,
     cancel: CancellationToken,
+    basis_risk_cache: BasisRiskCache,
 }
 
 impl ContractLifecycleManager {
     /// Create a new lifecycle manager.
     ///
     /// The reqwest::Client is created internally (connection pooling).
+    /// `basis_risk_cache` is populated every poll cycle with risk info for
+    /// all active_approved mappings, enabling downstream engine consumption.
     pub fn new(
         registry: Arc<RwLock<EventRegistry>>,
         events_toml_path: PathBuf,
@@ -62,6 +65,7 @@ impl ContractLifecycleManager {
         venues_config: VenuesConfig,
         credentials: Credentials,
         cancel: CancellationToken,
+        basis_risk_cache: BasisRiskCache,
     ) -> Self {
         Self {
             registry,
@@ -73,6 +77,7 @@ impl ContractLifecycleManager {
             venues_config,
             credentials,
             cancel,
+            basis_risk_cache,
         }
     }
 
@@ -396,6 +401,67 @@ impl ContractLifecycleManager {
 
         metrics::gauge!("lifecycle_expiry_warnings").set(warning_count as f64);
         drop(registry);
+
+        // 6b. Populate BasisRiskCache for downstream engines
+        {
+            let registry = self.registry.read().await;
+            let mut cache = self.basis_risk_cache.write().await;
+            cache.clear(); // Rebuild from scratch each cycle (evicts expired)
+            let now = Utc::now();
+
+            for mapping in registry.active_approved() {
+                let base_score = match compute_risk_for_mapping(mapping, &self.risk_weights) {
+                    Some(s) => s,
+                    None => continue, // no settlement metadata
+                };
+
+                // Parse expiry for warning check
+                let expiry_date = match NaiveDate::parse_from_str(&mapping.expiry, "%Y-%m-%d") {
+                    Ok(d) => d,
+                    Err(_) => {
+                        // Still cache the base score without expiry warning
+                        let temporal_mismatch_hours = base_score.settlement_time_risk
+                            / self.risk_weights.time_per_hour.max(0.001);
+                        cache.insert(mapping.id.clone(), CachedRiskInfo {
+                            effective_composite: base_score.composite,
+                            temporal_mismatch_hours,
+                            base_score,
+                            expiry_warning: None,
+                            updated_at: now,
+                        });
+                        continue;
+                    }
+                };
+                let expiry_time = NaiveTime::from_hms_opt(8, 0, 0).unwrap();
+                let expiry_datetime = match Utc.from_local_datetime(&expiry_date.and_time(expiry_time)).single() {
+                    Some(dt) => dt,
+                    None => continue,
+                };
+
+                let expiry_warning = check_expiry_warning(&expiry_datetime, &now, &self.expiry_thresholds);
+
+                let effective_composite = match &expiry_warning {
+                    Some(w) => inflate_risk_score(&base_score, w.risk_inflation_factor).composite,
+                    None => base_score.composite,
+                };
+
+                let temporal_mismatch_hours = base_score.settlement_time_risk
+                    / self.risk_weights.time_per_hour.max(0.001);
+
+                cache.insert(mapping.id.clone(), CachedRiskInfo {
+                    base_score,
+                    expiry_warning,
+                    effective_composite,
+                    temporal_mismatch_hours,
+                    updated_at: now,
+                });
+            }
+
+            tracing::debug!(
+                cache_entries = cache.len(),
+                "BasisRiskCache refreshed"
+            );
+        }
 
         // 7. Refresh runtime registry if TOML was modified
         if toml_modified {

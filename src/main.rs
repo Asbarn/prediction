@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 use prediction::config::DiscoveryConfig;
 use prediction::events::lifecycle::ContractLifecycleManager;
 use prediction::events::registry::EventRegistry;
+use prediction::events::new_basis_risk_cache;
 use prediction::feed::pipeline::{self, DataMode};
 use prediction::health::{HealthState, start_health_server};
 use prediction::paper_trade::tracker::PaperTradeTracker;
@@ -194,6 +195,7 @@ async fn main() -> anyhow::Result<()> {
                     .clone()
                     .unwrap_or_default();
                 let lifecycle_cancel = shutdown_token.child_token();
+                let basis_risk_cache = new_basis_risk_cache();
                 let lifecycle_manager = ContractLifecycleManager::new(
                     event_registry.clone(),
                     cli.config_dir.join("events.toml"),
@@ -203,6 +205,7 @@ async fn main() -> anyhow::Result<()> {
                     config.venues.clone(),
                     config.credentials.clone(),
                     lifecycle_cancel,
+                    basis_risk_cache,
                 );
                 tokio::spawn(lifecycle_manager.run());
                 tracing::info!("ContractLifecycleManager started");
