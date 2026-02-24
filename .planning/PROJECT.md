@@ -39,7 +39,12 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ### Active
 
-(No active requirements -- define next milestone with `/gsd:new-milestone`)
+<!-- Current scope: v1.1 Paper Trading Validation -->
+
+- [ ] Settlement outcome tracking from prediction markets and options expirations
+- [ ] Signal analysis tooling (hit rate, edge, false positive rate, time-to-convergence)
+- [ ] Failure alerting for degraded states (stale data, partial feeds, silent failures)
+- [ ] Minimal file-based state persistence for paper P&L and signal history
 
 ### Out of Scope
 
@@ -93,5 +98,15 @@ Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prome
 | Non-blocking try_send for secondary engines | Primary engine (SpreadEngine) blocking, others best-effort | v1.0 Validated -- no pipeline stalls |
 | BasisRiskCache with try_read | Never blocks engine hot path; zero premium on lock contention | v1.0 Validated -- no measurable latency impact |
 
+## Current Milestone: v1.1 Paper Trading Validation
+
+**Goal:** Prove signal quality is real and the system is operationally trustworthy enough for extended unattended paper trading.
+
+**Target features:**
+- Settlement outcome tracking from venues, compared against generated signals
+- Signal analysis tools: hit rate, edge measurement, false positive rate, time-to-convergence
+- Failure alerting beyond reconnection — detect stale data, partial feeds, silent degradation
+- Minimal file-based state persistence for paper P&L and signal history
+
 ---
-*Last updated: 2026-02-24 after v1.0 milestone*
+*Last updated: 2026-02-24 after v1.1 milestone started*
