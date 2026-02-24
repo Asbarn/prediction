@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use chrono::{NaiveDate, NaiveTime, TimeZone};
 use clap::{Parser, Subcommand};
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -9,6 +10,7 @@ use prediction::config::DiscoveryConfig;
 use prediction::events::lifecycle::ContractLifecycleManager;
 use prediction::events::registry::EventRegistry;
 use prediction::events::new_basis_risk_cache;
+use prediction::events::risk::{compute_risk_for_mapping, check_expiry_warning, inflate_risk_score, CachedRiskInfo};
 use prediction::feed::pipeline::{self, DataMode};
 use prediction::health::{HealthState, start_health_server};
 use prediction::paper_trade::tracker::PaperTradeTracker;
@@ -156,6 +158,46 @@ async fn main() -> anyhow::Result<()> {
                 EventRegistry::from_config(&config.events),
             ));
 
+            // Create shared BasisRiskCache for settlement risk data
+            let basis_risk_cache = new_basis_risk_cache();
+
+            // Pre-populate cache for replay/mock mode (lifecycle manager doesn't run)
+            if !is_live {
+                let risk_weights = config.events.risk_weights.clone().unwrap_or_default();
+                let expiry_thresholds = &config.events.expiry_thresholds;
+                let reg = event_registry.read().await;
+                let mut cache = basis_risk_cache.write().await;
+                let now = chrono::Utc::now();
+                for mapping in reg.active_approved() {
+                    if let Some(base_score) = compute_risk_for_mapping(mapping, &risk_weights) {
+                        let expiry_date = NaiveDate::parse_from_str(&mapping.expiry, "%Y-%m-%d").ok();
+                        let expiry_warning = expiry_date.and_then(|d| {
+                            let t = NaiveTime::from_hms_opt(8, 0, 0)?;
+                            let dt = chrono::Utc.from_local_datetime(&d.and_time(t)).single()?;
+                            check_expiry_warning(&dt, &now, expiry_thresholds)
+                        });
+                        let effective_composite = match &expiry_warning {
+                            Some(w) => inflate_risk_score(&base_score, w.risk_inflation_factor).composite,
+                            None => base_score.composite,
+                        };
+                        let temporal_mismatch_hours = base_score.settlement_time_risk
+                            / risk_weights.time_per_hour.max(0.001);
+                        cache.insert(mapping.id.clone(), CachedRiskInfo {
+                            base_score,
+                            expiry_warning,
+                            effective_composite,
+                            temporal_mismatch_hours,
+                            updated_at: now,
+                        });
+                    }
+                }
+                if !cache.is_empty() {
+                    tracing::info!(entries = cache.len(), "BasisRiskCache pre-populated for replay/mock mode");
+                }
+                drop(cache);
+                drop(reg);
+            }
+
             // Start the multi-venue pipeline
             let recording_dir = PathBuf::from("recordings");
             let pipeline_handles = pipeline::run_multi_venue_pipeline(
@@ -195,7 +237,6 @@ async fn main() -> anyhow::Result<()> {
                     .clone()
                     .unwrap_or_default();
                 let lifecycle_cancel = shutdown_token.child_token();
-                let basis_risk_cache = new_basis_risk_cache();
                 let lifecycle_manager = ContractLifecycleManager::new(
                     event_registry.clone(),
                     cli.config_dir.join("events.toml"),
@@ -205,7 +246,7 @@ async fn main() -> anyhow::Result<()> {
                     config.venues.clone(),
                     config.credentials.clone(),
                     lifecycle_cancel,
-                    basis_risk_cache,
+                    basis_risk_cache.clone(),
                 );
                 tokio::spawn(lifecycle_manager.run());
                 tracing::info!("ContractLifecycleManager started");
@@ -322,7 +363,8 @@ async fn main() -> anyhow::Result<()> {
             // Spawn SpreadEngine (receives from fan-out, not directly from pipeline)
             let spread_config = config.system.spread.clone();
             let spread_engine = SpreadEngine::new(spread_config)
-                .with_replay_mode(is_replay);
+                .with_replay_mode(is_replay)
+                .with_basis_risk_cache(basis_risk_cache.clone());
             let spread_cancel = shutdown_token.child_token();
             tokio::spawn(spread_engine.run(
                 spread_snap_rx,
@@ -352,7 +394,8 @@ async fn main() -> anyhow::Result<()> {
             // Spawn CrossAssetEngine (consumes probabilities + prediction market snapshots)
             let signal_config = config.system.signal_generation.clone();
             let signal_engine = CrossAssetEngine::new(signal_config)
-                .with_replay_mode(is_replay);
+                .with_replay_mode(is_replay)
+                .with_basis_risk_cache(basis_risk_cache.clone());
             let signal_cancel = shutdown_token.child_token();
             tokio::spawn(signal_engine.run(
                 probability_rx,
