@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 
 ## Current Position
 
-Phase: 15 of 17 (State Persistence)
-Plan: 1 of 2 complete
-Status: Executing phase 15
-Last activity: 2026-02-24 -- Completed 15-01 (Persistence foundation types and utilities)
+Phase: 15 of 17 (State Persistence) -- COMPLETE
+Plan: 2 of 2 complete
+Status: Phase 15 complete
+Last activity: 2026-02-24 -- Completed 15-02 (Checkpoint loop, startup recovery, JSONL replay)
 
-Progress: [########################......] 78% (v1.0: 36/36 plans | v1.1: 3/TBD plans)
+Progress: [#########################.....] 80% (v1.0: 36/36 plans | v1.1: 5/TBD plans)
 
 ## Performance Metrics
 
@@ -26,7 +26,7 @@ Progress: [########################......] 78% (v1.0: 36/36 plans | v1.1: 3/TBD 
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1:**
-- Plans completed: 3
+- Plans completed: 5
 - Phases: 4 (14-17)
 
 | Phase | Plan | Duration | Tasks | Files |
@@ -34,6 +34,7 @@ Progress: [########################......] 78% (v1.0: 36/36 plans | v1.1: 3/TBD 
 | 14-failure-alerting | 01 | 7min | 3 | 6 |
 | 14-failure-alerting | 02 | 14min | 3 | 8 |
 | 15-state-persistence | 01 | 7min | 2 | 7 |
+| 15-state-persistence | 02 | 8min | 2 | 4 |
 
 ## Accumulated Context
 
@@ -53,6 +54,9 @@ Recent decisions:
 - 14-02: Startup grace period for signal gap avoids false alarms during pipeline warmup
 - 15-01: Deserialize added to DailyRollup in Task 1 (pulled forward) to unblock CheckpointState compilation
 - 15-01: CheckpointState version is u32 (not semver string) for compact schema evolution
+- 15-02: Checkpoint tick uses Duration::from_secs(u64::MAX) when persistence disabled to avoid overhead
+- 15-02: Final checkpoint after trade_logger.flush() ensures JSONL completeness up to checkpoint timestamp
+- 15-02: Recovery errors degrade gracefully with warnings, never block startup
 
 ### Pending Todos
 
@@ -69,5 +73,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 15-01-PLAN.md (Persistence foundation types and utilities)
-Next action: Execute 15-02 (checkpoint loop, startup recovery, JSONL replay)
+Stopped at: Completed 15-02-PLAN.md (Checkpoint loop, startup recovery, JSONL replay)
+Next action: Research and plan phase 16 (Settlement monitoring)
