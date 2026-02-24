@@ -202,7 +202,11 @@ Plans:
   1. SpreadEngine cost model includes settlement basis risk premium derived from BasisRiskScore
   2. Near-expiry inflation flags from ContractLifecycleManager are exposed to signal threshold adjustment
   3. CrossAssetEngine receives and uses expiry temporal mismatch data in spread calculations
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 11-01-PLAN.md -- BasisRiskCache types, config fields, and ContractLifecycleManager cache population
+- [ ] 11-02-PLAN.md -- Wire cache into SpreadEngine and CrossAssetEngine cost models, near-expiry threshold adjustment, main.rs integration
 
 ### Phase 12: Kalshi Feed Hardening
 **Goal**: Add heartbeat/dead-connection detection to the Kalshi supervisor and handle the Kalshi protocol limitation of missing exchange timestamps with best-effort estimation.
