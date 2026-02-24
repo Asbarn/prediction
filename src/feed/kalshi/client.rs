@@ -11,6 +11,7 @@
 use futures_util::{SinkExt, StreamExt};
 use rsa::RsaPrivateKey;
 use tokio::sync::mpsc;
+use tokio::time::{Duration, Instant};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
@@ -134,10 +135,16 @@ impl KalshiClient {
 
         // Spawn the WS reader loop as a background task
         let cancel = self.cancel.clone();
+        let heartbeat_timeout_ms = self.config.heartbeat_timeout_ms;
         tokio::spawn(async move {
             tracing::debug!("Kalshi WS loop started");
 
+            let timeout_duration = Duration::from_millis(heartbeat_timeout_ms);
+            let mut last_message_at = Instant::now();
+
             loop {
+                let timeout_deadline = last_message_at + timeout_duration;
+
                 tokio::select! {
                     biased;
 
@@ -147,9 +154,24 @@ impl KalshiClient {
                         break;
                     }
 
+                    // Dead-connection timeout: no messages/pings received within threshold.
+                    // Kalshi sends Ping every ~10s; timeout at 3x (30s default) detects dead connections.
+                    // Supervisor will reconnect after this break.
+                    _ = tokio::time::sleep_until(timeout_deadline) => {
+                        let elapsed = last_message_at.elapsed();
+                        tracing::warn!(
+                            elapsed_ms = elapsed.as_millis() as u64,
+                            timeout_ms = timeout_duration.as_millis() as u64,
+                            "Kalshi heartbeat timeout -- no messages/pings received, connection assumed dead"
+                        );
+                        metrics::counter!("feed_heartbeat_timeouts", "venue" => "kalshi").increment(1);
+                        break;
+                    }
+
                     msg = read.next() => {
                         match msg {
                             Some(Ok(Message::Text(text))) => {
+                                last_message_at = Instant::now();
                                 let text_str = text.to_string();
 
                                 let raw = RawMessage {
@@ -172,12 +194,16 @@ impl KalshiClient {
                             }
                             Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) => {
                                 // tokio-tungstenite handles pong automatically.
+                                // Update liveness tracker -- these ARE the Kalshi heartbeat.
+                                last_message_at = Instant::now();
                             }
                             Some(Ok(Message::Binary(_))) => {
                                 tracing::debug!("ignoring binary Kalshi WS frame");
+                                last_message_at = Instant::now();
                             }
                             Some(Ok(Message::Frame(_))) => {
-                                // Raw frame -- ignore.
+                                // Raw frame -- ignore but update liveness.
+                                last_message_at = Instant::now();
                             }
                             Some(Err(e)) => {
                                 tracing::error!(error = %e, "Kalshi WS read error");

@@ -155,8 +155,17 @@ pub struct KalshiConfig {
     pub market_tickers: Vec<String>,
     /// Path to RSA private key PEM file (alternative to KALSHI_PRIVATE_KEY env var).
     pub private_key_path: Option<String>,
+    /// Heartbeat timeout in milliseconds. If no message (including WS Ping/Pong)
+    /// is received within this duration, the connection is assumed dead. Default
+    /// 30000ms (3x Kalshi's 10s Ping interval).
+    #[serde(default = "default_kalshi_heartbeat_timeout")]
+    pub heartbeat_timeout_ms: u64,
 }
 
 fn default_kalshi_rate_limit() -> u32 {
     10
+}
+
+fn default_kalshi_heartbeat_timeout() -> u64 {
+    30_000
 }
