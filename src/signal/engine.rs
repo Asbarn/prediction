@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::events::registry::EventRegistry;
+use crate::events::risk::BasisRiskCache;
 use crate::pricing::types::ImpliedProbability;
 use crate::signal::config::SignalGenerationConfig;
 use crate::signal::logger::SignalLogger;
@@ -51,6 +52,9 @@ pub struct CrossAssetEngine {
     /// When true, wall-clock staleness gates are bypassed.
     /// Used in replay mode where historical data would otherwise be rejected.
     replay_mode: bool,
+    /// Optional shared cache of basis risk data per event.
+    /// Populated by ContractLifecycleManager, read here for premium and threshold inflation.
+    basis_risk_cache: Option<BasisRiskCache>,
 }
 
 impl CrossAssetEngine {
@@ -66,6 +70,7 @@ impl CrossAssetEngine {
             signal_count: 0,
             filtered_count: 0,
             replay_mode: false,
+            basis_risk_cache: None,
         }
     }
 
@@ -76,6 +81,55 @@ impl CrossAssetEngine {
     pub fn with_replay_mode(mut self, replay: bool) -> Self {
         self.replay_mode = replay;
         self
+    }
+
+    /// Attach a shared BasisRiskCache for settlement risk premium lookups
+    /// and near-expiry threshold inflation.
+    pub fn with_basis_risk_cache(mut self, cache: BasisRiskCache) -> Self {
+        self.basis_risk_cache = Some(cache);
+        self
+    }
+
+    /// Look up basis risk premium for an event from the shared cache.
+    /// Returns Decimal::ZERO if cache is not configured or event has no entry.
+    fn lookup_basis_risk_premium(&self, event_id: &str) -> Decimal {
+        let cache = match &self.basis_risk_cache {
+            Some(c) => c,
+            None => return Decimal::ZERO,
+        };
+        let guard = match cache.try_read() {
+            Ok(g) => g,
+            Err(_) => return Decimal::ZERO,
+        };
+        match guard.get(event_id) {
+            Some(info) => {
+                Decimal::from_f64(info.effective_composite)
+                    .unwrap_or(Decimal::ZERO)
+                    * self.config.basis_risk_scale
+            }
+            None => Decimal::ZERO,
+        }
+    }
+
+    /// Look up near-expiry inflation factor for threshold adjustment.
+    /// Returns Decimal::ONE if no expiry warning or cache not configured.
+    fn lookup_expiry_threshold_inflation(&self, event_id: &str) -> Decimal {
+        let cache = match &self.basis_risk_cache {
+            Some(c) => c,
+            None => return Decimal::ONE,
+        };
+        let guard = match cache.try_read() {
+            Ok(g) => g,
+            Err(_) => return Decimal::ONE,
+        };
+        match guard.get(event_id) {
+            Some(info) => match &info.expiry_warning {
+                Some(w) => Decimal::from_f64(w.risk_inflation_factor)
+                    .unwrap_or(Decimal::ONE),
+                None => Decimal::ONE,
+            },
+            None => Decimal::ONE,
+        }
     }
 
     /// Main event loop: consume probabilities and prediction market snapshots,
@@ -368,9 +422,12 @@ impl CrossAssetEngine {
             };
             let liquidity_factor = pred_liquidity_factor.min(options_liquidity_factor);
 
+            // Basis risk premium from settlement risk cache
+            let basis_risk_premium = self.lookup_basis_risk_premium(event_id);
+
             // Total cost (excluding liquidity factor, which multiplies edge)
             let total_cost =
-                prediction_fee + options_fee_estimate + carry + prediction_slippage + options_spread_cost;
+                prediction_fee + options_fee_estimate + carry + prediction_slippage + options_spread_cost + basis_risk_premium;
 
             // Net edge = (raw_spread - total_cost) * liquidity_factor
             let net_edge = (raw_spread - total_cost) * liquidity_factor;
@@ -390,6 +447,10 @@ impl CrossAssetEngine {
                 walk.fill_ratio(),
                 Decimal::ONE, // options side has no walk equivalent
             );
+
+            // Tighten threshold for near-expiry events (EVNT-05)
+            let expiry_inflation = self.lookup_expiry_threshold_inflation(event_id);
+            let threshold_value = threshold_value * expiry_inflation;
 
             let threshold_status = if net_edge > threshold_value {
                 ThresholdStatus::PassedBoth
@@ -477,6 +538,7 @@ impl CrossAssetEngine {
                     carry_cost: carry,
                     prediction_slippage,
                     options_spread_cost,
+                    basis_risk_premium,
                     liquidity_factor,
                     total_cost,
                 },

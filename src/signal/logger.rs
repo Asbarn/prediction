@@ -169,6 +169,7 @@ mod tests {
                 carry_cost: dec("0.002"),
                 prediction_slippage: dec("0.001"),
                 options_spread_cost: dec("0.003"),
+                basis_risk_premium: dec("0"),
                 liquidity_factor: dec("0.95"),
                 total_cost: dec("0.0113"),
             },

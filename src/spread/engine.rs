@@ -15,6 +15,7 @@ use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::events::registry::EventRegistry;
+use crate::events::risk::BasisRiskCache;
 use crate::spread::book_walker::{walk_the_book, WalkResult};
 use crate::spread::config::SpreadConfig;
 use crate::spread::cost_model::{carry_cost, kalshi_taker_fee, polymarket_fee};
@@ -43,6 +44,9 @@ pub struct SpreadEngine {
     /// When true, wall-clock staleness gates are bypassed.
     /// Used in replay mode where historical data would otherwise be rejected.
     replay_mode: bool,
+    /// Optional shared cache of basis risk data per event.
+    /// Populated by ContractLifecycleManager, read here for premium calculation.
+    basis_risk_cache: Option<BasisRiskCache>,
 }
 
 impl SpreadEngine {
@@ -56,6 +60,7 @@ impl SpreadEngine {
             logger,
             signal_count: 0,
             replay_mode: false,
+            basis_risk_cache: None,
         }
     }
 
@@ -67,6 +72,36 @@ impl SpreadEngine {
     pub fn with_replay_mode(mut self, replay: bool) -> Self {
         self.replay_mode = replay;
         self
+    }
+
+    /// Attach a shared BasisRiskCache for settlement risk premium lookups.
+    pub fn with_basis_risk_cache(mut self, cache: BasisRiskCache) -> Self {
+        self.basis_risk_cache = Some(cache);
+        self
+    }
+
+    /// Look up basis risk premium for an event from the shared cache.
+    /// Returns Decimal::ZERO if cache is not configured or event has no entry.
+    fn lookup_basis_risk_premium(&self, event_id: &str) -> Decimal {
+        use rust_decimal::prelude::FromPrimitive;
+
+        let cache = match &self.basis_risk_cache {
+            Some(c) => c,
+            None => return Decimal::ZERO,
+        };
+        // Non-blocking read -- if lock is contended, return zero
+        let guard = match cache.try_read() {
+            Ok(g) => g,
+            Err(_) => return Decimal::ZERO,
+        };
+        match guard.get(event_id) {
+            Some(info) => {
+                Decimal::from_f64(info.effective_composite)
+                    .unwrap_or(Decimal::ZERO)
+                    * self.config.basis_risk_scale
+            }
+            None => Decimal::ZERO,
+        }
     }
 
     /// Main event loop: consume snapshots, compute spreads, emit signals.
@@ -188,8 +223,11 @@ impl SpreadEngine {
             // Compute carry cost
             let carry = carry_cost(self.config.target_notional, &self.config.carry);
 
+            // Settlement basis risk premium
+            let basis_risk_premium = self.lookup_basis_risk_premium(&event_id);
+
             // Total cost
-            let total_cost = buy_fee + sell_fee + carry;
+            let total_cost = buy_fee + sell_fee + carry + basis_risk_premium;
 
             // Net spread: sell_fill_price - buy_fill_price - total_cost
             let net_spread = sell_walk.avg_fill_price - buy_walk.avg_fill_price - total_cost;
@@ -223,6 +261,7 @@ impl SpreadEngine {
                 sell_fee,
                 carry_cost: carry,
                 total_cost,
+                basis_risk_premium,
                 buy_fill_ratio: buy_walk.fill_ratio(),
                 sell_fill_ratio: sell_walk.fill_ratio(),
                 target_notional: self.config.target_notional,

@@ -67,6 +67,11 @@ pub struct CostBreakdown {
     /// Cost from options bid-ask spread.
     #[serde(with = "rust_decimal::serde::str")]
     pub options_spread_cost: Decimal,
+    /// Settlement basis risk premium (from BasisRiskCache).
+    /// Zero if no risk data available for this event.
+    #[serde(default)]
+    #[serde(with = "rust_decimal::serde::str")]
+    pub basis_risk_premium: Decimal,
     /// Liquidity adjustment factor (0.0-1.0 penalty for thin books).
     #[serde(with = "rust_decimal::serde::str")]
     pub liquidity_factor: Decimal,
@@ -212,6 +217,7 @@ mod tests {
             carry_cost: dec("0.002"),
             prediction_slippage: dec("0.001"),
             options_spread_cost: dec("0.003"),
+            basis_risk_premium: dec("0"),
             liquidity_factor: dec("0.95"),
             total_cost: dec("0.0113"),
         }

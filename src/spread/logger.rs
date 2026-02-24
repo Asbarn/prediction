@@ -130,6 +130,7 @@ mod tests {
             sell_fee: dec("0.007"),
             carry_cost: dec("0.002"),
             total_cost: dec("0.014"),
+            basis_risk_premium: dec("0"),
             buy_fill_ratio: dec("1.0"),
             sell_fill_ratio: dec("0.95"),
             target_notional: dec("500"),

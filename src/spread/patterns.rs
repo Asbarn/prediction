@@ -170,7 +170,8 @@ pub fn compute_gross_spread(
 /// | `buy_fee` | string (decimal) | Fee paid on buy side |
 /// | `sell_fee` | string (decimal) | Fee paid on sell side |
 /// | `carry_cost` | string (decimal) | Carry cost for holding the position |
-/// | `total_cost` | string (decimal) | Total cost (buy_fee + sell_fee + carry_cost) |
+/// | `total_cost` | string (decimal) | Total cost (buy_fee + sell_fee + carry_cost + basis_risk_premium) |
+/// | `basis_risk_premium` | string (decimal) | Settlement basis risk premium from BasisRiskCache |
 /// | `buy_fill_ratio` | string (decimal) | Ratio of filled vs target on buy side |
 /// | `sell_fill_ratio` | string (decimal) | Ratio of filled vs target on sell side |
 /// | `target_notional` | string (decimal) | Target notional for walk-the-book |
@@ -206,9 +207,14 @@ pub struct SpreadResult {
     /// Carry cost for holding the position.
     #[serde(with = "rust_decimal::serde::str")]
     pub carry_cost: Decimal,
-    /// Total cost (buy_fee + sell_fee + carry_cost).
+    /// Total cost (buy_fee + sell_fee + carry_cost + basis_risk_premium).
     #[serde(with = "rust_decimal::serde::str")]
     pub total_cost: Decimal,
+    /// Settlement basis risk premium (from BasisRiskCache).
+    /// Zero if no risk data available for this event.
+    #[serde(default)]
+    #[serde(with = "rust_decimal::serde::str")]
+    pub basis_risk_premium: Decimal,
     /// Ratio of filled vs target notional on buy side (1.0 = full fill).
     #[serde(with = "rust_decimal::serde::str")]
     pub buy_fill_ratio: Decimal,
@@ -493,6 +499,7 @@ mod tests {
             sell_fee: dec("0.007"),
             carry_cost: dec("0.002"),
             total_cost: dec("0.014"),
+            basis_risk_premium: dec("0"),
             buy_fill_ratio: dec("1.0"),
             sell_fill_ratio: dec("0.95"),
             target_notional: dec("500"),
@@ -534,6 +541,7 @@ mod tests {
             sell_fee: dec("0.004"),
             carry_cost: dec("0.001"),
             total_cost: dec("0.008"),
+            basis_risk_premium: dec("0"),
             buy_fill_ratio: dec("1.0"),
             sell_fill_ratio: dec("1.0"),
             target_notional: dec("500"),
