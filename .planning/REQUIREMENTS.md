@@ -30,10 +30,10 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 ### Event Mapping
 
 - [ ] **EVNT-01**: Config-driven event registry (TOML) maps equivalent instruments across Polymarket, Kalshi, and Deribit using structured fields (asset, strike, expiry, direction)
-- [ ] **EVNT-02**: Settlement basis analyzer quantifies per-mapping: expiry/settlement time differences, settlement source differences, resolution criteria differences, producing a basis_risk_score
-- [ ] **EVNT-03**: Expiry alignment validation quantifies temporal mismatch between options expiry (Deribit Friday 08:00 UTC) and prediction market resolution as basis risk
+- [x] **EVNT-02**: Settlement basis analyzer quantifies per-mapping: expiry/settlement time differences, settlement source differences, resolution criteria differences, producing a basis_risk_score
+- [x] **EVNT-03**: Expiry alignment validation quantifies temporal mismatch between options expiry (Deribit Friday 08:00 UTC) and prediction market resolution as basis risk
 - [ ] **EVNT-04**: Contract lifecycle manager continuously discovers new contracts, detects expiring/expired ones, and handles Deribit expiry rolls — not just at startup
-- [ ] **EVNT-05**: Contracts approaching expiry receive special handling flags (pricing character change, liquidity warnings, elevated settlement risk)
+- [x] **EVNT-05**: Contracts approaching expiry receive special handling flags (pricing character change, liquidity warnings, elevated settlement risk)
 
 ### Pricing Engine
 
@@ -139,10 +139,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | RELY-05 | Phase 3 | Pending |
 | RELY-06 | Phase 1 | Complete |
 | EVNT-01 | Phase 5 | Pending |
-| EVNT-02 | Phase 11 | Pending |
-| EVNT-03 | Phase 11 | Pending |
+| EVNT-02 | Phase 11 | Complete |
+| EVNT-03 | Phase 11 | Complete |
 | EVNT-04 | Phase 5 | Pending |
-| EVNT-05 | Phase 11 | Pending |
+| EVNT-05 | Phase 11 | Complete |
 | PRIC-01 | Phase 7 | Complete |
 | PRIC-02 | Phase 7 | Complete |
 | PRIC-03 | Phase 7 | Complete |

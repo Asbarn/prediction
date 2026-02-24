@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 10: Critical Pipeline Wiring
+**Current focus:** Phase 11: Basis Risk Consumption
 
 ## Current Position
 
-Phase: 10 of 10 (Critical Pipeline Wiring)
-Plan: 1 of 1 in current phase
-Status: Complete
-Last activity: 2026-02-24 -- Completed 10-01 (Critical pipeline wiring - OBSV-04, SGNL-05, OBSV-01 gap closure)
+Phase: 11 of 11 (Basis Risk Consumption)
+Plan: 1 of 2 in current phase
+Status: In Progress
+Last activity: 2026-02-24 -- Completed 11-01 (BasisRiskCache types and lifecycle integration)
 
-Progress: [##############] 100% All 10 phases complete (1/1 plans done)
+Progress: [##############-] 93% Phase 11 in progress (1/2 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 28
+- Total plans completed: 29
 - Average duration: 10min
-- Total execution time: ~4.3 hours
+- Total execution time: ~4.4 hours
 
 **By Phase:**
 
@@ -37,9 +37,10 @@ Progress: [##############] 100% All 10 phases complete (1/1 plans done)
 | 08-cross-asset-signal-generation | 2/2 | 17min | 9min |
 | 09-replay-and-hardening | 3/3 | 47min | 16min |
 | 10-critical-pipeline-wiring | 1/1 | 6min | 6min |
+| 11-basis-risk-consumption | 1/2 | 5min | 5min |
 
 **Recent Trend:**
-- Last 5 plans: 10min, 29min, 12min, 6min, 6min
+- Last 5 plans: 29min, 12min, 6min, 6min, 5min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -51,6 +52,7 @@ Progress: [##############] 100% All 10 phases complete (1/1 plans done)
 | Phase 09 P02 | 12min | 2 tasks | 8 files |
 | Phase 09 P03 | 6min | 1 task | 5 files |
 | Phase 10 P01 | 6min | 2 tasks | 4 files |
+| Phase 11 P01 | 5min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -167,6 +169,11 @@ Recent decisions affecting current work:
 - [Phase 10-01]: borrow_and_update() in config watch subscriber to properly mark value as seen
 - [Phase 10-01]: Config hot-reload subscriber only spawned in live mode (replay must be deterministic)
 - [Phase 10-01]: ArbSignal consumer uses metrics::counter! with direction label for Prometheus
+- [Phase 11-01]: BasisRiskCache uses Arc<RwLock<HashMap>> for thread-safe sharing between lifecycle manager and engines
+- [Phase 11-01]: Cache cleared and rebuilt from active_approved() each poll cycle to evict expired mappings
+- [Phase 11-01]: temporal_mismatch_hours reverse-derived from settlement_time_risk / time_per_hour
+- [Phase 11-01]: basis_risk_scale defaults to 0.01 with serde(default) for backward-compatible TOML loading
+- [Phase 11-01]: main.rs updated to pass new_basis_risk_cache() to lifecycle manager constructor (Rule 3 auto-fix)
 
 ### Pending Todos
 
@@ -180,5 +187,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 10-01-PLAN.md (Critical pipeline wiring - OBSV-04, SGNL-05, OBSV-01 gap closure)
-Resume file: .planning/phases/10-critical-pipeline-wiring/10-01-SUMMARY.md
+Stopped at: Completed 11-01-PLAN.md (BasisRiskCache types and lifecycle integration)
+Resume file: .planning/phases/11-basis-risk-consumption/11-01-SUMMARY.md
