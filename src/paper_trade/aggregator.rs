@@ -153,6 +153,16 @@ impl DailyAggregator {
         }
     }
 
+    /// Export all rollup data for checkpointing.
+    pub fn export_rollups(&self) -> HashMap<String, DailyRollup> {
+        self.daily_pnl.clone()
+    }
+
+    /// Import rollup data from a checkpoint, replacing current state.
+    pub fn import_rollups(&mut self, rollups: HashMap<String, DailyRollup>) {
+        self.daily_pnl = rollups;
+    }
+
     /// Get all dates with rollups (for final summary).
     pub fn all_dates(&self) -> Vec<&str> {
         let mut dates: Vec<&str> = self.daily_pnl.keys().map(|s| s.as_str()).collect();
@@ -257,5 +267,40 @@ mod tests {
         let rollup = agg.get_daily(&today).unwrap();
         assert_eq!(rollup.signal_count, 3);
         assert_eq!(rollup.trade_count, 0);
+    }
+
+    #[test]
+    fn test_export_import_roundtrip() {
+        let mut agg = DailyAggregator::new();
+
+        // Record some signals and trades
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        agg.record_signal(&today);
+        agg.record_signal(&today);
+
+        let signal = make_signal("evt1", "0.03");
+        let mut pos = PaperPosition::new_pending(&signal, dec("500"));
+        pos.fill(dec("0.46"), dec("0.49"), 1700000001000);
+        pos.settle(dec("10.0"), 1700000010000);
+        agg.record_trade(&pos);
+
+        // Export rollups
+        let exported = agg.export_rollups();
+        assert_eq!(exported.len(), 1);
+        let rollup = &exported[&today];
+        assert_eq!(rollup.signal_count, 2);
+        assert_eq!(rollup.trade_count, 1);
+        assert_eq!(rollup.total_pnl, dec("10.0"));
+
+        // Import into a fresh aggregator
+        let mut agg2 = DailyAggregator::new();
+        agg2.import_rollups(exported);
+
+        let restored = agg2.get_daily(&today).unwrap();
+        assert_eq!(restored.signal_count, 2);
+        assert_eq!(restored.trade_count, 1);
+        assert_eq!(restored.total_pnl, dec("10.0"));
+        assert_eq!(restored.winning_trades, 1);
+        assert_eq!(restored.losing_trades, 0);
     }
 }

@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::PaperTradeConfig;
+use crate::persistence::CheckpointState;
 use crate::spread::patterns::SpreadResult;
 use crate::types::MarketSnapshot;
 
@@ -417,6 +418,32 @@ impl PaperTradeTracker {
         // Update open positions gauge
         metrics::gauge!("paper_trades_open").set(self.open.len() as f64);
     }
+
+    /// Extract current state for checkpointing.
+    ///
+    /// Called periodically by the checkpoint manager to capture a consistent
+    /// snapshot of all mutable paper trade state.
+    pub fn snapshot_state(&self) -> CheckpointState {
+        CheckpointState {
+            version: CheckpointState::current_version(),
+            checkpoint_timestamp_ms: chrono::Utc::now().timestamp_millis(),
+            pending: self.pending.clone(),
+            open: self.open.clone(),
+            daily_rollups: self.aggregator.export_rollups(),
+            total_trades: self.total_trades,
+        }
+    }
+
+    /// Restore state from a checkpoint.
+    ///
+    /// Called during startup recovery before entering the event loop.
+    /// Replaces all mutable state fields with values from the checkpoint.
+    pub fn restore_state(&mut self, state: CheckpointState) {
+        self.pending = state.pending;
+        self.open = state.open;
+        self.aggregator.import_rollups(state.daily_rollups);
+        self.total_trades = state.total_trades;
+    }
 }
 
 #[cfg(test)]
@@ -581,6 +608,43 @@ mod tests {
         // Single tick fills both
         tracker.handle_snapshot(make_snapshot("evt-001", "0.48", "0.52"));
         assert_eq!(tracker.open.len(), 2);
+    }
+
+    #[test]
+    fn test_snapshot_restore_roundtrip() {
+        let config = make_config();
+        let mut tracker = PaperTradeTracker::new(config);
+
+        // Add a pending signal
+        tracker.handle_signal(make_signal("evt-001", "0.03"));
+        // Add a second signal and fill it
+        tracker.handle_signal(make_signal("evt-002", "0.04"));
+        tracker.handle_snapshot(make_snapshot("evt-002", "0.48", "0.52"));
+
+        assert_eq!(tracker.pending.len(), 1);
+        assert_eq!(tracker.open.len(), 1);
+        assert_eq!(tracker.total_trades, 1);
+
+        // Take snapshot
+        let snapshot = tracker.snapshot_state();
+        assert_eq!(snapshot.version, 1);
+        assert_eq!(snapshot.total_trades, 1);
+        assert_eq!(snapshot.pending.len(), 1);
+        assert_eq!(snapshot.open.len(), 1);
+
+        // Restore into a fresh tracker
+        let config2 = make_config();
+        let mut tracker2 = PaperTradeTracker::new(config2);
+        assert_eq!(tracker2.total_trades, 0);
+        assert!(tracker2.pending.is_empty());
+        assert!(tracker2.open.is_empty());
+
+        tracker2.restore_state(snapshot);
+
+        assert_eq!(tracker2.total_trades, 1);
+        assert_eq!(tracker2.pending.len(), 1);
+        assert_eq!(tracker2.open.len(), 1);
+        assert_eq!(tracker2.open[0].event_id, "evt-002");
     }
 
     // Cleanup temp dir after tests
