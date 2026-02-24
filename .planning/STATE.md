@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 12: Kalshi Feed Hardening
+**Current focus:** Phase 13: Phase 4 Verification Cleanup
 
 ## Current Position
 
-Phase: 12 of 12 (Kalshi Feed Hardening)
-Plan: 1 of 1 in current phase
-Status: Complete
-Last activity: 2026-02-24 -- Completed 12-01 (Kalshi heartbeat timeout + exchange timestamp propagation)
+Phase: 13 of 13 (Phase 4 Verification Cleanup)
+Plan: 2 of 2 in current phase
+Status: In Progress
+Last activity: 2026-02-24 -- Completed 13-02 (Remove NormalizedDataSource dead trait)
 
-Progress: [################] 100% Phase 12 complete (1/1 plans done)
+Progress: [################] 100% Phase 13 plan 2/2 done
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 31
-- Average duration: 10min
-- Total execution time: ~4.8 hours
+- Total plans completed: 33
+- Average duration: 9min
+- Total execution time: ~5.0 hours
 
 **By Phase:**
 
@@ -39,10 +39,11 @@ Progress: [################] 100% Phase 12 complete (1/1 plans done)
 | 10-critical-pipeline-wiring | 1/1 | 6min | 6min |
 | 11-basis-risk-consumption | 2/2 | 15min | 8min |
 | 12-kalshi-feed-hardening | 1/1 | 9min | 9min |
+| 13-phase4-verification-cleanup | 2/2 | 6min | 3min |
 
 **Recent Trend:**
-- Last 5 plans: 6min, 6min, 5min, 10min, 9min
-- Trend: stable
+- Last 5 plans: 5min, 10min, 9min, 3min, 3min
+- Trend: stable/fast
 
 *Updated after each plan completion*
 | Phase 07 P04 | 7min | 2 tasks | 4 files |
@@ -56,6 +57,7 @@ Progress: [################] 100% Phase 12 complete (1/1 plans done)
 | Phase 11 P01 | 5min | 2 tasks | 6 files |
 | Phase 11 P02 | 10min | 2 tasks | 11 files |
 | Phase 12 P01 | 9min | 2 tasks | 5 files |
+| Phase 13 P02 | 3min | 1 task | 1 files |
 
 ## Accumulated Context
 
@@ -186,6 +188,7 @@ Recent decisions affecting current work:
 - [Phase 12-01]: Nested message format detected by value.get("msg").filter(|v| v.is_object()) to distinguish from SubscribedData
 - [Phase 12-01]: Exchange timestamp tracked per-market in HashMap from orderbook_delta ts field (best-effort, second-precision)
 - [Phase 12-01]: Latency metrics match Deribit/Polymarket pattern: feed_latency_ms histogram + feed_last_latency_ms gauge with venue label
+- [Phase 13-02]: MarketSnapshot import removed from traits.rs (only referenced by NormalizedDataSource, not used by any active code)
 
 ### Pending Todos
 
@@ -199,5 +202,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 12-01-PLAN.md (Kalshi heartbeat timeout + exchange timestamp propagation -- Phase 12 complete)
-Resume file: .planning/phases/12-kalshi-feed-hardening/12-01-SUMMARY.md
+Stopped at: Completed 13-02-PLAN.md (Remove NormalizedDataSource dead trait -- Phase 13 plan 2/2)
+Resume file: .planning/phases/13-phase4-verification-cleanup/13-02-SUMMARY.md

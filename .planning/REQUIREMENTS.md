@@ -73,7 +73,7 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 
 ### Development & Testing
 
-- [ ] **TEST-01**: Mock data layer via trait-based abstraction over data sources — full pipeline runnable without live venue connections
+- [x] **TEST-01**: Mock data layer via trait-based abstraction over data sources — full pipeline runnable without live venue connections
 - [x] **TEST-02**: Deterministic replay from recorded JSONL feeds through the full pipeline with identical computation
 - [x] **TEST-03**: Feed recordings serve as replay corpus for backtesting and debugging pricing discrepancies
 
@@ -167,7 +167,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | OBSV-04 | Phase 10 | Complete |
 | OBSV-05 | Phase 9 | Complete |
 | OBSV-06 | Phase 9 | Complete |
-| TEST-01 | Phase 13 | Pending |
+| TEST-01 | Phase 13 | Complete |
 | TEST-02 | Phase 9 | Complete |
 | TEST-03 | Phase 9 | Complete |
 
