@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
+use prediction::alert::{AlertMonitor, PipelineLiveness};
 use prediction::config::DiscoveryConfig;
 use prediction::events::lifecycle::ContractLifecycleManager;
 use prediction::events::registry::EventRegistry;
@@ -161,6 +162,9 @@ async fn main() -> anyhow::Result<()> {
             // Create shared BasisRiskCache for settlement risk data
             let basis_risk_cache = new_basis_risk_cache();
 
+            // Create shared pipeline liveness tracker for alert monitoring (Phase 14)
+            let pipeline_liveness = PipelineLiveness::new();
+
             // Pre-populate cache for replay/mock mode (lifecycle manager doesn't run)
             if !is_live {
                 let risk_weights = config.events.risk_weights.clone().unwrap_or_default();
@@ -211,6 +215,9 @@ async fn main() -> anyhow::Result<()> {
             .await?;
             let snapshot_rx = pipeline_handles.snapshot_rx;
 
+            // Clone venue_health before health_state takes ownership (needed for AlertMonitor)
+            let venue_health_for_alerts = pipeline_handles.venue_health.clone();
+
             // Start HTTP /health endpoint (Phase 9)
             if config.system.health.enabled {
                 let health_state = HealthState {
@@ -221,6 +228,23 @@ async fn main() -> anyhow::Result<()> {
                 let health_port = config.system.health.port;
                 tokio::spawn(start_health_server(health_state, health_port));
                 tracing::info!(port = health_port, "health endpoint enabled");
+            }
+
+            // Start AlertMonitor for failure detection (Phase 14)
+            if config.system.alerting.enabled {
+                let alert_config = config.system.alerting.clone();
+                let alert_cancel = shutdown_token.child_token();
+                let alert_monitor = AlertMonitor::new(
+                    venue_health_for_alerts,
+                    pipeline_liveness.clone(),
+                    alert_config,
+                    alert_cancel,
+                );
+                tokio::spawn(alert_monitor.run());
+                tracing::info!(
+                    check_interval_secs = config.system.alerting.check_interval_secs,
+                    "AlertMonitor started"
+                );
             }
 
             // Start ContractLifecycleManager in Live mode only
@@ -364,7 +388,8 @@ async fn main() -> anyhow::Result<()> {
             let spread_config = config.system.spread.clone();
             let spread_engine = SpreadEngine::new(spread_config)
                 .with_replay_mode(is_replay)
-                .with_basis_risk_cache(basis_risk_cache.clone());
+                .with_basis_risk_cache(basis_risk_cache.clone())
+                .with_liveness(pipeline_liveness.clone());
             let spread_cancel = shutdown_token.child_token();
             tokio::spawn(spread_engine.run(
                 spread_snap_rx,
@@ -395,7 +420,8 @@ async fn main() -> anyhow::Result<()> {
             let signal_config = config.system.signal_generation.clone();
             let signal_engine = CrossAssetEngine::new(signal_config)
                 .with_replay_mode(is_replay)
-                .with_basis_risk_cache(basis_risk_cache.clone());
+                .with_basis_risk_cache(basis_risk_cache.clone())
+                .with_liveness(pipeline_liveness.clone());
             let signal_cancel = shutdown_token.child_token();
             tokio::spawn(signal_engine.run(
                 probability_rx,
