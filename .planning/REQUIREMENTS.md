@@ -30,9 +30,9 @@ Requirements for Paper Trading Validation milestone. Each maps to roadmap phases
 ### Failure Alerting
 
 - [x] **ALRT-01**: System tracks liveness timestamps per pipeline stage (last spread computed, last signal evaluated, last settlement checked)
-- [ ] **ALRT-02**: System detects feed silence (venue connected but no messages) beyond configurable threshold
-- [ ] **ALRT-03**: System detects partial venue coverage (fewer venues reporting than expected)
-- [ ] **ALRT-04**: System detects signal evaluation gap (no signals evaluated beyond configurable threshold)
+- [x] **ALRT-02**: System detects feed silence (venue connected but no messages) beyond configurable threshold
+- [x] **ALRT-03**: System detects partial venue coverage (fewer venues reporting than expected)
+- [x] **ALRT-04**: System detects signal evaluation gap (no signals evaluated beyond configurable threshold)
 - [x] **ALRT-05**: Alerts are emitted via tracing::warn! with structured context
 - [x] **ALRT-06**: Alert conditions are exposed as Prometheus metrics
 
@@ -104,9 +104,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ANLZ-06 | Phase 17 | Pending |
 | ANLZ-07 | Phase 17 | Pending |
 | ALRT-01 | Phase 14 | Complete |
-| ALRT-02 | Phase 14 | Pending |
-| ALRT-03 | Phase 14 | Pending |
-| ALRT-04 | Phase 14 | Pending |
+| ALRT-02 | Phase 14 | Complete |
+| ALRT-03 | Phase 14 | Complete |
+| ALRT-04 | Phase 14 | Complete |
 | ALRT-05 | Phase 14 | Complete |
 | ALRT-06 | Phase 14 | Complete |
 | PRST-01 | Phase 15 | Pending |

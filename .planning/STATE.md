@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 
 ## Current Position
 
-Phase: 14 of 17 (Failure Alerting)
-Plan: 1 of 2 complete
-Status: Executing phase 14
-Last activity: 2026-02-24 — Completed 14-01 (alert module foundation)
+Phase: 14 of 17 (Failure Alerting) -- COMPLETE
+Plan: 2 of 2 complete
+Status: Phase 14 complete, ready for phase 15
+Last activity: 2026-02-24 -- Completed 14-02 (AlertMonitor sweep loop)
 
-Progress: [####################..........] 68% (v1.0: 36/36 plans | v1.1: 1/TBD plans)
+Progress: [######################........] 72% (v1.0: 36/36 plans | v1.1: 2/TBD plans)
 
 ## Performance Metrics
 
@@ -26,12 +26,13 @@ Progress: [####################..........] 68% (v1.0: 36/36 plans | v1.1: 1/TBD 
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1:**
-- Plans completed: 1
+- Plans completed: 2
 - Phases: 4 (14-17)
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
 | 14-failure-alerting | 01 | 7min | 3 | 6 |
+| 14-failure-alerting | 02 | 14min | 3 | 8 |
 
 ## Accumulated Context
 
@@ -46,6 +47,9 @@ Recent decisions:
 - v1.1: Phase 16 (Settlement) flagged for /gsd:research-phase due to venue API heterogeneity
 - 14-01: PipelineLiveness uses AtomicI64 (epoch millis) not Mutex<DateTime> for lock-free reads
 - 14-01: Severity thresholds: PartialCoverage Critical at <50% venues, SignalGap Critical at >2x threshold
+- 14-02: AlertMonitor collects conditions into Vec before processing for clean cleanup separation
+- 14-02: Liveness recording at end of computation loop (not per-pattern) captures full evaluation cycles
+- 14-02: Startup grace period for signal gap avoids false alarms during pipeline warmup
 
 ### Pending Todos
 
@@ -62,5 +66,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 14-01-PLAN.md (alert module foundation)
-Next action: Execute 14-02-PLAN.md (AlertMonitor sweep loop)
+Stopped at: Completed 14-02-PLAN.md (AlertMonitor sweep loop) -- Phase 14 complete
+Next action: Plan phase 15 (backtester) or execute next milestone phase
