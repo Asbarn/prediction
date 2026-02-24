@@ -39,6 +39,35 @@ pub struct SystemConfig {
     /// Uses `#[serde(default)]` so existing config files without `[alerting]` still load.
     #[serde(default)]
     pub alerting: AlertConfig,
+    /// State persistence configuration (Phase 15).
+    /// Uses `#[serde(default)]` so existing config files without `[persistence]` still load.
+    #[serde(default)]
+    pub persistence: PersistenceConfig,
+}
+
+/// State persistence configuration for checkpoint-based recovery.
+///
+/// Controls whether periodic checkpoints are written to disk, where they are
+/// stored, and how frequently they are generated.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PersistenceConfig {
+    /// Whether state persistence is enabled.
+    pub enabled: bool,
+    /// Directory for checkpoint files.
+    pub checkpoint_dir: String,
+    /// How often to write checkpoints (seconds).
+    pub checkpoint_interval_secs: u64,
+}
+
+impl Default for PersistenceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            checkpoint_dir: "state".to_string(),
+            checkpoint_interval_secs: 60,
+        }
+    }
 }
 
 /// Health endpoint configuration.

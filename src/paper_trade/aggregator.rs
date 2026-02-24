@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::position::PaperPosition;
 
@@ -21,7 +21,7 @@ pub struct DailyAggregator {
 }
 
 /// Aggregated statistics for a single day of paper trading.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DailyRollup {
     /// Date (YYYY-MM-DD).
     pub date: String,

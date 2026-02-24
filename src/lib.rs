@@ -7,6 +7,7 @@ pub mod health;
 pub mod logging;
 pub mod metrics_export;
 pub mod paper_trade;
+pub mod persistence;
 pub mod pricing;
 pub mod replay;
 pub mod shutdown;
