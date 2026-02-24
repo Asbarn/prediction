@@ -37,7 +37,7 @@ use crate::feed::polymarket::supervisor::PolymarketSupervisor;
 use crate::feed::recording::RecordingService;
 use crate::feed::reliability::VenueRateLimiter;
 use crate::feed::traits::{RawDataSource, RawMessage};
-use crate::types::{MarketSnapshot, Venue};
+use crate::types::{EventId, MarketSnapshot, Venue};
 
 /// Pipeline output handles containing the snapshot receiver and per-venue health trackers.
 ///
@@ -72,8 +72,8 @@ const FAN_IN_BUFFER: usize = 1024;
 ///
 /// In Mock/Replay modes, delegates to single-venue Deribit behavior.
 ///
-/// The `event_registry` parameter threads the shared registry through for
-/// future snapshot annotation (Phase 6). Currently a pass-through.
+/// The `event_registry` parameter is used for event_id annotation in
+/// forward_snapshots, populating `MarketSnapshot.event_id` from the registry.
 ///
 /// Missing credentials for a venue (e.g., Kalshi) produce a warning and that
 /// venue is skipped -- remaining venues continue operating.
@@ -83,14 +83,14 @@ pub async fn run_multi_venue_pipeline(
     credentials: &Credentials,
     recording_dir: PathBuf,
     cancel: CancellationToken,
-    _event_registry: Option<Arc<RwLock<EventRegistry>>>,
+    event_registry: Option<Arc<RwLock<EventRegistry>>>,
 ) -> anyhow::Result<PipelineHandles> {
     match mode {
         DataMode::Live => {
-            run_live_multi_venue(config, credentials, recording_dir, cancel).await
+            run_live_multi_venue(config, credentials, recording_dir, cancel, event_registry.clone()).await
         }
         DataMode::Replay { path, speed } => {
-            crate::replay::run_replay_pipeline(path, config, speed, cancel).await
+            crate::replay::run_replay_pipeline(path, config, speed, cancel, event_registry).await
         }
         DataMode::Mock => {
             let snapshot_rx =
@@ -109,6 +109,7 @@ async fn run_live_multi_venue(
     credentials: &Credentials,
     recording_dir: PathBuf,
     cancel: CancellationToken,
+    event_registry: Option<Arc<RwLock<EventRegistry>>>,
 ) -> anyhow::Result<PipelineHandles> {
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<MarketSnapshot>(FAN_IN_BUFFER);
     let mut venue_health_handles: Vec<Arc<VenueHealth>> = Vec::new();
@@ -158,6 +159,7 @@ async fn run_live_multi_venue(
             Venue::Deribit,
             venue_cancel,
             Some(health.clone()),
+            event_registry.clone(),
         ));
 
         tracing::info!(venue = "deribit", "Deribit pipeline started");
@@ -198,6 +200,7 @@ async fn run_live_multi_venue(
             Venue::Polymarket,
             venue_cancel,
             Some(health.clone()),
+            event_registry.clone(),
         ));
 
         tracing::info!(venue = "polymarket", "Polymarket pipeline started");
@@ -250,6 +253,7 @@ async fn run_live_multi_venue(
                             Venue::Kalshi,
                             venue_cancel,
                             Some(health.clone()),
+                            event_registry.clone(),
                         ));
 
                         tracing::info!(venue = "kalshi", "Kalshi pipeline started");
@@ -306,6 +310,10 @@ fn load_kalshi_key_from_file(config: &VenuesConfig) -> Option<String> {
 
 /// Forward snapshots from a per-venue receiver to the shared fan-in sender.
 ///
+/// When an `EventRegistry` is provided, annotates each snapshot's `event_id`
+/// by looking up the instrument in the registry. This enables PaperTradeTracker
+/// and downstream consumers to correlate snapshots with mapped events.
+///
 /// Exits when either the venue's receiver closes (venue processor stopped)
 /// or the venue's CancellationToken is cancelled. The shared sender is dropped
 /// on exit, which is critical for the fan-in channel to eventually close.
@@ -315,6 +323,7 @@ pub async fn forward_snapshots(
     venue: Venue,
     cancel: CancellationToken,
     health: Option<Arc<VenueHealth>>,
+    registry: Option<Arc<RwLock<EventRegistry>>>,
 ) {
     loop {
         tokio::select! {
@@ -327,7 +336,14 @@ pub async fn forward_snapshots(
 
             snapshot = venue_rx.recv() => {
                 match snapshot {
-                    Some(snap) => {
+                    Some(mut snap) => {
+                        // Annotate event_id from EventRegistry
+                        if let Some(ref reg) = registry {
+                            let r = reg.read().await;
+                            if let Some(mapping) = r.lookup_by_instrument(snap.venue, &snap.instrument_id.to_string()) {
+                                snap.event_id = Some(EventId::new(&mapping.id));
+                            }
+                        }
                         if let Some(h) = &health {
                             h.record_message();
                         }

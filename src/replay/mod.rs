@@ -18,11 +18,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::VenuesConfig;
+use crate::events::registry::EventRegistry;
 use crate::feed::deribit::normalize::DeribitProcessor;
 use crate::feed::mock::replay::ReplayDataSource;
 use crate::feed::pipeline::{forward_snapshots, PipelineHandles};
@@ -158,6 +160,7 @@ pub async fn run_replay_pipeline(
     config: &VenuesConfig,
     speed: f64,
     cancel: CancellationToken,
+    event_registry: Option<Arc<RwLock<EventRegistry>>>,
 ) -> anyhow::Result<PipelineHandles> {
     let corpus = ReplayCorpus::load_directory(&recordings_dir).await?;
 
@@ -228,6 +231,7 @@ pub async fn run_replay_pipeline(
             venue,
             venue_cancel,
             None,
+            event_registry.clone(),
         ));
 
         tracing::info!(
