@@ -89,37 +89,37 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STTL-01 | — | Pending |
-| STTL-02 | — | Pending |
-| STTL-03 | — | Pending |
-| STTL-04 | — | Pending |
-| STTL-05 | — | Pending |
-| STTL-06 | — | Pending |
-| STTL-07 | — | Pending |
-| ANLZ-01 | — | Pending |
-| ANLZ-02 | — | Pending |
-| ANLZ-03 | — | Pending |
-| ANLZ-04 | — | Pending |
-| ANLZ-05 | — | Pending |
-| ANLZ-06 | — | Pending |
-| ANLZ-07 | — | Pending |
-| ALRT-01 | — | Pending |
-| ALRT-02 | — | Pending |
-| ALRT-03 | — | Pending |
-| ALRT-04 | — | Pending |
-| ALRT-05 | — | Pending |
-| ALRT-06 | — | Pending |
-| PRST-01 | — | Pending |
-| PRST-02 | — | Pending |
-| PRST-03 | — | Pending |
-| PRST-04 | — | Pending |
-| PRST-05 | — | Pending |
+| STTL-01 | Phase 16 | Pending |
+| STTL-02 | Phase 16 | Pending |
+| STTL-03 | Phase 16 | Pending |
+| STTL-04 | Phase 16 | Pending |
+| STTL-05 | Phase 16 | Pending |
+| STTL-06 | Phase 16 | Pending |
+| STTL-07 | Phase 16 | Pending |
+| ANLZ-01 | Phase 17 | Pending |
+| ANLZ-02 | Phase 17 | Pending |
+| ANLZ-03 | Phase 17 | Pending |
+| ANLZ-04 | Phase 17 | Pending |
+| ANLZ-05 | Phase 17 | Pending |
+| ANLZ-06 | Phase 17 | Pending |
+| ANLZ-07 | Phase 17 | Pending |
+| ALRT-01 | Phase 14 | Pending |
+| ALRT-02 | Phase 14 | Pending |
+| ALRT-03 | Phase 14 | Pending |
+| ALRT-04 | Phase 14 | Pending |
+| ALRT-05 | Phase 14 | Pending |
+| ALRT-06 | Phase 14 | Pending |
+| PRST-01 | Phase 15 | Pending |
+| PRST-02 | Phase 15 | Pending |
+| PRST-03 | Phase 15 | Pending |
+| PRST-04 | Phase 15 | Pending |
+| PRST-05 | Phase 15 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 25 total
-- Mapped to phases: 0
-- Unmapped: 25
+- Mapped to phases: 25
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-24*
-*Last updated: 2026-02-24 after initial definition*
+*Last updated: 2026-02-24 after roadmap creation*
