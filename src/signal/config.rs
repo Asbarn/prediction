@@ -58,6 +58,16 @@ pub struct SignalGenerationConfig {
 
     /// Kalshi fee configuration.
     pub kalshi_fees: KalshiFeeConfig,
+
+    /// Scale factor for settlement basis risk premium (same semantics as SpreadConfig).
+    #[serde(default = "default_basis_risk_scale")]
+    #[serde(with = "rust_decimal::serde::str")]
+    pub basis_risk_scale: Decimal,
+}
+
+/// Default basis risk scale: 0.01 (1% of composite score).
+fn default_basis_risk_scale() -> Decimal {
+    Decimal::new(1, 2)
 }
 
 impl Default for SignalGenerationConfig {
@@ -76,6 +86,7 @@ impl Default for SignalGenerationConfig {
             carry: CarryConfig::default(),
             polymarket_fees: PolymarketFeeConfig::default(),
             kalshi_fees: KalshiFeeConfig::default(),
+            basis_risk_scale: default_basis_risk_scale(),
         }
     }
 }

@@ -44,6 +44,18 @@ pub struct SpreadConfig {
 
     /// Carry cost parameters.
     pub carry: CarryConfig,
+
+    /// Scale factor for settlement basis risk premium.
+    /// Premium = BasisRiskScore.effective_composite * basis_risk_scale.
+    /// Default 0.01 (1% of composite score). Set to 0 to disable.
+    #[serde(default = "default_basis_risk_scale")]
+    #[serde(with = "rust_decimal::serde::str")]
+    pub basis_risk_scale: Decimal,
+}
+
+/// Default basis risk scale: 0.01 (1% of composite score).
+fn default_basis_risk_scale() -> Decimal {
+    Decimal::new(1, 2)
 }
 
 impl Default for SpreadConfig {
@@ -60,6 +72,7 @@ impl Default for SpreadConfig {
             polymarket_fees: PolymarketFeeConfig::default(),
             kalshi_fees: KalshiFeeConfig::default(),
             carry: CarryConfig::default(),
+            basis_risk_scale: default_basis_risk_scale(),
         }
     }
 }

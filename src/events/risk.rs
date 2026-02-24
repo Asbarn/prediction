@@ -1,5 +1,9 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use tokio::sync::RwLock;
 
 use crate::config::{EventMapping, ExpiryThreshold, RiskWeightsConfig, SettlementMetadata};
 
@@ -271,6 +275,29 @@ fn determine_source_pair(settlement: &SettlementMetadata) -> SourcePair {
     }
 
     SourcePair::Unknown
+}
+
+/// Cached basis risk info per event mapping, updated by lifecycle manager.
+#[derive(Debug, Clone, Serialize)]
+pub struct CachedRiskInfo {
+    /// Base BasisRiskScore (not inflated).
+    pub base_score: BasisRiskScore,
+    /// Near-expiry warning (if within any threshold).
+    pub expiry_warning: Option<ExpiryWarning>,
+    /// Effective composite score (inflated if near-expiry, else base).
+    pub effective_composite: f64,
+    /// Settlement time difference in hours (for temporal mismatch reporting).
+    pub temporal_mismatch_hours: f64,
+    /// Last updated timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Thread-safe cache shared between lifecycle manager and engines.
+pub type BasisRiskCache = Arc<RwLock<HashMap<String, CachedRiskInfo>>>;
+
+/// Create an empty BasisRiskCache for initialization.
+pub fn new_basis_risk_cache() -> BasisRiskCache {
+    Arc::new(RwLock::new(HashMap::new()))
 }
 
 #[cfg(test)]
