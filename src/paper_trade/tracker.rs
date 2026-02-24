@@ -20,9 +20,11 @@ use rust_decimal::Decimal;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use rust_decimal::prelude::FromStr;
+
 use crate::config::PaperTradeConfig;
 use crate::persistence::CheckpointState;
-use crate::spread::patterns::SpreadResult;
+use crate::spread::patterns::{SpreadPattern, SpreadResult};
 use crate::types::MarketSnapshot;
 
 use super::aggregator::DailyAggregator;
@@ -48,6 +50,10 @@ pub struct PaperTradeTracker {
     trade_logger: TradeLogger,
     /// Running count of total trades entered.
     total_trades: u64,
+    /// Directory for checkpoint files (None = persistence disabled).
+    checkpoint_dir: Option<PathBuf>,
+    /// How often to write periodic checkpoints (None = persistence disabled).
+    checkpoint_interval: Option<Duration>,
 }
 
 /// JSONL trade event logger with daily file rotation.
@@ -197,7 +203,19 @@ impl PaperTradeTracker {
             aggregator: DailyAggregator::new(),
             trade_logger,
             total_trades: 0,
+            checkpoint_dir: None,
+            checkpoint_interval: None,
         }
+    }
+
+    /// Configure periodic checkpoint persistence.
+    ///
+    /// When enabled, the tracker writes a checkpoint file at the given interval
+    /// and on shutdown. The checkpoint directory is created automatically.
+    pub fn with_persistence(mut self, checkpoint_dir: PathBuf, interval_secs: u64) -> Self {
+        self.checkpoint_dir = Some(checkpoint_dir);
+        self.checkpoint_interval = Some(Duration::from_secs(interval_secs));
+        self
     }
 
     /// Main event loop: consume signals and snapshots, manage position lifecycle.
@@ -218,10 +236,18 @@ impl PaperTradeTracker {
         daily_tick.tick().await; // skip first immediate tick
         let mut last_date = Utc::now().format("%Y-%m-%d").to_string();
 
+        // Checkpoint tick for periodic state persistence
+        let checkpoint_interval_dur = self
+            .checkpoint_interval
+            .unwrap_or(Duration::from_secs(u64::MAX));
+        let mut checkpoint_tick = tokio::time::interval(checkpoint_interval_dur);
+        checkpoint_tick.tick().await; // skip first immediate tick
+
         tracing::info!(
             notional = %self.config.notional_per_trade,
             log_mtm = self.config.log_mtm,
             log_dir = %self.config.log_dir,
+            persistence = self.checkpoint_dir.is_some(),
             "PaperTradeTracker started"
         );
 
@@ -239,6 +265,8 @@ impl PaperTradeTracker {
                     let today = Utc::now().format("%Y-%m-%d").to_string();
                     self.aggregator.emit_daily_summary(&today);
                     let _ = self.trade_logger.flush();
+                    // Write final checkpoint before shutdown
+                    self.write_checkpoint();
                     break;
                 }
 
@@ -249,6 +277,10 @@ impl PaperTradeTracker {
                         self.aggregator.emit_daily_summary(&last_date);
                         last_date = today;
                     }
+                }
+
+                _ = checkpoint_tick.tick(), if self.checkpoint_dir.is_some() => {
+                    self.write_checkpoint();
                 }
 
                 signal = signal_rx.recv() => {
@@ -455,6 +487,139 @@ impl PaperTradeTracker {
         self.open = state.open;
         self.aggregator.import_rollups(state.daily_rollups);
         self.total_trades = state.total_trades;
+    }
+
+    /// Write a checkpoint of current state to disk using atomic write.
+    ///
+    /// No-op if persistence is not configured. Uses `atomic_write` to ensure
+    /// the checkpoint file is never partially written (crash safety).
+    fn write_checkpoint(&self) {
+        if let Some(ref dir) = self.checkpoint_dir {
+            let state = self.snapshot_state();
+            match serde_json::to_string_pretty(&state) {
+                Ok(json) => {
+                    if let Err(e) = std::fs::create_dir_all(dir) {
+                        tracing::warn!(error = %e, "failed to create checkpoint directory");
+                        return;
+                    }
+                    let target = dir.join("checkpoint.json");
+                    if let Err(e) =
+                        crate::persistence::atomic::atomic_write(&target, json.as_bytes())
+                    {
+                        tracing::warn!(error = %e, "failed to write checkpoint");
+                    } else {
+                        tracing::debug!(
+                            total_trades = state.total_trades,
+                            open_positions = state.open.len(),
+                            pending_events = state.pending.len(),
+                            "checkpoint written"
+                        );
+                        metrics::counter!("persistence_checkpoints_written").increment(1);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to serialize checkpoint state");
+                }
+            }
+        }
+    }
+
+    /// Apply a single trade event to reconstruct state during JSONL replay.
+    ///
+    /// Called during startup recovery for each trade event that occurred after
+    /// the checkpoint timestamp. Reconstructs the position lifecycle without
+    /// going through the normal signal/snapshot handling path.
+    pub fn apply_trade_event(&mut self, event: &TradeEvent) {
+        match event {
+            TradeEvent::Signal {
+                trade_id,
+                event_id,
+                pattern,
+                signal_spread,
+                notional,
+                timestamp_ms,
+            } => {
+                let spread = Decimal::from_str(signal_spread).unwrap_or_default();
+                let notional_dec = Decimal::from_str(notional).unwrap_or_default();
+                let pattern_parsed =
+                    serde_json::from_str::<SpreadPattern>(&format!("\"{}\"", pattern))
+                        .unwrap_or(SpreadPattern::BuyPolyYesSellKalshiYes);
+                let pos = PaperPosition {
+                    id: trade_id.clone(),
+                    event_id: event_id.clone(),
+                    pattern: pattern_parsed,
+                    status: PositionStatus::Pending,
+                    notional: notional_dec,
+                    signal_spread: spread,
+                    signal_timestamp_ms: *timestamp_ms,
+                    entry_price_buy: None,
+                    entry_price_sell: None,
+                    entry_timestamp_ms: None,
+                    adverse_selection: None,
+                    mtm_history: Vec::new(),
+                    settlement_pnl: None,
+                    settled_at_ms: None,
+                };
+                self.pending
+                    .entry(event_id.clone())
+                    .or_default()
+                    .push(pos);
+            }
+            TradeEvent::Entry {
+                trade_id,
+                entry_price_buy,
+                entry_price_sell,
+                timestamp_ms,
+                ..
+            } => {
+                let buy = Decimal::from_str(entry_price_buy).unwrap_or_default();
+                let sell = Decimal::from_str(entry_price_sell).unwrap_or_default();
+                // Find in pending and fill
+                for positions in self.pending.values_mut() {
+                    if let Some(pos) = positions.iter_mut().find(|p| p.id == *trade_id) {
+                        pos.fill(buy, sell, *timestamp_ms);
+                        self.total_trades += 1;
+                        break;
+                    }
+                }
+                // Move filled positions from pending to open
+                let event_ids: Vec<String> = self.pending.keys().cloned().collect();
+                for eid in event_ids {
+                    if let Some(positions) = self.pending.remove(&eid) {
+                        let (open, still_pending): (Vec<_>, Vec<_>) = positions
+                            .into_iter()
+                            .partition(|p| p.status == PositionStatus::Open);
+                        self.open.extend(open);
+                        if !still_pending.is_empty() {
+                            self.pending.insert(eid, still_pending);
+                        }
+                    }
+                }
+            }
+            TradeEvent::Mtm {
+                trade_id,
+                current_spread,
+                timestamp_ms,
+                ..
+            } => {
+                let spread = Decimal::from_str(current_spread).unwrap_or_default();
+                if let Some(pos) = self.open.iter_mut().find(|p| p.id == *trade_id) {
+                    pos.update_mtm(spread, *timestamp_ms);
+                }
+            }
+            TradeEvent::Settlement {
+                trade_id,
+                settlement_pnl,
+                timestamp_ms,
+                ..
+            } => {
+                if let Some(pos) = self.open.iter_mut().find(|p| p.id == *trade_id) {
+                    let pnl = Decimal::from_str(settlement_pnl).unwrap_or_default();
+                    pos.settle(pnl, *timestamp_ms);
+                    self.aggregator.record_trade(pos);
+                }
+            }
+        }
     }
 }
 

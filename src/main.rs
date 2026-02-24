@@ -399,9 +399,80 @@ async fn main() -> anyhow::Result<()> {
                 Some(ptrade_snap_tx),
             ));
 
-            // Spawn PaperTradeTracker
+            // -- State Persistence Recovery (Phase 15) --
             let paper_trade_config = config.system.paper_trade.clone();
-            let paper_tracker = PaperTradeTracker::new(paper_trade_config);
+            let persistence_config = config.system.persistence.clone();
+            let mut paper_tracker = PaperTradeTracker::new(paper_trade_config);
+
+            if persistence_config.enabled {
+                let checkpoint_dir = std::path::Path::new(&persistence_config.checkpoint_dir);
+
+                // Load checkpoint if exists
+                match prediction::persistence::recovery::load_checkpoint(checkpoint_dir) {
+                    Ok(Some(state)) => {
+                        let checkpoint_ts = state.checkpoint_timestamp_ms;
+                        let open_count = state.open.len();
+                        let trades = state.total_trades;
+
+                        paper_tracker.restore_state(state);
+
+                        tracing::info!(
+                            checkpoint_timestamp_ms = checkpoint_ts,
+                            open_positions = open_count,
+                            total_trades = trades,
+                            "restored paper trade state from checkpoint"
+                        );
+
+                        // Replay JSONL trade events after checkpoint
+                        let log_dir = std::path::Path::new(&config.system.paper_trade.log_dir);
+                        match prediction::persistence::recovery::replay_trade_events(
+                            log_dir,
+                            checkpoint_ts,
+                        ) {
+                            Ok(events) => {
+                                let replay_count = events.len();
+                                for event in &events {
+                                    paper_tracker.apply_trade_event(event);
+                                }
+                                if replay_count > 0 {
+                                    tracing::info!(
+                                        replayed = replay_count,
+                                        "JSONL trade event replay complete"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    error = %e,
+                                    "failed to replay trade events, continuing with checkpoint state only"
+                                );
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::info!("no checkpoint found, starting with fresh state");
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "failed to load checkpoint, starting with fresh state"
+                        );
+                    }
+                }
+
+                // Enable periodic checkpointing
+                paper_tracker = paper_tracker.with_persistence(
+                    checkpoint_dir.to_path_buf(),
+                    persistence_config.checkpoint_interval_secs,
+                );
+
+                tracing::info!(
+                    checkpoint_dir = %persistence_config.checkpoint_dir,
+                    interval_secs = persistence_config.checkpoint_interval_secs,
+                    "state persistence enabled"
+                );
+            }
+
             let ptrade_cancel = shutdown_token.child_token();
             tokio::spawn(paper_tracker.run(signal_rx, ptrade_snap_rx, ptrade_cancel));
 
