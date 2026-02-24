@@ -188,7 +188,10 @@ Plans:
   1. Venue normalizers populate event_id on MarketSnapshot so PaperTradeTracker processes snapshots instead of discarding them
   2. arb_signal_rx in main.rs has a consumer that logs/processes ArbSignal outputs instead of dropping them
   3. config_rx in main.rs is wired to engine subscribers so config hot-reload propagates runtime changes
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 10-01-PLAN.md -- Wire event_id annotation, ArbSignal consumer, and config hot-reload subscriber
 
 ### Phase 11: BasisRiskScore Downstream Consumption
 **Goal**: Connect BasisRiskScore from EventRegistry to spread and signal cost models, enabling settlement basis risk premium in cost calculations and near-expiry flag exposure to downstream consumers.
