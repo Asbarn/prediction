@@ -1,315 +1,270 @@
 # Pitfalls Research
 
-**Domain:** Cross-venue crypto prediction market / options arbitrage
-**Researched:** 2026-02-21
-**Confidence:** HIGH (core pricing and settlement pitfalls), MEDIUM (API/operational pitfalls)
+**Domain:** Adding settlement outcome tracking, signal analysis, failure alerting, and file-based persistence to an existing async Rust trading system (v1.1)
+**Researched:** 2026-02-24
+**Confidence:** HIGH (integration pitfalls based on codebase analysis), MEDIUM (venue-specific settlement API behavior)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Risk-Neutral vs Real-World Probability Conflation
+### Pitfall 1: Settlement Outcome Data Is Harder to Get Than Expected
 
 **What goes wrong:**
-The system treats options-implied probabilities and prediction market prices as directly comparable, but they measure fundamentally different things. Options-implied probabilities from Deribit are risk-neutral (Q-measure) probabilities that embed a risk premium. Prediction market prices are also interpretable as risk-neutral probabilities, but under a completely different numeraire and risk structure. The systematic wedge between them is not an arbitrage opportunity -- it is the risk premium itself.
+Developers assume each venue has a clean "get settlement result" API endpoint returning a simple yes/no outcome and settlement price. In reality:
 
-In crypto specifically, the volatility risk premium is large and time-varying. BTC options consistently price tail events higher than their real-world frequency (negative skew inflates OTM put prices, equivalently inflating the implied probability of downward moves). A naive system would see "Deribit says 35% chance BTC below $X, Polymarket says 25%" and call it a 10% edge. Much of that 10% is the volatility/jump risk premium that options sellers demand, not a mispricing.
+- **Deribit** has `public/get_settlement_history_by_instrument` which returns settlement/delivery events, but options settlement uses a 30-minute TWAP of the Deribit Index (07:30-08:00 UTC) as the delivery price. The actual settlement result (ITM/OTM) must be computed by comparing this delivery price against the strike. The API may not return data immediately at 08:00 UTC -- there can be a processing delay.
+
+- **Polymarket** has no dedicated "get resolution result" REST endpoint as of early 2025. Market resolution status must be inferred from the Gamma Markets API (`active: false`, `closed: true` fields) or by monitoring on-chain resolution events. The py-clob-client GitHub issue #117 confirms this gap. Price history for resolved markets is only available at 12+ hour granularity.
+
+- **Kalshi** has a `GET /markets/{ticker}` endpoint that includes a `result` field ("yes"/"no"/null), plus a `GET /portfolio/settlements` endpoint for position-level settlement data. However, Kalshi's authentication (RSA-signed JWTs) adds complexity and their API semantics differ from the other venues.
+
+The three venues have fundamentally different resolution semantics, timing, and data availability patterns.
 
 **Why it happens:**
-The mapping from options prices to event probabilities requires choosing between Q-measure (risk-neutral) and P-measure (real-world) probabilities. Most implementations extract N(d2) or a call-spread-implied probability and compare it directly to prediction market prices without adjusting for the risk premium wedge. Academic literature confirms these cannot be disentangled without a general equilibrium model or assumptions about the stochastic discount factor.
+Settlement tracking is often designed assuming a uniform API shape across venues. The happy path is coded first, edge cases are discovered in production.
 
 **How to avoid:**
-- Never treat the raw options-implied probability as "the market's true belief." It is the risk-neutral probability, which systematically overstates bad-state probabilities and understates good-state probabilities.
-- Frame the system as detecting deviations from the *historical* relationship between options-implied and prediction-market probabilities, not absolute mispricings. Build a running baseline of the typical wedge for each event type and flag only when the wedge deviates significantly from its own history.
-- Consider using realized vol / historical event frequencies to estimate the risk premium component and subtract it from the raw options-implied probability before comparison.
-- For v1 paper trading: log both raw and adjusted probabilities. Track whether raw signals are systematically biased in one direction (they will be).
+- Design the settlement tracker with a per-venue adapter trait that returns a normalized `SettlementOutcome { event_id, venue, outcome: Yes/No/Unknown/Disputed, settlement_price: Option<Decimal>, settled_at: DateTime, raw_data: Value }`. Each venue implements its own polling/detection logic.
+- For Deribit: poll `get_settlement_history_by_instrument` for each tracked instrument after the expiry time. Compute ITM/OTM from delivery_price vs strike. Do NOT assume the result is available immediately -- poll with exponential backoff starting from expiry + 5 minutes.
+- For Polymarket: poll the Gamma Markets API for the `closed` and `active` flags. As a fallback, check if the final price locks to exactly 0 or 1 (resolution). Consider on-chain event monitoring as a secondary signal.
+- For Kalshi: poll `GET /markets/{ticker}` and check the `result` field. Requires authenticated requests (RSA JWT signing already implemented in `feed::kalshi::auth`).
+- Implement a `SettlementStatus::Pending` state for outcomes not yet available, with configurable retry/timeout.
 
 **Warning signs:**
-- Signals consistently favor one direction (e.g., always "buy protection" / always showing options-implied probability higher than prediction market price for downside events).
-- Backtests show positive expected value before transaction costs but the "edge" is suspiciously stable across all market conditions -- this is the risk premium, not alpha.
-- The signal magnitude correlates with VIX/DVOL levels rather than with actual mispricings.
+- Settlement tracker reports 0% of outcomes resolved after expected expiry times.
+- `Unknown` or `Pending` outcomes persist for days without transitioning.
+- Deribit options show as "unsettled" because the instrument ID changes after expiry (delisted from active instruments).
 
 **Phase to address:**
-Phase 1 (Core Pricing Engine). This is foundational -- if the probability comparison is wrong, every downstream signal is garbage. Must be addressed before any signal generation.
+Phase 1 (Settlement Outcome Tracking) -- this is the foundational data source all downstream analysis depends on.
 
 ---
 
-### Pitfall 2: Settlement Basis Risk -- Different Venues Resolve "The Same Event" Differently
+### Pitfall 2: Comparing Signals Against Outcomes With Wrong Timing Windows
 
 **What goes wrong:**
-The system assumes that a Polymarket contract like "BTC above $100K on March 31" and a Deribit BTC option expiring on March 31 are economically equivalent. They are not. The settlement mechanisms differ in at least four critical dimensions:
+Signal analysis computes hit rate by asking "did the signal predict the outcome correctly?" but gets the timing relationship wrong. Common mistakes:
 
-1. **Settlement price calculation:** Deribit uses a 30-minute TWAP of 450 index samples (every 4 seconds) ending at 08:00 UTC. Prediction markets may resolve based on a specific spot price at a specific moment, "end of day" in an ambiguous timezone, or a "consensus of credible reporting."
-2. **Index composition:** Deribit's BTC index is an equally-weighted average of mid-prices from selected exchanges, with outlier trimming (+/-0.5% from median). Polymarket's BTC price markets may reference a different set of exchanges or a specific price feed.
-3. **Resolution ambiguity:** The Cardi B Super Bowl halftime case (Feb 2026) is the canonical example -- Kalshi settled at last-traded price ($0.26 YES) while Polymarket resolved YES at $1.00 for the same real-world event. For price-based events, ambiguity arises when BTC hovers near the strike at settlement time.
-4. **Timing:** Deribit settles at 08:00 UTC. Prediction markets may resolve at end-of-day in US Eastern time, or whenever the resolution source publishes.
+1. **Using the signal at entry time instead of at fill time.** The existing `PaperTradeTracker` correctly models adverse selection by filling at next-tick prices, but signal analysis might accidentally compare the signal's net_spread at signal_time against the final outcome, ignoring that the fill price was different.
 
-A $2 flash crash during Deribit's 30-min TWAP window could push the settlement price below a strike while the prediction market (resolving on a different price feed or time) shows BTC above the strike. Both sides of the "arbitrage" lose.
+2. **Comparing against the wrong settlement window.** A signal fired on Monday for an event expiring Friday may have been a "correct" signal at the time but the market moved by Friday. The analysis must distinguish: (a) was the signal directionally correct at settlement? (b) was there a profitable exit window before settlement? (c) was the entry-to-settlement P&L positive?
+
+3. **Survivorship bias in hit rate.** If the system generates 100 signals but only 60 get filled (40 remain Pending and expire), reporting hit rate on the 60 filled trades overstates accuracy. The 40 unfilled signals were likely in fast-moving markets where the opportunity evaporated -- exactly the hard cases.
 
 **Why it happens:**
-Cross-venue comparison requires assuming settlement equivalence. The resolution details are buried in fine print that differs across platforms. Developers build for the happy path where both venues agree on the outcome.
+Signal analysis is implemented as a post-hoc computation over trade logs without carefully tracing the full lifecycle: signal_time -> fill_time -> mtm_updates -> settlement_time. Each stage has different prices.
 
 **How to avoid:**
-- Build a formal settlement specification for every tracked event pair. Document: resolution source, timing, price methodology, dispute mechanism, and edge-case handling for each venue.
-- Classify event pairs by settlement basis risk: LOW (both use same price feed and time), MEDIUM (different methodology but same approximate time), HIGH (different time, different source, or ambiguous resolution).
-- For price-based events: compute the probability that BTC is within the "danger zone" (close enough to the strike that settlement methodology differences matter). When this probability is high, widen the required spread before signaling.
-- Never assume "close enough" -- a 1-hour timing difference during FOMC announcements can mean a 5%+ BTC price difference.
+- Define hit rate as: `filled_and_profitable_at_settlement / total_filled`. Report separately: `fill_rate = filled / total_signals` and `signal_accuracy = correct_direction_at_settlement / total_settled`.
+- Track time-to-convergence: how long after signal generation does the spread move in the predicted direction? This requires correlating `SpreadResult.timestamp_ms` with subsequent MTM updates from `MtmSnapshot` entries.
+- Never compute hit rate on unsettled trades. Use `PositionStatus::Settled` as the gate. Report separately how many trades are still `Open` (not yet settled).
+- Include adverse selection in the P&L computation: `realized_pnl = settlement_pnl - adverse_selection_cost`.
 
 **Warning signs:**
-- Backtests show occasional large losses on individual trades that looked like clear arbitrage opportunities.
-- Events near the strike at expiry show inconsistent P&L despite correct directional calls.
-- System generates signals on events where the prediction market resolution criteria are vague or use terms like "consensus of credible reporting."
+- Hit rate looks suspiciously high (>70%) -- likely measuring something other than true settlement P&L.
+- Time-to-convergence is negative or undefined for many trades -- signals may be stale by the time they fill.
+- Large gap between "directionally correct" and "profitable after costs" rates.
 
 **Phase to address:**
-Phase 1 (Event Mapping) and Phase 2 (Signal Generation). Event mapping must capture settlement specs from day one. Signal generation must incorporate basis risk into position sizing.
+Phase 2 (Signal Analysis Tooling) -- must be designed correctly from the start since retroactive correction requires re-processing all historical data.
 
 ---
 
-### Pitfall 3: Naive Digital Option Pricing (N(d2) Under Skew)
+### Pitfall 3: File Persistence That Corrupts State on Crash or Power Loss
 
 **What goes wrong:**
-The Black-Scholes formula gives the risk-neutral probability of a binary (cash-or-nothing) call finishing in-the-money as N(d2). This is only correct when implied volatility is constant across strikes. In reality, BTC options on Deribit exhibit significant volatility skew (negative skew in most market conditions, with OTM puts trading at higher implied vol than OTM calls).
+The system adds file-based persistence for paper P&L and signal history by serializing state to a JSON file. On crash, the file contains a partial write: truncated JSON that fails to parse on restart, losing all accumulated state. Or worse: the file is empty (opened for write, OS crash before flush).
 
-Under skew, N(d2) computed at the ATM vol is systematically biased. The correct price of a digital option under skew includes a correction term proportional to the vega times the slope of the implied volatility smile (d(sigma)/dK). For negative skew, this means:
-- Digital calls are MORE expensive than N(d2) suggests (the skew correction adds value)
-- Digital puts are LESS expensive than N(d2) suggests
-
-The magnitude of this error can be 2-5% in probability terms for strikes 1-2 standard deviations from ATM, which is larger than most arbitrage spreads you would be trading.
+This is especially dangerous because the system currently operates entirely in-memory (`PaperTradeTracker.pending: HashMap`, `PaperTradeTracker.open: Vec<PaperPosition>`, `DailyAggregator.daily_pnl: HashMap`). The transition from "pure in-memory" to "persisted" is where corruption bugs hide.
 
 **Why it happens:**
-N(d2) is the formula everyone learns first. Call spread replication (the correct approach) requires choosing a strike width, interpolating the vol surface between strikes, and handling the discretization error. It is tempting to skip this complexity in v1.
+Standard `File::create()` + `serde_json::to_writer()` is not atomic. On any OS, a crash between open and complete write leaves a corrupted file. Even with `BufWriter::flush()`, the OS may not have synced to disk. On Windows specifically, `rename()` is not atomic if the target already exists (unlike POSIX).
 
 **How to avoid:**
-- Use tight call spread replication: Price = [C(K - dK) - C(K + dK)] / (2 * dK), where each call is priced at its own interpolated implied volatility from the vol surface. Use dK = 1-2 strike spacings on Deribit (typically $125 for daily options, $250-$500 for weeklies).
-- Build a proper vol surface interpolation. Deribit's strike grid is sparse, especially in the wings. Use SVI (Stochastic Volatility Inspired) parameterization or cubic spline interpolation on the (delta, vol) surface. Do not linearly interpolate between strikes in vol space -- this introduces butterfly arbitrage.
-- Quantify the skew correction explicitly: compute N(d2) AND the call-spread price, log the difference, and monitor whether signals flip when using the corrected price. If they do, those signals were driven by pricing error, not real mispricing.
-- Account for the discretization error in the call spread: for finite dK, the call spread underreplicates the digital near the strike (pays less than $1 when spot finishes between K-dK and K+dK). Apply the known correction or use 2-3 call spreads at different widths and average.
+- Use the write-to-temp-then-rename pattern that `ContractLifecycleManager` already uses for events.toml (see `atomic_write()` in `events/lifecycle.rs` line ~487). Replicate this exact pattern for P&L state files.
+- On Windows, use `tokio::fs::remove_file()` then `tokio::fs::rename()` since Windows `rename()` fails if the target exists. Or use the `tempfile` crate which handles cross-platform atomicity.
+- Use JSONL (append-only) for the signal history log rather than overwriting a single JSON file. The existing `TradeLogger` in `paper_trade/tracker.rs` already does this correctly -- extend it rather than replacing it.
+- For the aggregate P&L state (daily rollups, open positions), serialize as a single JSON checkpoint file written atomically at regular intervals (e.g., every 60 seconds and on shutdown).
+- On startup, if the primary state file is corrupted: fall back to the temp file (which is the in-flight write), then fall back to replaying from the JSONL trade log to reconstruct state.
 
 **Warning signs:**
-- Implied probabilities extracted from options are systematically different from prediction market prices in the same direction for all events.
-- The system shows more "opportunities" on far-OTM events (where skew is steepest and N(d2) error is largest).
-- Backtest P&L is worse on events that settle near the strike (where the digital payoff discontinuity and vol smile curvature matter most).
+- State file is empty (0 bytes) after a restart.
+- `serde_json::from_str()` fails with "unexpected EOF" on startup.
+- Paper P&L shows zero after a restart despite days of accumulated data.
+- The `.tmp` file exists alongside the primary file (indicates incomplete write).
 
 **Phase to address:**
-Phase 1 (Core Pricing Engine). This must be correct before signal generation. The vol surface construction and call spread replication should be the very first components built and validated.
+Phase 4 (File-Based Persistence) -- but the design must be settled during Phase 1 since settlement outcomes also need persistence.
 
 ---
 
-### Pitfall 4: Stale Data Generating False Arbitrage Signals
+### Pitfall 4: Alerting That Monitors the Wrong Thing (Detecting Noise, Missing Silence)
 
 **What goes wrong:**
-During fast-moving events (FOMC announcements, ETF decisions, regulatory news), prediction markets can move 10-30% in seconds while options markets lag because:
-1. Deribit options market makers widen spreads or pull quotes entirely during news events, leaving stale last-traded prices or wide bid-ask spreads.
-2. Prediction market CLOB prices update instantly with aggressive taker orders while options book depth evaporates.
-3. The system compares a fresh prediction market price against a stale options mid-price and sees a "huge" mispricing that does not actually exist.
+Failure alerting is added to detect degraded states, but it monitors symptoms (e.g., reconnection events, error rates) instead of the absence of expected events. The most dangerous failures are **silent**: a venue feed connects successfully but stops sending data, the pricing engine computes probabilities but a config change means no events map anymore, or the spread engine runs but the BasisRiskCache is stale because the lifecycle manager silently stopped polling.
 
-The reverse also happens: a whale moves a thin prediction market book 5% in one trade, creating a temporary dislocation that reverts in seconds. The system signals an opportunity against stable options prices, but the prediction market price was the stale/manipulated one.
+The existing system has `VenueHealth` (feed/health.rs) tracking connection state and `last_message_at`, plus metrics for staleness rejections. But these are binary -- they detect "is the feed up?" not "is the system producing useful output end-to-end?"
 
 **Why it happens:**
-Most implementations use a simple "compare latest prices from both venues" approach without modeling quote freshness, book depth, or the information content of price changes. Timestamps from different venues may have different latencies. A REST API poll hitting Deribit every 1 second and Polymarket every 500ms will systematically compare prices from different moments in time.
+Alerting is usually built bottom-up: instrument each component, alert on errors. The systemic failures that actually cost money are the ones where no individual component errors but the end-to-end pipeline stops producing correct output. This requires top-down monitoring: "when was the last valid signal?" "when was the last spread computation?" "are all expected event pairs producing spreads?"
 
 **How to avoid:**
-- Attach timestamps and staleness scores to every data point. Define "stale" as: bid-ask spread > X% (options), or last trade > Y seconds ago, or book depth < Z (prediction market).
-- Implement a staleness gate: never generate signals when either venue's data is classified as stale. Log these rejected signals separately -- they are valuable for understanding the data quality regime.
-- Use Deribit WebSocket subscriptions (not REST polling) for real-time mark prices and book updates. Deribit mark prices update continuously even when the book is thin.
-- For prediction markets: subscribe to the CLOB WebSocket for real-time book updates, not just last trade price.
-- During known high-volatility windows (FOMC, CPI releases, ETF decisions), automatically widen the minimum spread threshold or suppress signals entirely for a configurable window (e.g., +/- 5 minutes around scheduled announcements).
-- Cross-validate: if the prediction market moves 10% and options have not moved at all, the signal is staleness, not arbitrage. Require corroborating movement on both sides.
+- Implement **liveness checks** at each pipeline stage, not just connectivity checks:
+  - Feed layer: `last_message_at` (already exists in VenueHealth) + **message rate check** (messages/minute should be within expected range)
+  - Spread engine: `last_spread_computed_at` per event_id + **computation rate check**
+  - Signal engine: `last_signal_emitted_at` or `last_signal_evaluated_at`
+  - Paper trade: `last_position_update_at`
+- Alert on **absence**, not just **presence** of errors:
+  - "No spread computed for event X in 10 minutes" is more valuable than "5 staleness rejections"
+  - "Paper trade tracker received 0 snapshots in 5 minutes" catches the silent pipe disconnect
+- Use the **dead man's switch** pattern: each component must positively assert it is alive within a configurable interval. If it doesn't, the monitor fires.
+- Start simple: a single periodic task (every 60 seconds) that checks timestamps across all pipeline stages and emits a structured log/metric if any stage is stale. Do NOT build a complex event-driven alerting framework.
 
 **Warning signs:**
-- Signal frequency spikes dramatically during news events (these are almost all false positives).
-- Signals cluster in the first 1-2 seconds after an event and then disappear (the "stale" side catches up).
-- Backtest shows signals that "worked" only because the backtester used last-traded prices instead of executable bid/ask at time of signal.
+- All venue feeds show "healthy" but no signals are being generated (config drift, stale registry).
+- Alerts fire constantly for expected transient issues (reconnections) creating alert fatigue.
+- A venue silently disconnects and nobody notices for hours because VenueHealth still shows the last successful connection.
 
 **Phase to address:**
-Phase 1 (Data Pipeline). Staleness detection must be built into the data layer before signals are generated. This is not a signal-quality filter bolted on later -- it is a core property of every market data point.
+Phase 3 (Failure Alerting) -- but the liveness timestamp infrastructure should be added to each engine as those engines are touched in Phases 1-2.
 
 ---
 
-### Pitfall 5: Ignoring Transaction Costs and Liquidity Realities in Signal Evaluation
+### Pitfall 5: Blocking the Tokio Runtime With Synchronous File I/O
 
 **What goes wrong:**
-A 3% spread between venues looks like a clear signal. But after accounting for:
-- Polymarket: dynamic taker fees up to 1.56% on crypto markets at 50/50 odds, plus gas fees on Polygon (~$0.01-0.05/trade)
-- Deribit: 0.03% options taker fee (capped at 12.5% of option price for cheap options)
-- Bid-ask spread on Deribit options: typically 5-15% of option price for OTM options, much wider in the wings
-- Bid-ask spread on prediction markets: 1-5% for liquid events, potentially 10%+ for illiquid ones
-- Slippage: executing size moves the price, especially on thin prediction market books with only $5K-$15K per side
+Adding file-based persistence introduces synchronous filesystem calls (`std::fs::write`, `serde_json::to_writer`) into async task contexts. This blocks a tokio worker thread, stalling all other tasks on that thread. In a system with ~10 concurrent async tasks (3 venue feeds, fan-out, spread engine, pricing engine, signal engine, paper tracker, lifecycle manager, health server), blocking even one worker thread for 10ms can cause cascading latency spikes and channel backpressure.
 
-...the 3% "edge" becomes negative. The system reports 100 "opportunities" per day, none of which would be profitable to execute.
+The existing `TradeLogger` in `paper_trade/tracker.rs` already does synchronous file I/O (`std::fs`, `std::io::Write`) inside the async `PaperTradeTracker::run()` method. This has been acceptable because writes are infrequent and fast, but adding heavier persistence (checkpoint files, state recovery reads) amplifies the problem.
 
 **Why it happens:**
-Building the signal detector is the fun part. Modeling execution costs is tedious but essential. Most implementations start with mid-price comparison and plan to "add costs later," but the costs fundamentally change which signals are real.
+Rust's type system does not distinguish "blocking" from "non-blocking" at the async boundary. A developer adds `std::fs::write()` inside an `async fn` and the compiler is happy. The performance impact only shows under load. Tokio's documentation explicitly warns against this but it is easy to forget.
 
 **How to avoid:**
-- Model all-in execution cost from day one, even for paper trading. The signal should report: gross edge, estimated cost, and net edge. Only signals with net edge > minimum threshold (suggest 1% for v1) should be surfaced.
-- For options: use the actual bid or ask price (not mid) depending on trade direction. A binary probability derived from call-spread bid prices will be very different from one derived from ask prices.
-- For prediction markets: use book depth to estimate fill price at target size. A $1,000 position filled across 5 price levels is not the same as the best-bid price.
-- Track Polymarket's fee curve: fees peak at 50/50 odds (1.56% max on crypto markets) and decrease toward extremes. This means the most "interesting" prediction market prices (near 50%) are also the most expensive to trade.
-- Build a cost model that updates in real-time with current book state, not a static fee assumption.
+- For writes: use `tokio::task::spawn_blocking()` for any file I/O that might exceed 1ms. This moves the work to a dedicated blocking thread pool. OR use `tokio::fs` which wraps operations in `spawn_blocking` internally.
+- For the checkpoint pattern: serialize to a `Vec<u8>` in the async context (CPU work, fast), then pass the bytes to `spawn_blocking` for the actual file write + rename.
+- For reads on startup: perform all file reads before entering the main `tokio::select!` loop, or use `spawn_blocking`.
+- Do NOT wrap the existing `TradeLogger` in `spawn_blocking` per-write -- the overhead of thread handoff is worse than the occasional 0.1ms write. Instead, keep the existing `BufWriter` with periodic flush, but move the periodic flush to `spawn_blocking`.
+- Monitor: add a `tokio::runtime::metrics` check for worker thread blocking time if using the `tokio_unstable` feature flag. At minimum, log if any checkpoint write exceeds 5ms.
 
 **Warning signs:**
-- Signal count drops by 90%+ when transaction costs are added (normal -- this is what should happen).
-- The remaining signals cluster on highly liquid events with tight spreads (good -- these are the real opportunities).
-- Backtest with mid-prices shows great returns; backtest with bid-ask shows losses (the entire "edge" was the spread).
+- Spread computation latency increases from <1ms to 10-50ms sporadically (correlates with checkpoint writes).
+- Channel buffer utilization spikes (visible via `metrics::gauge!("paper_trades_open")` and similar).
+- `try_send` failures increase on the secondary engine channels (pricing, signal fan-out) because fan-out is stalled waiting for a blocked spread engine channel.
 
 **Phase to address:**
-Phase 2 (Signal Generation). Costs must be integrated into signal evaluation, not treated as a separate concern. But the cost models depend on Phase 1 data quality.
-
----
-
-### Pitfall 6: Options Expiry / Event Mismatch (No Hedgeable Instrument Exists)
-
-**What goes wrong:**
-The system identifies a prediction market event ("Will BTC be above $100K on April 15?") but there is no Deribit option expiring on April 15. The nearest options expire on April 11 (daily) and April 18 (weekly). The system either:
-1. Uses the April 18 option as a proxy, introducing 3 days of additional price uncertainty that overwhelms the signal.
-2. Attempts to interpolate between expiries, producing a synthetic probability that is model-dependent and unreliable.
-3. Uses the April 11 option, which expires before the event and is useless.
-
-For daily Deribit options, the strike spacing is $125, meaning the nearest available strike may be $60+ away from the prediction market's binary threshold. This discretization introduces pricing error.
-
-**Why it happens:**
-Prediction markets create events with arbitrary dates and thresholds. Options markets have fixed expiry calendars and strike grids. The overlap is imperfect. Developers assume "close enough" temporal and strike matching without quantifying the residual risk.
-
-**How to avoid:**
-- Build an explicit event-matching layer that pairs prediction market events with the best available options instruments. Score each pairing by: temporal gap (days between event resolution and nearest option expiry), strike gap (distance between event threshold and nearest available strike), and liquidity of the matched option.
-- Define hard cutoffs: reject pairings where temporal gap > 1 day or strike gap > 2 strike spacings. These are not tradeable.
-- For temporal mismatches: quantify the additional uncertainty using BTC's historical daily returns. A 3-day gap at 60% annualized vol means ~3.5% daily move, which translates to substantial probability uncertainty for near-ATM events.
-- Maintain a live catalog of Deribit expiries and strike grids. New daily options appear with ~$125 spacing in a ~5% range around ATM. The catalog must update daily.
-
-**Warning signs:**
-- The system generates signals on events with no close option expiry match (these are phantom opportunities).
-- Backtest assumes perfect expiry matching that does not exist in live markets.
-- Signal quality degrades as you look at events further from standard options expiry dates.
-
-**Phase to address:**
-Phase 1 (Event Mapping). The expiry/strike matching logic must exist before signal generation. This determines the universe of tradeable events.
+Phase 4 (File-Based Persistence) -- but must be considered in Phase 1 if settlement outcomes are persisted.
 
 ---
 
 ## Technical Debt Patterns
 
+Shortcuts that seem reasonable but create long-term problems.
+
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Use N(d2) instead of call spread replication | Simpler pricing code, one formula | 2-5% probability error under skew, systematic signal bias | Never -- the error is larger than typical edges |
-| REST polling instead of WebSocket subscriptions | Simpler implementation, no connection management | Stale data, higher latency, more API rate limit consumption | Only during initial prototyping (<1 week), must migrate |
-| Mid-price comparison without bid-ask modeling | More signals to analyze | False positives that would lose money on execution | Paper trading phase only, must add before any real trading |
-| Static fee model (e.g., "assume 0.5% each side") | No need to integrate fee APIs | Misses dynamic fees (Polymarket peaks at 1.56%), misses spread variation | First week of development, then replace with live fee model |
-| Single-threaded data collection | Simpler architecture | Cannot keep up with multiple venues' WebSocket feeds during high-vol events | Never for production -- use async from the start (Rust tokio) |
-| Hardcoded event-option mappings | Quick to get first signal running | Breaks every time new options list or prediction markets change events | Initial prototype only, must build dynamic matching |
-| Ignoring Deribit's 30-min TWAP settlement | Simpler settlement model | Wrong P&L calculation, wrong signal evaluation near expiry | Never -- the TWAP vs spot difference matters most when it matters most (near-strike settlements) |
+| Store all state in a single JSON file | Simple implementation, single read/write | Grows unbounded, slow to parse at scale, all-or-nothing corruption risk | Never for growing data (signals, trades). OK for small fixed-size config-like state |
+| Use `Utc::now()` for settlement time comparison | Simple, no extra data needed | Breaks deterministic replay; settlement logic cannot be tested with historical data | Only in live-mode code paths; replay must use event timestamps |
+| Skip fsync after atomic write | Faster writes | State loss on power failure (OS crash, not process crash) | Acceptable for paper trading (data is recoverable from logs). Unacceptable for real trading |
+| Hardcode venue polling intervals | Quick implementation | Different venues have different rate limits and data freshness. Deribit settlement data is available faster than Polymarket resolution | Never -- use per-venue config (already established pattern in `DiscoveryConfig`) |
+| Alert via log messages only | No external dependencies | Logs must be actively monitored; silent failures go unnoticed if nobody watches | Acceptable for v1.1 solo trader. Must evolve to push notifications before v2 |
+| Compute signal analysis at query time over raw logs | No pre-computation needed | O(n) over all historical trades per query; becomes unusable after weeks of data | Only for initial implementation. Must add incremental rollup within 2-4 weeks |
 
 ## Integration Gotchas
 
+Common mistakes when connecting new features to the existing system.
+
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Deribit WebSocket | Opening 32+ connections (hitting the per-IP limit) and getting silently disconnected | Use a single authenticated WebSocket connection with multiplexed subscriptions (up to 500 channels). Authenticate even for public data to get higher rate limits. |
-| Deribit Rate Limits | Treating all endpoints equally at 20 req/s | Matching engine endpoints (order placement/cancel) are limited to ~5 req/s. Non-matching engine endpoints allow 20 req/s burst (100 request burst capacity, 10,000 credits/s refill). Different methods cost different credits. |
-| Deribit Vol Surface | Using last-traded price for OTM options that haven't traded in hours | Use mark price (Deribit's model-based estimate) for illiquid options. Mark price updates continuously. Fall back hierarchy: mark price > NBBO mid > last trade. Deribit discards options with delta < 5% from its own DVOL calculation -- you should too. |
-| Polymarket CLOB API | Sending market orders that cross the spread aggressively | Use limit orders (post-only where possible to earn maker rebates). Polymarket's batch order endpoint supports up to 15 orders per call. |
-| Polymarket Fee Curve | Ignoring the probability-dependent fee structure | Fees use formula: `fee = C * feeRate * (p * (1-p))^exponent`. At 50/50 odds on crypto markets, taker fee is ~1.56%. At 90/10 odds, fee drops to ~0.14%. Factor this into signal evaluation. |
-| Polymarket Settlement (International) | Assuming deterministic resolution | International Polymarket uses UMA Optimistic Oracle: proposal ($750 bond) -> 2hr challenge window -> possible DVM token vote (48-96 hrs). 98.5% resolve at first layer, but the 1.5% that don't can lock capital for days. |
-| Kalshi API | Assuming same resolution as Polymarket for "same" events | Kalshi uses CFTC-registered source agencies (BLS for econ data, CF Benchmarks for crypto prices, leagues for sports). Resolution criteria are legally distinct from Polymarket's. The same real-world event can resolve differently. |
-| Kalshi Settlement Edge Cases | Assuming binary YES/NO resolution | Kalshi Rule 6.3(c) allows settlement at last-traded price for ambiguous outcomes. This means your "YES at $1" payoff may become "YES at $0.26." |
-| Polygon Gas | Assuming zero gas costs on Polygon | Gas costs are low (~$0.01-0.05/trade) but nonzero. During Polygon congestion (rare but possible), gas can spike. Approval transactions (6 one-time approvals per wallet) cost ~0.01 POL each. Must hold POL/ETH for gas. |
+| Settlement tracker + EventRegistry | Querying settlement for instruments that have already been rolled (expired in registry, replaced by new expiry) | Track settlement by **original instrument ID at signal time**, not current registry state. Store instrument_id in `PaperPosition` (already done: `event_id` is stored, but need the specific venue instrument IDs too) |
+| Signal analysis + SpreadEngine | Reading from the spread JSONL log which contains ALL computations (both above and below threshold) and counting them as "signals" | Only analyze trades that entered `PaperPosition` with `PositionStatus::Open` or `Settled`. The spread log is for debugging, not analysis |
+| File persistence + PaperTradeTracker | Adding persistence inside the `tokio::select!` loop, making every tick slower | Checkpoint on a timer (every 60s) or on day boundary, not on every snapshot/signal |
+| Failure alerting + VenueHealth | Duplicating the existing `VenueHealth` state tracking instead of extending it | Add new fields/methods to `VenueHealth` (e.g., `last_spread_at`, `computation_rate`) rather than building a parallel monitoring system |
+| Settlement tracker + BasisRiskCache | Attempting to read settlement data from the risk cache, which only stores risk scores not settlement outcomes | Settlement outcomes are new data -- they need their own storage. The risk cache provides context (what was the expected risk) but not outcomes |
+| Signal analysis + existing DailyAggregator | Trying to add hit rate/edge metrics to DailyAggregator, which tracks P&L not signal accuracy | Create a separate `SignalAnalyzer` that consumes settled positions and computes signal-quality metrics. DailyAggregator stays focused on P&L |
+| File persistence + graceful shutdown | Writing state on `cancel.cancelled()` but the state is already partially consumed -- channels are closed, final trades not included | Flush state BEFORE dropping channel receivers. The existing shutdown order in `PaperTradeTracker::run()` does this correctly (emits daily summary, flushes logger). Persistence must happen in the same shutdown block |
 
 ## Performance Traps
 
+Patterns that work at small scale but fail as usage grows.
+
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Polling REST APIs for price updates | Signals lag real-time by 1-5 seconds, rate limits consumed quickly | Use WebSocket subscriptions for both Deribit and Polymarket CLOB. REST only for infrequent metadata/catalog queries. | Immediately -- any latency-sensitive comparison fails with polling |
-| Rebuilding full vol surface on every option price update | CPU spikes, pricing delays during fast markets, cascading staleness | Incremental vol surface updates: only refit the affected part of the surface when a single option updates. Cache the SVI parameters and refit locally. | When monitoring >20 options simultaneously (typical for covering multiple strikes/expiries) |
-| Storing all tick data in memory without rotation | Memory grows unbounded during long-running sessions | Ring buffer for recent ticks (last N minutes), periodic flush to disk/database for historical analysis. Rust's bounded channels or VecDeque with capacity. | After 4-8 hours of continuous operation, depending on number of instruments |
-| Synchronous cross-venue comparison | Blocks on the slower venue, misses fast-moving opportunities on the faster one | Async architecture with independent update streams per venue. Comparison triggers on ANY update from either side, using latest-known state from the other. | Immediately in volatile markets |
-| Not rate-limiting outbound requests during reconnection storms | Deribit/Polymarket temporarily bans IP after reconnect attempts blow through rate limits | Exponential backoff on reconnection. Track credit budget. Queue requests during rate-limit recovery. | First network hiccup or exchange maintenance window |
+| Unbounded `Vec<PaperPosition>` in `self.open` | Memory grows linearly with trade count; iteration for MTM update slows linearly | Cap open positions or evict stale ones; use `HashMap<event_id, Vec<Position>>` for O(1) lookup by event | After ~1000 open positions (unlikely in paper trading, but possible if settlement tracker never settles them) |
+| Unbounded `mtm_history: Vec<MtmSnapshot>` per position | Each snapshot adds ~48 bytes per open position per tick. 3 venues at 1 snapshot/sec = ~150 entries/min/position | Cap MTM history length (keep last N or downsample to 1/minute) | After 24 hours: ~8640 entries * 48 bytes * N positions |
+| Full state serialization on every checkpoint | Checkpoint time grows linearly with accumulated state | Use incremental checkpointing: only write changed positions since last checkpoint. Or use append-only JSONL for incremental writes + periodic full checkpoint | After ~10,000 historical trades in the state file |
+| `EventRegistry.read().await` in forward_snapshots hot path | Already present in pipeline.rs line ~343. RwLock contention increases if settlement tracker also reads the registry frequently | Settlement tracker should cache the mappings it needs rather than reading the registry on every poll. The existing `BasisRiskCache` pattern is the model to follow | Only if settlement polling is frequent (>1/sec), which it should not be |
 
 ## Security Mistakes
 
+Domain-specific security issues relevant to this system.
+
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Storing Deribit API keys in code or config files checked into git | Full account access (trading, withdrawal if enabled) | Use environment variables or a secrets manager. Deribit API keys support IP whitelisting -- enable it. Create read-only keys for data collection (separate from trading keys). |
-| Using a single Polymarket wallet for all operations | Complete fund exposure if private key is compromised | Use separate wallets: one for deposits/holding, one for active trading with limited balance. Polymarket wallet is an EOA -- private key compromise means total loss. |
-| Running on a US IP address for Polymarket trading | Account freeze, fund forfeiture | Polymarket restricts US users. Using VPNs violates ToS and risks account termination with forfeited balances. For v1 paper trading (signal-only), reading public market data should be fine from any jurisdiction, but verify current ToS. |
-| Not validating WebSocket message integrity | Spoofed price data leading to bad signals | Verify message sequence numbers, check for gaps, validate price reasonableness against recent history. Deribit WebSocket supports heartbeat -- implement it. |
-| Exposing the signal dashboard to the public internet | Competitors see your signals; operational information leaked | Bind to localhost only. If remote access needed, use SSH tunnel or VPN, not a public-facing web server. |
+| Storing Kalshi RSA private key in the persistence state file | Key exposure if state file is leaked or committed to git | Never include credentials in persisted state. The existing `Credentials` struct loads from env vars -- maintain this separation |
+| Logging settlement API responses with auth tokens | Token exposure in JSONL logs and tracing output | Redact auth headers before logging. The existing Kalshi auth already handles JWT generation per-request, but settlement polling must strip tokens from error messages |
+| Persisting paper trade state with real instrument IDs to a shared location | Reveals trading strategy and targeted instruments | Keep state files in a gitignored directory. The existing `recordings/` pattern is already gitignored |
+| Settlement outcome polling without rate limiting | API ban from Deribit (20 req/s limit) or Kalshi | Reuse the existing `VenueRateLimiter` infrastructure for settlement API calls. Poll at most once per minute per expired instrument |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Vol surface construction:** Often missing butterfly/calendar arbitrage checks -- verify the interpolated surface does not admit negative butterfly spreads or negative forward variance
-- [ ] **Call spread replication:** Often missing the dK choice validation -- verify the call spread width is narrow enough to capture the digital payoff accurately but wide enough that both strikes have liquid quotes
-- [ ] **Event matching:** Often missing temporal basis check -- verify that the matched option actually expires within an acceptable window of the prediction market resolution date
-- [ ] **Settlement model:** Often missing Deribit's TWAP methodology -- verify P&L calculations use 30-min TWAP settlement, not last-traded or spot price at 08:00 UTC
-- [ ] **Staleness detection:** Often missing on the "slow" venue -- verify that signals are gated on BOTH venues having fresh data, not just the one that triggered the comparison
-- [ ] **Cost model:** Often missing Polymarket's dynamic fee curve -- verify that fees are computed as `C * feeRate * (p*(1-p))^exponent`, not a flat percentage
-- [ ] **Signal P&L attribution:** Often missing the distinction between "signal was correct" and "trade would have been profitable" -- verify that backtest tracks gross edge, costs, slippage, and net P&L separately
-- [ ] **Prediction market resolution:** Often missing dispute/delay handling -- verify the system handles the case where a market takes 48-96 hours to resolve via UMA DVM escalation
-- [ ] **Options data completeness:** Often missing OTM wing data -- verify that the vol surface handles missing/illiquid strikes gracefully (mark price fallback, not just dropping them)
-- [ ] **Timezone handling:** Often missing UTC normalization -- verify all timestamps are in UTC internally, with explicit timezone conversion only at display/comparison points
+Things that appear complete but are missing critical pieces.
+
+- [ ] **Settlement tracking:** Often missing the "disputed/ambiguous" outcome state -- verify the tracker handles cases where Polymarket and the actual outcome disagree (UMA dispute process)
+- [ ] **Settlement tracking:** Often missing instruments that expired while the system was offline -- verify the tracker discovers and backfills missed settlements on startup
+- [ ] **Signal analysis:** Often missing the denominator -- verify hit rate reports total filled trades, not just settled ones, and explicitly reports how many are still pending settlement
+- [ ] **Signal analysis:** Often missing cost-adjusted P&L -- verify the edge calculation includes adverse selection, fees, and carry, not just raw spread at settlement
+- [ ] **Failure alerting:** Often missing the "everything looks fine but output is wrong" case -- verify at least one end-to-end check (e.g., "time since last threshold-passing signal evaluation" not just "time since last feed message")
+- [ ] **File persistence:** Often missing the "startup recovery" path -- verify the system loads persisted state on restart AND validates its consistency (e.g., no duplicate trade IDs, no positions with status transitions that skip states)
+- [ ] **File persistence:** Often missing the "state migration" story -- verify that adding new fields to `PaperPosition` or `DailyRollup` still parses old state files (use `#[serde(default)]` on all new fields)
+- [ ] **File persistence:** Often missing Windows-specific atomic rename -- verify `rename()` works when target file exists on Windows (it does not by default; need `remove_file` first or use `tempfile` crate)
 
 ## Recovery Strategies
 
+When pitfalls occur despite prevention, how to recover.
+
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Risk-neutral/real-world conflation | MEDIUM | Retrofit a risk premium adjustment layer. Re-run backtests with adjusted probabilities. Historical signal accuracy data is still useful -- just reinterpret it. |
-| Settlement basis risk (loss on ambiguous event) | HIGH | Cannot recover lost capital. Retroactively classify events by basis risk and filter future signals. Add the failing event type to a blocklist. |
-| Naive N(d2) pricing | LOW | Replace pricing function with call spread replication. Vol surface may already exist. Re-run signals with corrected prices -- most infrastructure remains valid. |
-| Stale data false positives | LOW | Add staleness gate to data pipeline. Existing signals can be retroactively filtered. No architecture change needed if data layer has timestamps. |
-| Transaction cost blindness | LOW | Add cost model as a filter layer. Existing signals are re-evaluated with costs. The painful part is discovering that 90% of "signals" are not viable. |
-| Expiry mismatch | MEDIUM | Build event-matching catalog. May require restructuring the event-to-instrument mapping. Existing signals for well-matched events remain valid. |
+| Corrupted state file on crash | LOW | Replay from JSONL trade logs to reconstruct positions and P&L. The trade log (already written by `TradeLogger`) is append-only and much more resilient than a checkpoint file. This is why the JSONL log is the source of truth, not the checkpoint |
+| Wrong settlement outcomes recorded | MEDIUM | Add a "recompute settlement" CLI command that re-polls venue APIs and overwrites previous outcomes. Settlement outcomes should be overridable manually (TOML or JSON override file) for disputed cases |
+| Blocking I/O stalls pipeline | LOW | Move to `spawn_blocking` or `tokio::fs`. No data loss, just performance degradation during the fix |
+| Alert fatigue from noisy alerts | LOW | Add progressive throttling: first occurrence logs at WARN, subsequent repeats within a cooldown window log at DEBUG. Only re-escalate to WARN when the condition clears and recurs |
+| Missing settlements for offline period | MEDIUM | On startup, scan all `PaperPosition` with `PositionStatus::Open` and check if their event's expiry has passed. If so, queue them for settlement outcome resolution. This requires persisting the `expiry` date in each position |
+| Signal analysis shows misleading hit rate | LOW | Always report alongside: fill rate, adverse selection distribution, and a "theoretical vs actual" comparison. If hit rate and fill rate diverge significantly, the analysis methodology is suspect |
 
 ## Pitfall-to-Phase Mapping
 
+How roadmap phases should address these pitfalls.
+
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Risk-neutral vs real-world conflation | Phase 1: Core Pricing | Run signal bias test: do signals systematically favor one direction? If yes, risk premium is leaking into signals. |
-| Settlement basis risk | Phase 1: Event Mapping | For each event pair, document resolution specs for both venues. Score basis risk. Verify no HIGH-risk pairs are traded without widened thresholds. |
-| Naive digital pricing (N(d2)) | Phase 1: Core Pricing | Compute N(d2) AND call-spread price for same event. If difference > 0.5%, the vol surface / replication is needed. |
-| Stale data false signals | Phase 1: Data Pipeline | Inject synthetic staleness (delay one feed by 5 seconds) and verify system suppresses signals during the delay. |
-| Transaction cost blindness | Phase 2: Signal Generation | Compare signal count with and without costs. Verify >80% reduction (if not, cost model is likely too generous). |
-| Expiry/event mismatch | Phase 1: Event Mapping | Enumerate all prediction market events and their best option matches. Verify temporal gap, strike gap, and liquidity for each. |
-| Polymarket dynamic fees | Phase 2: Signal Generation | Verify fee calculation matches Polymarket's published formula at p=0.5, p=0.1, p=0.9 reference points. |
-| Deribit TWAP settlement | Phase 3: Backtesting/Validation | Back-compute Deribit settlement prices using historical index data and 30-min TWAP. Compare against using spot-at-expiry. Quantify the error. |
+| Settlement data harder than expected (Pitfall 1) | Phase 1: Settlement Tracking | Unit test each venue adapter with mocked API responses. Integration test with recorded real settlement data from at least one expired instrument per venue |
+| Wrong timing windows for analysis (Pitfall 2) | Phase 2: Signal Analysis | Test with a known synthetic trade: signal at t=0, fill at t=1 with known adverse selection, settlement at t=100 with known outcome. Verify all metrics match hand-calculated values |
+| File corruption on crash (Pitfall 3) | Phase 4: File Persistence | Kill-test: run system, `kill -9` mid-operation, restart, verify state recovery. Run this on both Linux and Windows |
+| Alerting monitors wrong thing (Pitfall 4) | Phase 3: Failure Alerting | Simulate silent failure: disconnect a venue at the network level (not via cancel token), verify alert fires within configured timeout. Simulate config drift: remove all event mappings, verify alert fires for "no spread computations" |
+| Blocking tokio runtime (Pitfall 5) | Phase 4: File Persistence | Add timing instrumentation to checkpoint writes. Verify 99th percentile checkpoint time is under 5ms. Run concurrent load test with all 3 venues during checkpoint |
+| Unbounded MTM history growth | Phase 4: File Persistence | After 24 hours of paper trading, verify memory usage is stable (not linearly growing). Cap MTM history or downsample |
+| Settlement outcome for rolled instruments | Phase 1: Settlement Tracking | Test scenario: instrument expires, lifecycle manager rolls it, settlement tracker still resolves the expired instrument's outcome |
+| Startup state recovery | Phase 4: File Persistence | Test scenario: accumulate 50 trades, kill process, restart, verify all 50 trades are present with correct P&L |
 
 ## Sources
 
-### Settlement and Resolution
-- [How Kalshi and Polymarket Settle Markets (and Disputes)](https://defirate.com/prediction-markets/how-contracts-settle/) -- MEDIUM confidence (verified with multiple sources)
-- [SettleRisk - Resolution Risk Scoring](https://settlerisk.com/) -- LOW confidence (single source, but useful framework)
-- [Cardi B Halftime Settlement Dispute](https://www.gamblinginsider.com/news/110468/kalshi-polymarket-cardi-b-halftime-settlement-cftc-complaint) -- HIGH confidence (multiple news sources confirm)
-- [Steptoe: Risks of Ambiguity in Prediction Markets](https://www.steptoe.com/en/news-publications/its-not-on-the-house-the-risks-of-ambiguity-in-prediction-markets.html) -- HIGH confidence (law firm analysis)
-
-### Digital Options Pricing and Skew
-- [Quant Next: Binary Options Pricing, Replication and Skew Sensitivity](https://quant-next.com/binary-options-pricing-replication-and-skew-sensitivity/) -- HIGH confidence (quantitative analysis with formulas)
-- [Quant Next PDF: Binary Options Replication](https://quant-next.com/wp-content/uploads/2024/11/Binary-Options_-Replication-and-Skew-Sensitivity.pdf) -- HIGH confidence
-- [Field Recordings: Digital Options Pricing by Replication](https://fieldrecordings.wordpress.com/2011/01/07/digital-options-pricing-by-replication/) -- MEDIUM confidence
-- [OpenGamma: Digital Forex Options](https://quant.opengamma.io/Digital-Forex-Options-OpenGamma.pdf) -- HIGH confidence (institutional quant library)
-
-### Risk-Neutral vs Real-World Probabilities
-- [Toward Black-Scholes for Prediction Markets (arXiv)](https://arxiv.org/html/2510.15205v1) -- MEDIUM confidence (preprint, not peer-reviewed, but rigorous framework)
-- [FactSet: Mind Your Ps and Qs](https://insight.factset.com/mind-your-ps-and-qs-real-world-vs.risk-neutral-probabilities) -- HIGH confidence
-- [Bank of England: Implied Risk-Neutral Probability Density Functions](https://www.bankofengland.co.uk/working-paper/1997/implied-risk-neutral-probability-density-functions-from-option-prices) -- HIGH confidence
-
-### Deribit API and Options Structure
-- [Deribit Rate Limits](https://support.deribit.com/hc/en-us/articles/25944617523357-Rate-Limits) -- HIGH confidence (official docs, though specific numbers could not be fetched directly)
-- [Deribit Market Data Collection Best Practices](https://support.deribit.com/hc/en-us/articles/29592500256669-Market-Data-Collection-Best-Practices) -- HIGH confidence (official docs)
-- [Deribit Connection Management Best Practices](https://support.deribit.com/hc/en-us/articles/25944603459613-Connection-Management-Best-Practices) -- HIGH confidence
-- [Deribit Settlement](https://support.deribit.com/hc/en-us/articles/29734325712413-Settlement) -- HIGH confidence (30-min TWAP from 450 samples confirmed)
-- [Deribit Daily Options Launch](https://insights.deribit.com/exchange-updates/launch-of-btc-daily-options-on-deribit/) -- HIGH confidence ($125 strike spacing, ~5% range around ATM)
-
-### Polymarket API and Fees
-- [Polymarket Trading Fees Documentation](https://docs.polymarket.com/polymarket-learn/trading/fees) -- HIGH confidence (official docs, fee formula verified)
-- [Polymarket Dynamic Fees for Latency Arbitrage](https://www.financemagnates.com/cryptocurrency/polymarket-introduces-dynamic-fees-to-curb-latency-arbitrage-in-short-term-crypto-markets/) -- MEDIUM confidence (news, confirmed by multiple outlets)
-- [Polymarket CLOB API Overview](https://docs.polymarket.com/developers/gamma-markets-api/overview) -- HIGH confidence (official docs)
-
-### Arbitrage Risks and Pitfalls
-- [AInvest: Algorithmic Arbitrage in Crypto Prediction Markets](https://www.ainvest.com/news/algorithmic-arbitrage-crypto-prediction-markets-exploiting-binary-mispricings-polymarket-2512/) -- LOW confidence (single source, but domain-specific)
-- [Risks and Pitfalls in Crypto Arbitrage Trading](https://coincryptorank.com/blog/risks-crypto-arbitrage) -- LOW confidence (blog)
-- [BeInCrypto: Arbitrage Bots Dominate Polymarket](https://beincrypto.com/polymarket-arbitrage-risk-free-profit/) -- MEDIUM confidence
-
-### Volatility Surface
-- [Bitcoin Implied Volatility Surface from Deribit (Medium)](https://medium.com/coinmonks/bitcoin-implied-volatility-surface-from-deribit-70fba845102a) -- LOW confidence (blog, but implementation-relevant)
-- [PMC: Implied Volatility Estimation of Bitcoin Options](https://pmc.ncbi.nlm.nih.gov/articles/PMC8418903/) -- HIGH confidence (peer-reviewed)
+- Deribit API settlement documentation: https://support.deribit.com/hc/en-us/articles/29734325712413-Settlement
+- Deribit settlement price TWAP methodology: https://docs.deribit.com/
+- Polymarket resolution process: https://docs.polymarket.com/polymarket-learn/markets/how-are-markets-resolved
+- Polymarket CLOB API gap for resolved markets: https://github.com/Polymarket/py-clob-client/issues/117
+- Polymarket price history limitation for resolved markets: https://github.com/Polymarket/py-clob-client/issues/216
+- Kalshi settlement API: https://docs.kalshi.com/fix/market-settlement
+- Kalshi market result endpoint: https://docs.kalshi.com/api-reference/market/get-market
+- Kalshi portfolio settlements: https://docs.kalshi.com/api-reference/portfolio/get-settlements
+- Tokio async filesystem operations: https://docs.rs/tokio/latest/tokio/fs/index.html
+- Silent failure detection patterns: https://www.vincentlakatos.com/blog/building-a-monitoring-system-that-catches-silent-failures/
+- Prediction market settlement disputes: https://defirate.com/prediction-markets/how-contracts-settle/
+- UMA dispute resolution for prediction markets: https://blog.uma.xyz/articles/what-is-a-prediction-market-dispute
+- Atomic file write pattern in Rust: https://users.rust-lang.org/t/mvdb-atomic-easy-to-use-file-backed-storage-using-serde/12219
+- Codebase analysis: existing `atomic_write()` in `events/lifecycle.rs`, `TradeLogger` in `paper_trade/tracker.rs`, `VenueHealth` in `feed/health.rs`, pipeline fan-out in `main.rs`
 
 ---
-*Pitfalls research for: Cross-venue crypto prediction market / options arbitrage*
-*Researched: 2026-02-21*
+*Pitfalls research for: v1.1 Paper Trading Validation milestone*
+*Researched: 2026-02-24*

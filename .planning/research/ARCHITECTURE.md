@@ -1,222 +1,360 @@
-# Architecture Research
+# Architecture Patterns
 
-**Domain:** Cross-venue crypto prediction market / options arbitrage system
-**Researched:** 2026-02-21
-**Confidence:** HIGH
+**Domain:** Paper trading validation features for cross-venue prediction market arbitrage system
+**Researched:** 2026-02-24
+**Confidence:** HIGH (based on direct source code analysis of 22,751 LOC existing codebase)
 
-## Standard Architecture
+## Existing Architecture Summary
 
-### System Overview
+The system is a single-binary async Rust service with this pipeline:
 
 ```
-                          EXTERNAL VENUES
- ===================================================================
-  Deribit WS         Polymarket WS/REST       Kalshi WS/REST
-  (Options)          (Prediction Market)      (Prediction Market)
- ===================================================================
-       |                     |                       |
-       v                     v                       v
- +-----------+        +-----------+           +-----------+
- | Deribit   |        | Polymarket|           | Kalshi    |
- | Feed      |        | Feed      |           | Feed      |
- | Actor     |        | Actor     |           | Actor     |
- +-----------+        +-----------+           +-----------+
-       |                     |                       |
-       | MarketSnapshot      | MarketSnapshot        | MarketSnapshot
-       | (bounded mpsc)      | (bounded mpsc)        | (bounded mpsc)
-       |                     |                       |
- ======|=====================|=======================|===============
-       v                     v                       v
- +-------------------------------------------------------------------+
- |                    NORMALIZATION BUS                               |
- |  Fan-in: tokio::select! over all feed channels                    |
- |  Attaches: receive timestamp, sequence number, venue tag          |
- |  Publishes: NormalizedSnapshot to broadcast channel               |
- +-------------------------------------------------------------------+
+[Venue Supervisors] --RawMessage--> [Processors] --MarketSnapshot--> [Fan-in channel]
+                                                                           |
+                                                              [3-way Fan-out task]
+                                                             /       |          \
+                                                            v        v           v
+                                                   [SpreadEngine] [PricingEngine] [CrossAssetEngine]
+                                                        |               |                |
+                                                  SpreadResult    ImpliedProbability  ArbSignal
+                                                        |               |                |
+                                                        v               +------->--------+
+                                                 [PaperTradeTracker]                     |
+                                                                               [ArbSignal consumer (log only)]
+```
+
+Key architectural patterns already established:
+- **Tokio tasks** with `CancellationToken` per-task for graceful shutdown
+- **mpsc channels** (bounded, 1024) for inter-component data flow
+- **`tokio::select! biased`** in every run loop (cancel highest priority)
+- **JSONL file logging** with daily rotation and buffered writers (BufWriter, flush every 100 writes)
+- **Config structs** with `#[serde(default)]` for backward-compatible TOML loading
+- **`Arc<RwLock<EventRegistry>>`** for shared event mapping state
+- **`BasisRiskCache`** (`Arc<RwLock<HashMap>>`) with `try_read` for non-blocking hot path access
+- **`metrics::counter!/gauge!/histogram!`** for Prometheus instrumentation
+- **`tracing::info!/warn!`** with structured fields for JSON log output
+
+## Recommended Architecture for v1.1 Features
+
+### Design Principle: Extend, Don't Restructure
+
+All four v1.1 features integrate as **new consumers of existing channel data** or **new periodic tasks**. No changes to the hot path (fan-out, SpreadEngine, PricingEngine, CrossAssetEngine). The pipeline topology stays the same.
+
+### Updated Pipeline Diagram
+
+```
+[Existing Pipeline -- UNCHANGED]
+       |                    |                     |
+  SpreadResult         ArbSignal          MarketSnapshot
+       |                    |              (from fan-out)
+       v                    v                     |
+[PaperTradeTracker]  [ArbSignal consumer]         |
+       |                    |                     |
+       +----+----+----------+                     |
+            |    |                                |
+            v    v                                v
+    [SignalAnalyzer]  [SettlementTracker]   [AlertMonitor]
+            |                |                    |
+            v                v                    v
+    [StatePersistence] <-----+--------------------+
+         (JSONL files)
+```
+
+### Component Boundaries
+
+| Component | Responsibility | Reads From | Writes To | New/Modified |
+|-----------|---------------|------------|-----------|--------------|
+| `SettlementTracker` | Poll venues for settlement outcomes, match against historical signals | EventRegistry, venue REST APIs | settlement_outcomes JSONL, Prometheus metrics | **NEW module** |
+| `SignalAnalyzer` | Compute hit rate, edge accuracy, false positive rate, time-to-convergence | signal_logs JSONL, settlement outcomes | analysis_reports JSONL, Prometheus metrics | **NEW module** |
+| `AlertMonitor` | Detect degraded states (stale feeds, partial feeds, silent failures) | VenueHealth, channel lag, metrics state | tracing::warn, Prometheus alerts, alert_log JSONL | **NEW module** |
+| `StatePersistence` | Save/load paper P&L and signal history across restarts | PaperTradeTracker state, SignalAnalyzer state | state/ directory (JSONL snapshots) | **NEW module** |
+| `PaperTradeTracker` | Existing paper trade lifecycle | SpreadResult, MarketSnapshot | trade JSONL (existing) | **MODIFIED** -- add settlement integration |
+| `HealthState` | Existing health endpoint | VenueHealth | JSON response | **MODIFIED** -- add alert summary |
+
+## Detailed Component Architecture
+
+### 1. Settlement Outcome Tracker (`src/settlement/`)
+
+**Purpose:** After events expire, determine actual outcomes and match against signals/positions.
+
+**Integration points with existing code:**
+- Reads `EventRegistry` (`Arc<RwLock<EventRegistry>>`) to find expired events with settlement metadata
+- Reads `SettlementMetadata` from `EventMapping.settlement` for venue-specific resolution sources
+- Reuses `ContractLifecycleManager`'s expiry detection pattern (periodic polling, REST API calls)
+- Uses existing `reqwest::Client` pattern for venue REST API calls
+
+**Data flow:**
+```
+[ContractLifecycleManager marks event expired]
        |
-       | NormalizedSnapshot (tokio::broadcast)
+       v
+[SettlementTracker detects expired+unresolved events]
        |
-       +---------------------------+---------------------------+
-       |                           |                           |
-       v                           v                           v
- +-----------+             +--------------+            +-------------+
- | Event     |             | Pricing      |            | Telemetry   |
- | Mapping & |             | Engine       |            | Collector   |
- | Reconcil. |             | (pure sync)  |            |             |
- +-----------+             +--------------+            +-------------+
-       |                           |
-       | MappedPair                | PricedOutcome
-       | (bounded mpsc)            | (bounded mpsc)
-       |                           |
-       +-------------+-------------+
-                     |
-                     v
-            +-----------------+
-            | Signal          |
-            | Generator       |
-            | (spread calc,   |
-            |  cost adjust,   |
-            |  staleness)     |
-            +-----------------+
-                     |
-                     | Signal (bounded mpsc)
-                     v
-          +---------------------+
-          | Signal Router       |
-          | - Log/Record        |
-          | - Prometheus metric |
-          | - (v2: Execution)   |
-          +---------------------+
-                     |
-                     | (v2: OrderRequest)
-                     v
-          +---------------------+        +------------------+
-          | Execution Engine    | -----> | Risk Manager     |
-          | (v2: trait impl)    |        | (v2: position    |
-          +---------------------+        |  limits, Greeks) |
-                                         +------------------+
-
- ===================================================================
-                        CROSS-CUTTING CONCERNS
- ===================================================================
-  +------------------+   +------------------+   +------------------+
-  | Config (TOML)    |   | Telemetry        |   | Clock / Time     |
-  | hot-reload via   |   | tracing spans    |   | Instant-based    |
-  | watch channel    |   | Prometheus /     |   | monotonic for    |
-  |                  |   | metrics          |   | latency; wall    |
-  |                  |   | feed recording   |   | clock for stamps |
-  +------------------+   +------------------+   +------------------+
+       +--> Poll Deribit REST: GET /public/get_delivery_prices?index_name=btc_usd
+       +--> Poll Kalshi REST: GET /trade-api/v2/events/{event_ticker}
+       +--> Poll Polymarket REST: Check condition resolution via Gamma API
+       |
+       v
+[SettlementOutcome { event_id, venue_outcomes: HashMap<Venue, VenueOutcome>, resolved_at }]
+       |
+       v
+[Write to settlement_outcomes/ JSONL + notify SignalAnalyzer + notify PaperTradeTracker]
 ```
 
-### Component Responsibilities
-
-| Component | Responsibility | Typical Implementation |
-|-----------|----------------|------------------------|
-| **Feed Actors** (src/feeds/) | Maintain WebSocket/REST connections to each venue, parse venue-specific wire formats, produce normalized `MarketSnapshot` events | One tokio task per venue; owns reconnection logic, heartbeat, auth; uses `tokio-tungstenite` for WS |
-| **Normalization Bus** | Fan-in from all feeds, attach metadata (receive timestamp, sequence), fan-out to downstream consumers | Single task with `tokio::select!` over feed receivers; publishes on `tokio::broadcast` channel |
-| **Event Mapping** (src/events/) | Map equivalent instruments across venues (e.g., Polymarket "BTC > $100k" = Deribit BTC-100000-C), maintain instrument registry | Registry data structure keyed by canonical event ID; settlement basis analyzer compares contract terms |
-| **Pricing Engine** (src/pricing/) | IV solving (Newton-Raphson/Brent), Black-76 pricing, probability extraction (N(d2), call spread, smile interpolation), Greeks computation | Pure synchronous functions, no async; operates on `rust_decimal`; called inline by signal generator |
-| **Signal Generator** (src/signals/) | Calculate cross-venue spreads, apply cost adjustments (fees, slippage), detect stale data, fire signals when thresholds breached | Consumes `MappedPair` + `PricedOutcome`; uses configurable thresholds from TOML config |
-| **Signal Router** | Route signals to sinks: logging, metrics, recording, and (v2) execution | Fan-out via broadcast or direct calls to observer trait objects |
-| **Execution Engine** (src/execution/) | v2 -- submit orders, manage fills, handle venue-specific order types | Trait interface designed in v1; concrete implementations in v2 |
-| **Risk Manager** (src/risk/) | v2 -- position limits, Greeks exposure limits, P&L tracking | Trait interface designed in v1; concrete implementations in v2 |
-| **Telemetry** (src/telemetry/) | Structured logging, Prometheus metrics, span-based tracing, feed recording for replay | `tracing` crate + `tracing-subscriber`; `metrics` crate with Prometheus exporter |
-| **Config** (src/config/) | Load and distribute TOML configuration; support hot-reload for thresholds | `tokio::sync::watch` channel for runtime config updates without restart |
-
-## Recommended Project Structure
-
-```
-src/
-├── main.rs                    # Runtime bootstrap, task spawning, graceful shutdown
-├── config/
-│   ├── mod.rs                 # Config module root
-│   ├── types.rs               # AppConfig, FeedConfig, PricingConfig, SignalConfig structs
-│   └── loader.rs              # TOML parsing, validation, watch-based hot reload
-├── feeds/
-│   ├── mod.rs                 # Feed trait, MarketSnapshot type, common types
-│   ├── common.rs              # Shared WS utilities: reconnect, heartbeat, auth
-│   ├── deribit.rs             # Deribit WS feed actor
-│   ├── polymarket.rs          # Polymarket WS/REST feed actor
-│   ├── kalshi.rs              # Kalshi WS/REST feed actor
-│   └── normalizer.rs          # Fan-in bus, timestamp attachment, broadcast publisher
-├── events/
-│   ├── mod.rs                 # Event mapping module root
-│   ├── registry.rs            # Canonical event ID registry, cross-venue instrument map
-│   ├── settlement.rs          # Settlement basis comparison (binary vs option payoff)
-│   └── types.rs               # MappedPair, CanonicalEvent, VenueInstrument
-├── pricing/
-│   ├── mod.rs                 # Pricing module root
-│   ├── black76.rs             # Black-76 model implementation
-│   ├── iv_solver.rs           # Newton-Raphson + Brent method IV solver
-│   ├── probability.rs         # N(d2), call spread replication, smile interpolation
-│   ├── greeks.rs              # Delta, gamma, theta, vega computations
-│   └── types.rs               # PricedOutcome, ImpliedVol, Greeks structs
-├── signals/
-│   ├── mod.rs                 # Signal generation module root
-│   ├── spread.rs              # Cross-venue spread calculator
-│   ├── cost.rs                # Fee, slippage, and funding cost adjustments
-│   ├── staleness.rs           # Data freshness detection and circuit breaking
-│   ├── threshold.rs           # Configurable threshold engine
-│   └── types.rs               # Signal, SpreadResult, CostAdjustment
-├── execution/
-│   ├── mod.rs                 # Execution module root (v1: trait only)
-│   └── traits.rs              # ExecutionEngine trait, OrderRequest, OrderResponse
-├── risk/
-│   ├── mod.rs                 # Risk module root (v1: trait only)
-│   └── traits.rs              # RiskManager trait, PositionLimit, ExposureLimit
-├── telemetry/
-│   ├── mod.rs                 # Telemetry module root
-│   ├── metrics.rs             # Prometheus counters, histograms, gauges
-│   ├── tracing.rs             # Structured tracing setup, span management
-│   └── recorder.rs            # Feed recording for replay/debugging
-├── types/
-│   ├── mod.rs                 # Shared domain types
-│   ├── decimal.rs             # rust_decimal wrappers, arithmetic helpers
-│   ├── venue.rs               # Venue enum, VenueId
-│   └── timestamp.rs           # Timestamp types, monotonic vs wall-clock
-└── error.rs                   # Unified error types across modules
-```
-
-### Structure Rationale
-
-- **feeds/**: Each venue is its own file because venue APIs are wildly different (Deribit WS subscriptions vs Polymarket CLOB WS vs Kalshi REST+WS). The `common.rs` extracts shared reconnection/heartbeat logic. The `normalizer.rs` is the fan-in point that decouples venue-specific code from downstream consumers.
-- **events/**: Separated from feeds because mapping is a domain concern (which instruments are equivalent), not an ingestion concern. The registry is the single source of truth for cross-venue relationships.
-- **pricing/**: Pure computational module with zero async. Deliberately isolated so it can be unit-tested with deterministic inputs without needing a runtime. All functions take `rust_decimal` values and return `rust_decimal` results.
-- **signals/**: Orchestrates the combination of mapped pairs + pricing + costs into actionable signals. Staleness detection lives here because it is a signal-quality concern, not a feed concern.
-- **types/**: Shared types used across module boundaries. Prevents circular dependencies by being a leaf module that other modules depend on but that depends on nothing internal.
-
-## Architectural Patterns
-
-### Pattern 1: Pipeline of Async Actors Connected by Bounded Channels
-
-**What:** Each major system component runs as an independent tokio task (actor). Components communicate exclusively through bounded `tokio::sync::mpsc` channels. Each actor has a simple loop: receive from input channel, process, send to output channel.
-
-**When to use:** Whenever two components have a producer-consumer relationship with different processing rates.
-
-**Trade-offs:**
-- PRO: Natural backpressure -- if the pricing engine is slow, the channel fills and feeds slow their publish rate
-- PRO: Component isolation -- each actor can crash and be restarted independently
-- PRO: Testability -- inject a channel sender/receiver to test each stage in isolation
-- CON: Latency overhead of channel send/recv (~50-200ns per hop)
-- CON: Debugging data flow requires correlating across task boundaries
-
-**Example:**
+**Structural pattern:**
 ```rust
-use tokio::sync::mpsc;
-
-pub struct FeedActor {
-    output: mpsc::Sender<MarketSnapshot>,
-    config: FeedConfig,
+pub struct SettlementTracker {
+    registry: Arc<RwLock<EventRegistry>>,
+    http_client: reqwest::Client,
+    venues_config: VenuesConfig,
+    credentials: Credentials,
+    cancel: CancellationToken,
+    outcome_tx: mpsc::Sender<SettlementOutcome>,
+    log_dir: PathBuf,
+    /// Track which events we have already resolved to avoid re-polling.
+    resolved: HashSet<String>,
+    /// Poll interval (e.g., every 5 minutes).
+    poll_interval_secs: u64,
 }
 
-impl FeedActor {
-    pub async fn run(self, shutdown: CancellationToken) -> Result<()> {
-        let mut ws = self.connect().await?;
-        loop {
-            tokio::select! {
-                biased;  // Check shutdown first
-                _ = shutdown.cancelled() => {
-                    tracing::info!("feed shutting down gracefully");
-                    return Ok(());
-                }
-                msg = ws.next() => {
-                    match msg {
-                        Some(Ok(frame)) => {
-                            let snapshot = self.parse(frame)?;
-                            // Bounded send -- applies backpressure if downstream is slow
-                            if self.output.send(snapshot).await.is_err() {
-                                tracing::warn!("downstream dropped, shutting down");
-                                return Ok(());
-                            }
-                        }
-                        Some(Err(e)) => {
-                            tracing::error!(?e, "ws error, reconnecting");
-                            ws = self.reconnect_with_backoff().await?;
-                        }
-                        None => {
-                            tracing::warn!("ws closed, reconnecting");
-                            ws = self.reconnect_with_backoff().await?;
-                        }
+pub struct SettlementOutcome {
+    pub event_id: String,
+    pub asset: String,
+    pub strike: String,
+    pub direction: Direction,
+    pub actual_outcome: OutcomeResult, // Yes/No/Unknown
+    pub settlement_price: Option<Decimal>,
+    pub venue_outcomes: HashMap<Venue, VenueOutcome>,
+    pub resolved_at: DateTime<Utc>,
+}
+
+pub enum OutcomeResult {
+    Yes,     // Event occurred (e.g., BTC > 100K)
+    No,      // Event did not occur
+    Unknown, // Could not determine (API error, ambiguous)
+}
+
+pub struct VenueOutcome {
+    pub venue: Venue,
+    pub settlement_value: Option<Decimal>, // 1.0 = Yes, 0.0 = No
+    pub source: String, // "deribit_index", "oracle", etc.
+    pub fetched_at: DateTime<Utc>,
+}
+```
+
+**Why this design:**
+- Separate from `ContractLifecycleManager` because lifecycle handles discovery/expiry, settlement handles post-expiry resolution. Different polling cadences and different API endpoints.
+- `outcome_tx` channel allows `SignalAnalyzer` to react to new outcomes without polling files.
+- `resolved` set prevents redundant API calls for already-settled events.
+- Follows the `ContractLifecycleManager` pattern: periodic `tokio::time::interval` in a `tokio::select! biased` loop with cancellation.
+
+**Key integration detail:** The `EventMapping.status` field transitions from `Active` to `Expired` in lifecycle. Settlement tracker watches for `Expired` status and attempts resolution. A new status `Settled` could be added, but it is simpler to track resolution state internally in the `resolved` HashSet and in the outcome JSONL files, avoiding changes to the shared config format.
+
+### 2. Signal Analyzer (`src/analysis/`)
+
+**Purpose:** Backtest signal quality by comparing generated signals against settlement outcomes.
+
+**Integration points with existing code:**
+- Reads signal JSONL files from `signal_logs/` (written by `SignalLogger` in `CrossAssetEngine`)
+- Reads spread JSONL files from `spreads/` (written by `SpreadLogger` in `SpreadEngine`)
+- Reads trade JSONL from `paper_trades/` (written by `TradeLogger` in `PaperTradeTracker`)
+- Receives `SettlementOutcome` via mpsc channel from `SettlementTracker`
+- Exposes analysis metrics via existing `metrics::gauge!` pattern
+
+**Metrics computed:**
+```rust
+pub struct SignalAnalysisReport {
+    pub period: AnalysisPeriod,       // Daily/Weekly/AllTime
+    pub total_signals: u64,
+    pub settled_signals: u64,
+    pub hit_rate: f64,                // % of signals where direction was correct
+    pub avg_edge_accuracy: f64,       // avg(actual_pnl / predicted_edge)
+    pub false_positive_rate: f64,     // % of PassedBoth signals that lost money
+    pub avg_time_to_convergence_ms: Option<i64>, // avg time from signal to price convergence
+    pub edge_distribution: EdgeStats, // mean, median, stddev, p5, p95
+    pub per_event_stats: HashMap<String, EventAnalysis>,
+    pub per_direction_stats: HashMap<String, DirectionAnalysis>,
+    pub generated_at: DateTime<Utc>,
+}
+```
+
+**Architecture decision -- online vs batch:**
+
+Use **hybrid approach**: online accumulation with periodic batch reconciliation.
+
+- **Online:** As each `SettlementOutcome` arrives via channel, immediately score any matching signals from the in-memory signal index. Update running counters.
+- **Batch:** On a configurable interval (e.g., hourly), scan JSONL files for any signals that were missed (e.g., if the system restarted between signal emission and settlement). This handles the cold-start problem.
+
+**Structural pattern:**
+```rust
+pub struct SignalAnalyzer {
+    /// In-memory index of recent signals awaiting settlement.
+    pending_signals: HashMap<String, Vec<IndexedSignal>>, // event_id -> signals
+    /// Running statistics accumulator.
+    stats: AnalysisAccumulator,
+    /// Receives settlement outcomes from SettlementTracker.
+    outcome_rx: mpsc::Receiver<SettlementOutcome>,
+    /// Receives new arb signals for indexing (tapped from existing arb_signal channel).
+    signal_rx: mpsc::Receiver<ArbSignal>,
+    /// Configuration.
+    config: AnalysisConfig,
+    /// JSONL writer for analysis reports.
+    report_logger: AnalysisLogger,
+    cancel: CancellationToken,
+}
+```
+
+**Key integration detail:** The existing `ArbSignal` consumer in `main.rs` (lines 409-442) currently just logs and meters. To feed `SignalAnalyzer`, add a second consumer by cloning the `arb_signal_tx` sender or adding a new fan-out. The cheapest approach: create `arb_signal_tx` with `mpsc::channel`, then create a small fan-out task that clones each `ArbSignal` to both the existing log consumer and the `SignalAnalyzer`. Since `ArbSignal` derives `Clone`, the fan-out cost is minimal.
+
+### 3. Alert Monitor (`src/alert/`)
+
+**Purpose:** Detect operational degradation beyond what reconnection supervisors handle. Reconnection supervisors handle connection drops. Alert monitor handles subtle degradation: stale data that technically arrives but is outdated, partial feed coverage, silent processing failures, channel backpressure.
+
+**Integration points with existing code:**
+- Reads `VenueHealth` (`Arc<VenueHealth>`) -- already tracked per venue with atomics
+- Reads `VenueHealth.last_message_at()` for silence detection (message gap analysis)
+- Can read Prometheus metrics state (counters like `arb_staleness_rejections`, `arb_computations_total`)
+- Adds to existing `/health` endpoint response for alert summary
+
+**Alert types:**
+```rust
+pub enum AlertSeverity {
+    Warning,  // Degraded but operational
+    Critical, // Requires attention, may affect signal quality
+}
+
+pub enum AlertType {
+    /// No messages from venue for > threshold seconds despite connection.
+    SilentFeed { venue: Venue, gap_secs: u64 },
+    /// Staleness rejection rate exceeds threshold.
+    HighStalenessRate { venue: Venue, rate: f64 },
+    /// Fewer than expected venues contributing to spread computation.
+    PartialCoverage { active_venues: usize, expected_venues: usize },
+    /// Channel backpressure detected (try_send failures).
+    ChannelBackpressure { component: String, drop_rate: f64 },
+    /// No spread computations for > threshold seconds despite data flowing.
+    NoComputations { gap_secs: u64 },
+    /// Paper trade tracker has stale pending positions (signal but no fill).
+    StalePendingTrades { count: usize, oldest_age_secs: u64 },
+}
+```
+
+**Structural pattern:**
+```rust
+pub struct AlertMonitor {
+    venue_health: Vec<Arc<VenueHealth>>,
+    config: AlertConfig,
+    active_alerts: HashMap<String, ActiveAlert>, // dedup key -> alert
+    cancel: CancellationToken,
+    alert_logger: AlertLogger, // JSONL writer
+}
+```
+
+**Run pattern:** Periodic evaluation (e.g., every 30 seconds) using `tokio::time::interval`. Reads atomic state from `VenueHealth` (never blocks pipeline). Emits `tracing::warn!` for new alerts, `tracing::info!` for resolved alerts. Updates Prometheus gauges.
+
+**Key integration detail:** `VenueHealth` already provides `is_available()`, `last_message_at()`, `last_error()`, `connection_count()` -- all via atomics/mutex, all non-blocking. The alert monitor just needs periodic reads. No changes to existing feed infrastructure needed.
+
+**Health endpoint extension:** Add an `alerts: Vec<AlertSummary>` field to `HealthResponse`. The `AlertMonitor` shares its `active_alerts` via `Arc<RwLock<HashMap>>` (same pattern as `BasisRiskCache`). The health handler reads it with `try_read`.
+
+### 4. State Persistence (`src/persistence/`)
+
+**Purpose:** Save paper P&L state and signal history so the system can resume after restart without losing accumulated data.
+
+**Integration points with existing code:**
+- Serializes `PaperTradeTracker` state: open positions, pending positions, daily aggregator
+- Serializes `SignalAnalyzer` running statistics
+- Already-existing JSONL trade logs, signal logs, and spread logs provide the historical record. Persistence focuses on **in-memory state** that would be lost on restart.
+
+**Design: Checkpoint-based, not WAL:**
+
+The system already writes every event to JSONL (signals, trades, spreads). What is lost on restart is computed in-memory state (running averages, open positions, pending fills). Two approaches:
+
+1. **WAL (Write-Ahead Log):** Complex, overkill for paper trading
+2. **Periodic checkpoint:** Serialize in-memory state to a snapshot file every N minutes. On restart, load latest checkpoint, then replay any JSONL events after the checkpoint timestamp.
+
+**Use checkpoint approach** because:
+- Paper trading is not real money -- losing a few minutes of state is acceptable
+- JSONL files already provide complete event history for replay
+- Checkpoint files are simple to debug (human-readable JSON)
+- Matches the existing file I/O patterns (BufWriter, daily rotation)
+
+**Structural pattern:**
+```rust
+pub struct StateCheckpoint {
+    pub version: u32,
+    pub timestamp: DateTime<Utc>,
+    pub paper_trade_state: PaperTradeState,
+    pub analysis_state: Option<AnalysisState>,
+}
+
+pub struct PaperTradeState {
+    pub pending: HashMap<String, Vec<PaperPosition>>,
+    pub open: Vec<PaperPosition>,
+    pub aggregator_daily: HashMap<String, DailyRollup>,
+    pub total_trades: u64,
+}
+
+pub struct StatePersistence {
+    state_dir: PathBuf,
+    checkpoint_interval_secs: u64,
+    cancel: CancellationToken,
+}
+```
+
+**Checkpoint flow:**
+```
+Every N minutes:
+  1. PaperTradeTracker.snapshot() -> PaperTradeState (via method on tracker, not direct field access)
+  2. SignalAnalyzer.snapshot() -> AnalysisState
+  3. Serialize StateCheckpoint to JSON
+  4. Atomic write: write to state/checkpoint.json.tmp, rename to state/checkpoint.json
+```
+
+**Restart flow:**
+```
+On startup:
+  1. If state/checkpoint.json exists, load it
+  2. Reconstruct PaperTradeTracker with loaded state
+  3. Reconstruct SignalAnalyzer with loaded state
+  4. Find JSONL events after checkpoint timestamp, replay them
+  5. Resume normal operation
+```
+
+**Key integration detail:** `PaperPosition` already derives `Serialize, Deserialize`. `DailyRollup` already derives `Serialize` (needs `Deserialize` added). The types are mostly ready for checkpoint serialization. The main change is adding `snapshot()` and `restore()` methods to `PaperTradeTracker` and (later) `SignalAnalyzer`.
+
+**Atomic write pattern:** Already used by `ContractLifecycleManager.atomic_write()` for events.toml updates. Reuse the same pattern: write to `.tmp`, then `tokio::fs::rename`.
+
+## Patterns to Follow
+
+### Pattern 1: Tokio Task with Cancellation
+
+Every new component follows this pattern (used by SpreadEngine, PricingEngine, CrossAssetEngine, PaperTradeTracker, ContractLifecycleManager):
+
+```rust
+pub async fn run(self, /* channels */, cancel: CancellationToken) {
+    let mut interval = tokio::time::interval(Duration::from_secs(self.config.poll_interval));
+    interval.tick().await; // skip first immediate tick
+
+    loop {
+        tokio::select! {
+            biased;
+
+            _ = cancel.cancelled() => {
+                tracing::info!("ComponentName shutting down");
+                // flush any buffered state
+                break;
+            }
+
+            _ = interval.tick() => {
+                self.do_periodic_work().await;
+            }
+
+            msg = channel_rx.recv() => {
+                match msg {
+                    Some(m) => self.handle(m).await,
+                    None => {
+                        tracing::info!("channel closed, stopping");
+                        break;
                     }
                 }
             }
@@ -225,448 +363,255 @@ impl FeedActor {
 }
 ```
 
-### Pattern 2: Broadcast Fan-Out for Multi-Consumer Data
+### Pattern 2: JSONL Logger with Daily Rotation
 
-**What:** Use `tokio::sync::broadcast` when multiple independent consumers all need every message (e.g., telemetry, signal generator, and event mapper all need every normalized snapshot). Unlike mpsc which is point-to-point, broadcast lets any number of receivers subscribe.
+Every logging component follows this pattern (used by SignalLogger, SpreadLogger, TradeLogger):
 
-**When to use:** When the normalization bus publishes snapshots that multiple downstream components need simultaneously.
-
-**Trade-offs:**
-- PRO: Decouples publisher from subscriber count -- add new consumers without modifying publisher
-- PRO: Each receiver gets its own independent read pointer
-- CON: No backpressure -- slow receivers get `RecvError::Lagged` and miss messages
-- CON: All messages are cloned for each receiver (use `Arc<T>` to avoid deep clones)
-
-**Example:**
 ```rust
-use tokio::sync::broadcast;
-use std::sync::Arc;
+struct ComponentLogger {
+    log_dir: PathBuf,
+    writer: Option<BufWriter<File>>,
+    current_date: Option<NaiveDate>,
+    writes_since_flush: u64,
+}
 
-// Wrap in Arc to avoid cloning large snapshots
-let (tx, _) = broadcast::channel::<Arc<NormalizedSnapshot>>(256);
-
-// Publisher (normalizer bus)
-let snapshot = Arc::new(normalized);
-let _ = tx.send(snapshot);  // Returns Err only if zero receivers
-
-// Consumer 1: Signal generator
-let mut rx_signals = tx.subscribe();
-tokio::spawn(async move {
-    loop {
-        match rx_signals.recv().await {
-            Ok(snap) => process_for_signals(&snap).await,
-            Err(broadcast::error::RecvError::Lagged(n)) => {
-                tracing::warn!(missed = n, "signal gen lagged, skipping stale data");
+impl ComponentLogger {
+    fn log_event(&mut self, event: &impl Serialize) -> anyhow::Result<()> {
+        let today = Utc::now().date_naive();
+        if self.current_date != Some(today) {
+            self.rotate_file(today)?;
+        }
+        let line = serde_json::to_string(event)?;
+        if let Some(ref mut writer) = self.writer {
+            writeln!(writer, "{}", line)?;
+            self.writes_since_flush += 1;
+            if self.writes_since_flush >= 100 {
+                writer.flush()?;
+                self.writes_since_flush = 0;
             }
-            Err(broadcast::error::RecvError::Closed) => break,
         }
+        Ok(())
     }
-});
-
-// Consumer 2: Telemetry recorder
-let mut rx_telemetry = tx.subscribe();
-tokio::spawn(async move {
-    while let Ok(snap) = rx_telemetry.recv().await {
-        record_snapshot(&snap).await;
-    }
-});
+}
 ```
 
-### Pattern 3: Watch Channel for Latest-Value State (Config, Snapshots)
+### Pattern 3: Config with Serde Defaults
 
-**What:** Use `tokio::sync::watch` when consumers only care about the most recent value, not every intermediate update. The watch channel retains only the last sent value; receivers see the latest state when they check.
+Every config struct follows this pattern for backward-compatible TOML:
 
-**When to use:** Configuration hot-reload (only the current config matters), latest market state snapshot for on-demand queries, current system health status.
-
-**Trade-offs:**
-- PRO: Zero message accumulation -- no backpressure needed because intermediates are irrelevant
-- PRO: Readers never block the writer
-- CON: Not suitable when every message must be processed (use mpsc or broadcast instead)
-
-**Example:**
 ```rust
-use tokio::sync::watch;
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct NewFeatureConfig {
+    pub some_threshold: u64,
+    pub log_dir: String,
+    pub enabled: bool,
+}
 
-// Config hot-reload
-let (config_tx, config_rx) = watch::channel(initial_config);
-
-// Config reloader task
-tokio::spawn(async move {
-    let mut interval = tokio::time::interval(Duration::from_secs(30));
-    loop {
-        interval.tick().await;
-        if let Ok(new_config) = reload_config_from_disk().await {
-            let _ = config_tx.send(new_config);
-        }
-    }
-});
-
-// Consumer: Signal generator reads latest config
-async fn check_threshold(config_rx: &watch::Receiver<AppConfig>, spread: Decimal) -> bool {
-    let config = config_rx.borrow();
-    spread >= config.signals.min_spread_threshold
+impl Default for NewFeatureConfig {
+    fn default() -> Self { /* sensible defaults */ }
 }
 ```
 
-### Pattern 4: Graceful Shutdown via CancellationToken Tree
-
-**What:** Use `tokio_util::sync::CancellationToken` to coordinate shutdown across all tasks. Create a root token and derive child tokens for subsystems. Cancelling the root cascades to all children. Each task uses `tokio::select!` to race its work against the cancellation signal.
-
-**When to use:** Always. Every long-running task must respect shutdown signals.
-
-**Trade-offs:**
-- PRO: Hierarchical -- cancel the "feeds" subtree without stopping signal generation
-- PRO: Composable with `tokio::select!`
-- PRO: No channel overhead -- just an atomic flag check
-
-**Example:**
+Then add to `SystemConfig` in `src/config/system.rs`:
 ```rust
-use tokio_util::sync::CancellationToken;
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let root_token = CancellationToken::new();
-
-    // Subsystem tokens
-    let feeds_token = root_token.child_token();
-    let pricing_token = root_token.child_token();
-    let signals_token = root_token.child_token();
-
-    // Signal handler
-    let shutdown_token = root_token.clone();
-    tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.ok();
-        tracing::info!("shutdown signal received");
-        shutdown_token.cancel();
-    });
-
-    // Spawn subsystems with their tokens
-    let feeds_handle = tokio::spawn(run_feeds(feeds_token));
-    let signals_handle = tokio::spawn(run_signals(signals_token));
-
-    // Wait for all to complete
-    let _ = tokio::try_join!(feeds_handle, signals_handle);
-    tracing::info!("all subsystems shut down");
-    Ok(())
-}
+#[serde(default)]
+pub new_feature: NewFeatureConfig,
 ```
 
-### Pattern 5: Trait-Based Abstraction for Deferred Components
+### Pattern 4: Shared State via Arc<RwLock> with try_read
 
-**What:** Define trait interfaces for components that will be implemented later (Execution, Risk). This locks in the contract between components early while deferring implementation complexity.
+For state that must be readable from the hot path without blocking:
 
-**When to use:** v2 components (Execution Engine, Risk Manager) that need their interfaces designed in v1 so that v1 components (Signal Generator) can be written against them.
-
-**Trade-offs:**
-- PRO: v1 code compiles and tests against the trait, not a concrete type
-- PRO: Can provide a `NoOpExecution` and `NoOpRisk` for v1 that log signals without acting
-- CON: Trait design might need revision when implementing; accept this cost
-
-**Example:**
 ```rust
-#[async_trait]
-pub trait ExecutionEngine: Send + Sync {
-    async fn submit_order(&self, request: OrderRequest) -> Result<OrderResponse>;
-    async fn cancel_order(&self, order_id: OrderId) -> Result<()>;
-    async fn get_positions(&self) -> Result<Vec<Position>>;
+pub type SharedAlertState = Arc<RwLock<HashMap<String, ActiveAlert>>>;
+
+// Writer (AlertMonitor): .write().await -- ok, runs on its own interval
+// Reader (HealthEndpoint): .try_read() -- never blocks the HTTP handler
+```
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Modifying the Fan-out Hot Path
+
+**What:** Adding new channel sends to the existing 3-way fan-out task in main.rs for v1.1 features.
+**Why bad:** The fan-out task is on the critical data path. Every additional `try_send` adds latency and backpressure risk. The fan-out already drops snapshots for pricing and signal engines when channels are full.
+**Instead:** New components that need MarketSnapshot data should either: (a) subscribe to a broadcast channel added alongside the fan-out, or (b) read from their upstream component (e.g., AlertMonitor reads VenueHealth, not raw snapshots).
+
+### Anti-Pattern 2: Direct Field Access for Checkpointing
+
+**What:** Having `StatePersistence` directly read `PaperTradeTracker.open` and `.pending` fields.
+**Why bad:** Creates tight coupling. If PaperTradeTracker's internal representation changes, persistence breaks. Also requires making fields `pub` or using unsafe access patterns.
+**Instead:** Add `snapshot() -> PaperTradeState` and `restore(state: PaperTradeState)` methods to PaperTradeTracker. The tracker owns its state representation; persistence only deals with the serializable snapshot type.
+
+### Anti-Pattern 3: Settlement Polling in ContractLifecycleManager
+
+**What:** Adding settlement outcome fetching to the existing ContractLifecycleManager poll cycle.
+**Why bad:** Lifecycle manager already has complex multi-venue polling with independent intervals. Adding settlement polling (different API endpoints, different cadence, different error handling) makes it harder to test and debug. Single responsibility violation.
+**Instead:** SettlementTracker as a separate tokio task. It can read from EventRegistry (shared) to find expired events, then poll its own endpoints independently.
+
+### Anti-Pattern 4: Database for State Persistence
+
+**What:** Adding SQLite or another database for paper trade state.
+**Why bad:** Adds a dependency, deployment complexity (single binary constraint), and migration burden for what is essentially serializing a few structs. The system already writes JSONL everywhere -- adding a database creates two persistence patterns to maintain.
+**Instead:** JSON checkpoint files with atomic writes. Consistent with existing patterns. Human-readable for debugging. Zero new dependencies.
+
+### Anti-Pattern 5: Blocking File I/O on the Main Pipeline
+
+**What:** Performing synchronous file reads in components that receive channel messages.
+**Why bad:** Even brief file I/O stalls block the tokio task, creating backpressure on upstream channels. The system is designed for sub-millisecond channel processing.
+**Instead:** File I/O (like checkpoint loading) happens at startup before the run loop starts. Checkpoint writes happen on a separate interval tick, never in the message processing path. Use `tokio::fs` for async operations where needed.
+
+## Scalability Considerations
+
+| Concern | Current (paper trading) | If Signal Volume 10x | If Adding Real Execution |
+|---------|------------------------|----------------------|--------------------------|
+| Signal log size | ~MB/day, daily rotation handles it | Add JSONL compression or retention policy | Same -- execution layer reads from channels, not files |
+| Settlement polling | Once per event expiry (handful/month) | Same -- number of events stays small | Same |
+| Checkpoint size | KB (few open positions) | Still KB-MB | Add incremental checkpoints, consider WAL |
+| Alert monitoring | 30s poll, reads atomics | Same -- O(1) per venue | Add execution-specific alerts |
+| Analysis computation | On-demand when settlements arrive | Add background batch job | Same |
+| Channel buffer sizing | 1024 per channel, sufficient | Monitor `try_send` failure rate, increase if needed | Separate execution channel with its own buffer |
+
+## Data Flow Changes Summary
+
+```
+EXISTING DATA FLOWS (unchanged):
+  Snapshots -> Fan-out -> SpreadEngine/PricingEngine/CrossAssetEngine
+  SpreadResult -> PaperTradeTracker
+  ImpliedProbability -> CrossAssetEngine
+  ArbSignal -> (log consumer)
+
+NEW DATA FLOWS:
+  ArbSignal -> SignalAnalyzer (new fan-out from arb_signal channel)
+  SettlementOutcome -> SignalAnalyzer (new mpsc channel)
+  SettlementOutcome -> PaperTradeTracker (for settling open positions)
+  EventRegistry -> SettlementTracker (reads expired events)
+  VenueHealth -> AlertMonitor (reads atomic state, no channel needed)
+  AlertMonitor shared state -> HealthEndpoint (Arc<RwLock>, try_read)
+  PaperTradeTracker -> StatePersistence (snapshot method, periodic)
+  SignalAnalyzer -> StatePersistence (snapshot method, periodic)
+```
+
+## Module Organization
+
+```
+src/
+  settlement/          <-- NEW
+    mod.rs
+    tracker.rs         # SettlementTracker task
+    types.rs           # SettlementOutcome, VenueOutcome, OutcomeResult
+    fetcher.rs         # Per-venue REST API settlement fetching
+  analysis/            <-- NEW
+    mod.rs
+    analyzer.rs        # SignalAnalyzer task
+    types.rs           # SignalAnalysisReport, EdgeStats, AnalysisPeriod
+    accumulator.rs     # Running statistics (online accumulation)
+    config.rs          # AnalysisConfig
+  alert/               <-- NEW
+    mod.rs
+    monitor.rs         # AlertMonitor task
+    types.rs           # AlertType, AlertSeverity, ActiveAlert
+    config.rs          # AlertConfig (thresholds, intervals)
+  persistence/         <-- NEW
+    mod.rs
+    checkpoint.rs      # StateCheckpoint, atomic write/read
+    restore.rs         # Startup restoration from checkpoint + JSONL replay
+    config.rs          # PersistenceConfig
+  paper_trade/         <-- MODIFIED
+    tracker.rs         # Add snapshot()/restore(), settlement integration
+    position.rs        # (unchanged, already has Serialize/Deserialize)
+    aggregator.rs      # Add Deserialize to DailyRollup
+  health/              <-- MODIFIED
+    mod.rs             # Add alerts field to HealthResponse
+  config/              <-- MODIFIED
+    system.rs          # Add SettlementConfig, AnalysisConfig, AlertConfig, PersistenceConfig
+```
+
+## Build Order (Dependency-Driven)
+
+The components have these dependencies:
+
+```
+StatePersistence depends on: PaperTradeTracker (snapshot API), SignalAnalyzer (snapshot API)
+SignalAnalyzer depends on: SettlementTracker (outcome channel), ArbSignal channel
+SettlementTracker depends on: EventRegistry (already exists), venue REST APIs (existing patterns)
+AlertMonitor depends on: VenueHealth (already exists)
+```
+
+**Recommended build order:**
+
+1. **AlertMonitor** -- No dependencies on other new components. Reads existing VenueHealth atomics. Immediate operational value for unattended paper trading. Simplest of the four.
+
+2. **SettlementTracker** -- Depends only on existing EventRegistry. Requires REST API integration (follows ContractLifecycleManager patterns). Must be built before SignalAnalyzer.
+
+3. **SignalAnalyzer** -- Depends on SettlementTracker (outcome channel) and ArbSignal tap. This is the core analytical value of v1.1.
+
+4. **StatePersistence** -- Depends on PaperTradeTracker and SignalAnalyzer having snapshot APIs. Build last because it needs stable interfaces from the other components. Also least critical -- restarting during paper trading is acceptable.
+
+## Wiring in main.rs
+
+Approximate addition to `main.rs` (after existing pipeline wiring, around line 408):
+
+```rust
+// -- v1.1: Alert Monitor --
+let alert_state: SharedAlertState = Arc::new(RwLock::new(HashMap::new()));
+let alert_config = config.system.alert.clone();
+let alert_monitor = AlertMonitor::new(
+    pipeline_handles.venue_health.clone(),
+    alert_config,
+    alert_state.clone(),
+    shutdown_token.child_token(),
+);
+tokio::spawn(alert_monitor.run());
+
+// -- v1.1: Settlement Tracker --
+let (outcome_tx, outcome_rx) = mpsc::channel::<SettlementOutcome>(64);
+let outcome_tx_for_tracker = outcome_tx.clone(); // for PaperTradeTracker
+let settlement_tracker = SettlementTracker::new(
+    event_registry.clone(),
+    config.system.settlement.clone(),
+    config.venues.clone(),
+    config.credentials.clone(),
+    outcome_tx,
+    shutdown_token.child_token(),
+);
+if is_live {
+    tokio::spawn(settlement_tracker.run());
 }
 
-// v1: No-op implementation that logs
-pub struct LogOnlyExecution;
+// -- v1.1: ArbSignal fan-out to SignalAnalyzer --
+// Replace single arb_signal consumer with fan-out to both log consumer + analyzer
+let (analysis_signal_tx, analysis_signal_rx) = mpsc::channel::<ArbSignal>(1024);
+// Modify arb consumer loop to also forward to analysis_signal_tx
 
-#[async_trait]
-impl ExecutionEngine for LogOnlyExecution {
-    async fn submit_order(&self, request: OrderRequest) -> Result<OrderResponse> {
-        tracing::info!(?request, "SIGNAL: would submit order");
-        Ok(OrderResponse::simulated(request))
-    }
-    // ...
-}
+// -- v1.1: Signal Analyzer --
+let signal_analyzer = SignalAnalyzer::new(
+    analysis_signal_rx,
+    outcome_rx,
+    config.system.analysis.clone(),
+    shutdown_token.child_token(),
+);
+tokio::spawn(signal_analyzer.run());
+
+// -- v1.1: State Persistence --
+// Wired after all components are constructed, periodic checkpoint on interval
 ```
-
-## Data Flow
-
-### Primary Data Flow: Market Data to Signal
-
-```
-Deribit WS ──────┐
-                  │  Raw venue-specific messages
-Polymarket WS ───┤
-                  │
-Kalshi WS/REST ──┘
-                  │
-                  v
-          [Feed Actors]
-          Parse venue wire format into MarketSnapshot {
-              venue: Venue,
-              instrument: VenueInstrument,
-              bid/ask/last: Decimal,
-              timestamp: Instant,
-              raw_ts: SystemTime,
-          }
-                  │
-                  │ bounded mpsc (per feed, capacity ~64)
-                  v
-          [Normalization Bus]
-          Attach receive_ts (Instant::now()), sequence_id
-          Emit NormalizedSnapshot
-                  │
-                  │ broadcast (capacity ~256)
-                  │
-         +--------+--------+
-         |                  |
-         v                  v
-  [Event Mapper]      [Telemetry]
-  Lookup canonical     Record raw
-  event, pair with     snapshots
-  cross-venue match    for replay
-         |
-         │ bounded mpsc (capacity ~32)
-         v
-  [Pricing Engine]  <-- called synchronously by Signal Generator
-  Compute IV, probability, Greeks
-         |
-         │ (inline return, not a channel -- pure function)
-         v
-  [Signal Generator]
-  Compare probabilities across venues
-  Subtract costs (fees, slippage estimates)
-  Check staleness (reject if data age > threshold)
-  Fire Signal if spread > threshold
-         |
-         │ bounded mpsc (capacity ~16)
-         v
-  [Signal Router]
-  Log structured signal
-  Increment Prometheus counters
-  (v2: forward to Execution Engine)
-```
-
-### Timing and Staleness Flow
-
-```
-Feed receives msg at T0 (Instant::now())
-    |
-    v
-Normalizer attaches receive_ts = T0, publishes at T1
-    |
-    v
-Signal Generator receives at T2
-    |
-    v
-Staleness check: (T2 - T0) > max_age_ms?
-    YES --> discard, increment stale_data counter
-    NO  --> proceed to spread calculation
-    |
-    v
-Cross-venue staleness: |venue_A.receive_ts - venue_B.receive_ts| > max_skew_ms?
-    YES --> flag as uncertain, widen required spread threshold
-    NO  --> proceed with normal threshold
-```
-
-### Key Data Types Moving Between Components
-
-```
-MarketSnapshot          Feed Actor --> Normalizer
-  .venue: Venue
-  .instrument_id: String
-  .bid: Decimal
-  .ask: Decimal
-  .last: Option<Decimal>
-  .volume: Option<Decimal>
-  .feed_ts: Instant           // when we received from wire
-
-NormalizedSnapshot      Normalizer --> broadcast subscribers
-  .snapshot: MarketSnapshot
-  .receive_ts: Instant         // normalizer receive time
-  .seq: u64                    // monotonic sequence number
-
-MappedPair              Event Mapper --> Signal Generator
-  .canonical_event: CanonicalEventId
-  .venue_a: NormalizedSnapshot  // e.g., Polymarket
-  .venue_b: NormalizedSnapshot  // e.g., Deribit
-  .settlement_match: SettlementBasis
-
-PricedOutcome           Pricing Engine (inline) --> Signal Generator
-  .probability_a: Decimal      // implied probability from venue A
-  .probability_b: Decimal      // implied probability from venue B
-  .iv: Option<Decimal>         // implied vol (options venue only)
-  .greeks: Option<Greeks>
-
-Signal                  Signal Generator --> Signal Router
-  .canonical_event: CanonicalEventId
-  .raw_spread: Decimal         // probability difference
-  .net_spread: Decimal         // after costs
-  .direction: Direction        // BuyA_SellB or BuyB_SellA
-  .confidence: SignalConfidence
-  .timestamp: Instant
-  .staleness_flag: bool
-```
-
-## Scaling Considerations
-
-| Concern | 3 Venues (v1) | 10 Venues | 50+ Instruments |
-|---------|---------------|-----------|-----------------|
-| **Feed connections** | 3 WS tasks, trivial | 10 WS tasks, still trivial on tokio | Same tasks, more subscriptions per connection |
-| **Normalization throughput** | Single task easily handles ~10K msgs/sec | Single task still fine at ~100K msgs/sec | Consider sharding normalizer by venue or instrument group |
-| **Event mapping lookups** | HashMap with ~50 entries, nanosecond lookup | HashMap with ~500 entries, still nanosecond | Consider grouping by asset class |
-| **Pricing compute** | Inline sync calls, <100us per pricing | Same -- pricing is pure CPU, not I/O bound | If CPU-bound, spawn_blocking or dedicated thread pool |
-| **Signal generation** | Single task, <1ms end-to-end | Same task, more pairs to compare | Parallelize across instrument groups if latency degrades |
-| **Broadcast channel lag** | 256 buffer more than sufficient | May need 1024 buffer | Monitor `RecvError::Lagged` counter; increase buffer or add filtering |
-
-### Scaling Priorities
-
-1. **First bottleneck: WebSocket feed reliability.** Venue disconnections, rate limits, and malformed data will cause issues before any throughput concern. Invest heavily in reconnection logic with exponential backoff and circuit breakers.
-2. **Second bottleneck: Event mapping staleness.** As more instruments are tracked, the probability of one side of a pair going stale increases. Staleness detection must be robust before scaling instrument count.
-3. **Third bottleneck: Pricing compute under load.** If tracking 50+ options instruments with IV solving, Newton-Raphson iterations could consume meaningful CPU. Solution: `tokio::task::spawn_blocking` for pricing or a dedicated compute thread.
-
-## Anti-Patterns
-
-### Anti-Pattern 1: Shared Mutable State via Arc<Mutex<T>>
-
-**What people do:** Share market data between tasks using `Arc<Mutex<HashMap<InstrumentId, Snapshot>>>`, with feeds writing and signal generators reading under the same lock.
-
-**Why it's wrong:** Mutex contention under high message rates causes latency spikes. A slow consumer holding the read lock blocks feed updates. Priority inversion between time-critical feeds and less-critical telemetry.
-
-**Do this instead:** Channel-based message passing. Each consumer gets its own copy of the data via broadcast or mpsc. The pricing engine, if it needs latest state, uses a `watch` channel that only retains the most recent value.
-
-### Anti-Pattern 2: Unbounded Channels Everywhere
-
-**What people do:** Use `tokio::sync::mpsc::unbounded_channel()` because it is simpler (no capacity to choose, no `.await` on send).
-
-**Why it's wrong:** If any downstream consumer stalls (e.g., network hiccup in telemetry export), messages queue without bound. Memory grows until OOM kills the process. In a trading system, this is catastrophic -- you lose all state and open positions.
-
-**Do this instead:** Always use bounded channels. Choose capacity based on expected burst size: `feeds -> normalizer` = 64 (short bursts during volatile markets), `normalizer -> broadcast` = 256 (multiple consumers at different speeds), `signals -> router` = 16 (signals are infrequent). Log warnings when channels are >75% full.
-
-### Anti-Pattern 3: Async in the Pricing Engine
-
-**What people do:** Make the IV solver and Black-76 functions `async fn` because "everything else is async."
-
-**Why it's wrong:** Pricing is pure computation -- CPU-bound, not I/O-bound. Making it async adds the overhead of future state machines and poll cycles for zero benefit. Worse, a tight Newton-Raphson loop that does not yield will starve other tasks on the same executor thread.
-
-**Do this instead:** Keep pricing as synchronous `fn` calls. If a single pricing call takes >1ms (e.g., complex smile interpolation), wrap in `tokio::task::spawn_blocking` to move it off the async executor.
-
-### Anti-Pattern 4: Single Monolithic Event Enum
-
-**What people do:** Create one giant `enum Event { MarketData(...), Signal(...), Config(...), Shutdown, ... }` and route everything through a single channel.
-
-**Why it's wrong:** Every consumer must match against all variants, most of which are irrelevant. Type safety is lost -- the compiler cannot prevent sending a Signal to the feed actor. Adding a new variant requires touching every consumer's match arm.
-
-**Do this instead:** Separate typed channels for separate concerns. `mpsc::Sender<MarketSnapshot>` for feeds, `mpsc::Sender<Signal>` for signals. The type system enforces correct routing at compile time.
-
-### Anti-Pattern 5: Ignoring Lag in Broadcast Channels
-
-**What people do:** Use `broadcast::Receiver::recv()` and silently ignore `RecvError::Lagged`, or worse, panic on it.
-
-**Why it's wrong:** Lagged messages mean your signal generator missed market data. In arbitrage, missing data means potentially acting on stale information -- the exact thing the system should prevent.
-
-**Do this instead:** Log lagged events with the count of missed messages. Increment a Prometheus counter. If lag exceeds a threshold, trigger a circuit breaker that pauses signal generation until data catches up. Consider increasing broadcast buffer capacity if lag is frequent.
-
-## Integration Points
-
-### External Services
-
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| **Deribit** | WebSocket (wss://www.deribit.com/ws/api/v2) | Separate connections for market data vs trading (their recommendation). Subscribe to `ticker.{instrument}.100ms`, `book.{instrument}.100ms`. Auth via client_id/client_secret. Rate limit: respect API Usage Policy. Existing Rust crate: `deribit` (v0.3.3, somewhat stale) -- likely need custom implementation. |
-| **Polymarket** | WebSocket (wss://ws-subscriptions-clob.polymarket.com/ws/market) + REST CLOB API | Official Rust client: `rs-clob-client`. WS for real-time orderbook updates, REST for market discovery and order submission. USDC settlement. CLOB heartbeat: if client disconnects, open orders cancelled. |
-| **Kalshi** | WebSocket (wss://trading-api.kalshi.com/v1/ws) + REST API | Rust crate: `kalshi` on crates.io. REST for market discovery, WS for orderbook streaming. RSA-PSS signed authentication. CFTC-regulated -- stricter API terms. |
-| **Prometheus** | HTTP scrape endpoint (:9090/metrics) | Use `metrics` crate with `metrics-exporter-prometheus`. Expose histograms for latency, counters for messages/signals, gauges for connection status. |
-
-### Internal Boundaries
-
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| Feed Actor --> Normalizer | bounded mpsc (capacity 64) | One channel per feed. Backpressure on feed if normalizer is slow. |
-| Normalizer --> All Consumers | broadcast (capacity 256) | `Arc<NormalizedSnapshot>` to avoid cloning. Consumers must handle `Lagged`. |
-| Event Mapper --> Signal Generator | bounded mpsc (capacity 32) | Only mapped pairs flow here -- lower volume than raw snapshots. |
-| Signal Generator --> Signal Router | bounded mpsc (capacity 16) | Signals are rare events -- small buffer is fine. |
-| Config Loader --> All Consumers | watch channel | Latest-value semantics. Consumers `borrow()` current config on demand. |
-| All Tasks --> Shutdown | CancellationToken tree | Root token with child tokens per subsystem. |
-
-## Build Order (Dependencies Between Components)
-
-The following build order respects data-flow dependencies -- each phase can be tested end-to-end before building the next.
-
-### Phase 1: Foundation
-
-Build first because everything depends on these:
-- **types/** -- `Venue`, `Decimal` wrappers, `Timestamp`, `MarketSnapshot`, `NormalizedSnapshot`
-- **config/** -- `AppConfig` struct, TOML loader, validation
-- **error.rs** -- Unified error types
-- **telemetry/** -- `tracing` setup, basic Prometheus metrics skeleton
-
-**Why first:** Every other module imports types and uses tracing. Getting these right prevents cascading refactors.
-
-### Phase 2: Market Data Ingestion
-
-Build second because signal generation needs data to consume:
-- **feeds/common.rs** -- WebSocket reconnection, heartbeat, backoff utilities
-- **feeds/deribit.rs** -- Deribit feed actor (start here: best-documented API, existing Rust crate for reference)
-- **feeds/normalizer.rs** -- Fan-in bus, broadcast publisher
-
-**Why second:** The feed layer is the most complex integration (external APIs, reconnection, auth). Getting one feed working end-to-end proves the pipeline architecture.
-
-### Phase 3: Event Mapping
-
-Build third because pricing and signals need mapped pairs:
-- **events/types.rs** -- `CanonicalEventId`, `MappedPair`, `SettlementBasis`
-- **events/registry.rs** -- Cross-venue instrument map (initially config-driven, hardcoded mappings)
-- **events/settlement.rs** -- Settlement basis analyzer
-
-**Why third:** This is domain-specific logic with no external dependencies. Can be tested with synthetic data from Phase 2.
-
-### Phase 4: Pricing Engine
-
-Build fourth because signals need priced outcomes:
-- **pricing/black76.rs** -- Black-76 forward pricing
-- **pricing/iv_solver.rs** -- Newton-Raphson and Brent method
-- **pricing/probability.rs** -- N(d2), call spread replication
-- **pricing/greeks.rs** -- Delta, gamma, theta, vega
-
-**Why fourth:** Pure math, no async, no external dependencies. Can be exhaustively unit-tested with known analytical solutions. Independent of everything except `rust_decimal`.
-
-### Phase 5: Signal Generation + Remaining Feeds
-
-Build fifth -- this is where the system becomes functional:
-- **signals/** -- Spread calculator, cost adjustments, staleness detection, threshold engine
-- **feeds/polymarket.rs** -- Second feed
-- **feeds/kalshi.rs** -- Third feed
-- **execution/traits.rs** -- Trait interface + `LogOnlyExecution` no-op
-- **risk/traits.rs** -- Trait interface + `NoOpRisk`
-
-**Why fifth:** Signal generation is the primary v1 deliverable. Adding remaining feeds here means the full pipeline can be tested. Trait stubs for execution/risk allow the signal router to be complete.
-
-### Phase 6: Hardening
-
-Build last:
-- **telemetry/recorder.rs** -- Feed recording for replay
-- Config hot-reload via watch channel
-- Integration tests with recorded feed data
-- Prometheus dashboard definitions
-
-**Why last:** These are operational concerns that improve reliability but do not change core functionality.
 
 ## Sources
 
-- [kucoin_arbitrage: Event-Driven Async Rust Arbitrage](https://github.com/kanekoshoyu/kucoin_arbitrage) -- reference architecture for event-driven crypto arbitrage in Rust with broadcast channels and JoinSet task management (HIGH confidence)
-- [barter-rs: Rust Trading Framework](https://github.com/barter-rs/barter-rs) -- modular event-driven trading engine with separate crates for data, execution, and instruments (HIGH confidence)
-- [Tokio Tutorial: Channels](https://tokio.rs/tokio/tutorial/channels) -- official documentation for mpsc, broadcast, watch, oneshot channel patterns (HIGH confidence)
-- [Tokio Tutorial: Select](https://tokio.rs/tokio/tutorial/select) -- official documentation for tokio::select! fan-in pattern (HIGH confidence)
-- [Tokio: Graceful Shutdown](https://tokio.rs/tokio/topics/shutdown) -- official CancellationToken and shutdown patterns (HIGH confidence)
-- [Async Pipeline Pattern in Rust](https://github.com/alexpusch/rust-magic-patterns/blob/master/async-pipeline-pattern/Readme.md) -- bounded channel pipeline with backpressure (HIGH confidence)
-- [Deribit API Documentation](https://docs.deribit.com/) -- WebSocket subscription channels, best practices for market data collection (HIGH confidence)
-- [Polymarket WSS Overview](https://docs.polymarket.com/developers/CLOB/websocket/wss-overview) -- WebSocket API for CLOB real-time data (HIGH confidence)
-- [Polymarket rs-clob-client](https://github.com/Polymarket/rs-clob-client) -- Official Rust CLOB client (MEDIUM confidence -- AI-generated port, review before production use)
-- [Kalshi API Documentation](https://docs.kalshi.com/welcome) -- REST + WebSocket API, RSA-PSS auth (HIGH confidence)
-- [Deribit Market Data Best Practices](https://support.deribit.com/hc/en-us/articles/29592500256669-Market-Data-Collection-Best-Practices) -- separate connections for data vs trading (HIGH confidence)
-- [tokio::sync::watch](https://docs.rs/tokio/latest/tokio/sync/watch/index.html) -- watch channel for latest-value state sharing (HIGH confidence)
-- [tokio-tungstenite](https://github.com/snapview/tokio-tungstenite) -- WebSocket client for async Rust (HIGH confidence)
-- [Rust Tokio Task Cancellation Patterns](https://cybernetist.com/2024/04/19/rust-tokio-task-cancellation-patterns/) -- CancellationToken patterns and pitfalls (MEDIUM confidence)
-- [OpenTelemetry Rust](https://opentelemetry.io/docs/languages/rust/) -- tracing and metrics integration (MEDIUM confidence -- Rust support still in beta for traces)
-- [Rust Forum: broadcast vs mpsc fan-out](https://users.rust-lang.org/t/switch-from-mpsc-to-broadcast-channel-or-use-arc-rwlock-to-share-data/114152/4) -- community discussion on channel selection (MEDIUM confidence)
-- [Rust Forum: multiple channels + select vs single channel enum](https://users.rust-lang.org/t/pros-cons-of-multiple-channels-tokio-select-vs-single-channel-and-expanding-message-enum-variants/77758) -- tradeoffs of typed channels vs monolithic event enum (MEDIUM confidence)
-
----
-*Architecture research for: Cross-venue crypto prediction market / options arbitrage system*
-*Researched: 2026-02-21*
+- Direct analysis of existing source code at `D:\Programming\Rust\prediction\src\` (22,751 LOC)
+- `src/main.rs` -- pipeline wiring and task spawning patterns (lines 1-459)
+- `src/signal/engine.rs` -- CrossAssetEngine run loop pattern
+- `src/signal/types.rs` -- ArbSignal struct (derives Clone, Serialize, Deserialize)
+- `src/paper_trade/tracker.rs` -- PaperTradeTracker lifecycle and JSONL logging
+- `src/paper_trade/position.rs` -- PaperPosition (derives Serialize, Deserialize)
+- `src/paper_trade/aggregator.rs` -- DailyRollup (derives Serialize, needs Deserialize)
+- `src/events/lifecycle.rs` -- ContractLifecycleManager polling and atomic write patterns
+- `src/events/risk.rs` -- BasisRiskCache (Arc<RwLock<HashMap>>) pattern
+- `src/feed/health.rs` -- VenueHealth atomic state pattern
+- `src/health/mod.rs` -- HealthState and endpoint structure
+- `src/feed/pipeline.rs` -- Multi-venue pipeline assembly and fan-out
+- `src/feed/recording/mod.rs` -- RecordingService non-blocking I/O pattern
+- `src/config/system.rs` -- SystemConfig struct with #[serde(default)] fields
+- `src/config/events.rs` -- EventMapping, SettlementMetadata structures

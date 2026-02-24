@@ -1,248 +1,323 @@
-# Stack Research
+# Stack Research: v1.1 Paper Trading Validation
 
-**Domain:** Cross-venue crypto prediction market / options market arbitrage system
-**Researched:** 2026-02-21
+**Domain:** Settlement outcome tracking, signal analysis, failure alerting, file-based state persistence
+**Researched:** 2026-02-24
 **Confidence:** HIGH
 
-## Recommended Stack
+## Scope
 
-### Core Runtime & Async
+This document covers ONLY the stack additions needed for v1.1. The existing v1.0 stack (tokio, rust_decimal, serde/serde_json, axum, metrics/prometheus, statrs, tracing, chrono, reqwest, etc.) is validated and unchanged. See v1.0 STACK.md for those decisions.
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| tokio | 1.49.0 | Async runtime | The only production-grade Rust async runtime. Work-stealing scheduler, built-in timers, TCP/UDP, signal handling. Every async crate in this stack depends on it. Use `features = ["full"]` for development; narrow to specific features for release builds if binary size matters. LTS releases: 1.43.x (until March 2026), 1.47.x (until Sept 2026). |
-| tokio-tungstenite | 0.28.0 | WebSocket client | Best-in-class tokio WebSocket integration. Recent versions (>0.26.2) closed the performance gap with fastwebsockets. Streams-based API composes naturally with tokio select! and channel patterns. Enable `rustls-tls-webpki-roots` feature for TLS -- avoids linking OpenSSL on Linux. |
-| reqwest | 0.13.2 | REST API client | De facto async HTTP client in Rust. Built on hyper. Use for Deribit/Kalshi/Polymarket REST endpoints (auth, order submission, instrument lookup). Enable features: `json`, `rustls-tls`. |
+## Existing Stack (DO NOT Re-add)
 
-### Serialization & Data Formats
+These are already in `Cargo.toml` and validated by v1.0. Listed here to prevent duplicate research:
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| serde | 1.0.228 | Serialization framework | Universal. Every exchange API model derives Serialize/Deserialize. Zero runtime overhead with derive macros. |
-| serde_json | 1.0.149 | JSON parsing | All three venues use JSON over WebSocket and REST. Fast, streaming-capable, zero-copy deserialization with `&'a str` borrows when possible. |
-| toml | 1.0.3 | Config file parsing | Clean, human-readable config format. Serde integration means config structs get `#[derive(Deserialize)]` and you are done. TOML is the Rust ecosystem standard for configuration. |
-| postcard | 1.1.3 | Binary serialization for feed recording | Compact, fast, serde-compatible. Use for recording raw feed data to disk for replay/backtesting. Actively maintained. **Do NOT use bincode** -- it was abandoned (RUSTSEC-2025-0141) after a harassment incident; v3.0.0 is a poison pill that does not compile. |
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| tokio | 1.x (full) | Async runtime |
+| serde + serde_json | 1.0 | Serialization |
+| toml | 0.8 | Config parsing |
+| rust_decimal | 1.40 | Decimal arithmetic |
+| statrs | 0.18 | Statistical distributions |
+| chrono | 0.4 | Date/time |
+| tracing / tracing-subscriber / tracing-appender | 0.1 / 0.3 / 0.2 | Structured logging |
+| metrics + metrics-exporter-prometheus | 0.24 / 0.18 | Prometheus metrics |
+| axum | 0.8 | HTTP endpoint |
+| reqwest | 0.12 | HTTP client |
+| uuid | 1.x (v7) | Time-ordered IDs |
+| thiserror / anyhow | 2.0 / 1.0 | Error handling |
+| clap | 4.5 | CLI |
+| backoff | 0.4 | Reconnection backoff |
 
-### Numeric & Financial Math
+## New Dependencies Required
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| rust_decimal | 1.40.0 | Decimal arithmetic | 128-bit decimal type. Exact representation of prices, quantities, probabilities. No floating-point drift. Serde support built in. Use `features = ["maths"]` for exp/ln/pow needed in Black-76 pricing. Critical: exchanges send decimal strings; rust_decimal parses these losslessly. |
-| statrs | 0.18.0 | Statistical distributions | Provides `Normal` distribution with CDF -- needed for Black-76 digital option pricing (N(d1), N(d2)). Also useful for confidence intervals on spread calculations. Pure Rust, no external C dependencies. |
-| ordered-float | 5.1.0 | Float ordering for internal calculations | Use `OrderedFloat<f64>` or `NotNan<f64>` where you need floats as map keys or in sorted structures (e.g., implied vol caches). Implements Ord/Eq/Hash. Use sparingly -- prefer rust_decimal for prices. |
+### Verdict: ZERO new crate dependencies needed
 
-### Observability
+After thorough analysis of all four v1.1 features against the existing dependency tree, **no new crates are required**. Every capability can be built with what is already in `Cargo.toml`. This is the correct approach for a solo-trader system that prizes reliability and minimal attack surface over feature velocity.
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| tracing | 0.1.44 | Structured logging & instrumentation | The Rust ecosystem standard. Span-based context propagation means you can trace a single market update through the entire pipeline. Async-aware -- spans survive across .await points. |
-| tracing-subscriber | 0.3.22 | Log output formatting | Use `fmt` layer with `json()` formatter for machine-readable logs, `pretty()` for development. Enable `env-filter` feature for runtime log level control via RUST_LOG. |
-| tracing-appender | 0.2.4 | Non-blocking file logging | Rolling file appender (daily/hourly rotation). Non-blocking writer backed by a dedicated thread -- prevents I/O from blocking the hot path. Combine with tracing-subscriber for production log pipeline. |
-| prometheus-client | 0.24.0 | Metrics export | The official Prometheus Rust client (maintained under github.com/prometheus/client_rust). OpenMetrics-compliant. Use over the older `prometheus` crate (TiKV) -- prometheus-client is the canonical choice going forward. Expose via a tiny axum/hyper endpoint for scraping. |
+Here is why, feature by feature:
 
-### Concurrency & Data Structures
+---
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| dashmap | 6.1.0 | Concurrent hash map | Lock-free concurrent HashMap. Use for shared order book state, instrument caches, and vol surface lookups accessed from multiple async tasks. Drop-in replacement for `RwLock<HashMap>` with better performance under contention. Use stable 6.1.0, not 7.0.0-rc2. |
-| tokio::sync::mpsc | (in tokio) | Async message passing | Prefer tokio channels over crossbeam for async code. Context-switching within the same thread to the next coroutine is cheaper than cross-thread communication. Use bounded channels for backpressure between feed handlers and pricing engine. |
+### 1. Settlement Outcome Tracking
 
-### Error Handling
+**Need:** Poll venue APIs for settlement results, compare against signal predictions.
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| thiserror | 2.0.18 | Typed error definitions | Use in library/module code. Define specific error enums for each subsystem (feed errors, pricing errors, config errors). Derive macro generates Display/Error impls. v2 is the current major. |
-| anyhow | 1.0.102 | Application-level errors | Use at the application boundary (main, top-level orchestration). Wraps any error with context chains. Pairs with thiserror: modules define specific errors, application code wraps them with anyhow for ergonomic propagation. |
+**Already have:**
+- `reqwest 0.12` -- HTTP client for REST API polling (Deribit `public/get_last_settlements_by_currency`, Kalshi `GET /markets/{ticker}` with `result` field, Polymarket CLOB API market status)
+- `serde + serde_json` -- Deserialize settlement responses
+- `chrono` -- Parse settlement timestamps, schedule polling
+- `tokio::time::interval` -- Periodic polling loop (no cron crate needed; settlements are polled every N minutes, not at cron-expression times)
+- `tracing` -- Log settlement match/mismatch events
 
-### Time & Identifiers
+**How it works:**
+- A `SettlementTracker` task runs a `tokio::time::interval` loop (e.g., every 5 minutes)
+- Polls each venue's public settlement API via `reqwest`
+- Deserializes responses into typed structs with `serde`
+- Matches settlement outcomes against stored signal predictions by event_id
+- Logs results to JSONL using the existing `BufWriter<File>` + daily rotation pattern (already proven in `SignalLogger` and `TradeLogger`)
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| chrono | 0.4.43 | Timestamps & date math | UTC timestamp handling, option expiry date calculations, feed timestamp parsing. Well-maintained, security issues resolved since 0.4.20. All exchange APIs return UTC timestamps. |
-| uuid | (latest) | Unique event/signal IDs | Use v7 UUIDs -- timestamp-sorted, so signal logs are naturally ordered. Feature: `features = ["v7"]`. |
+**Venue API details (HIGH confidence -- from official documentation):**
+- Deribit: `public/get_last_settlements_by_currency` (public, no auth needed, 20 req/s rate limit applies)
+- Kalshi: `GET /markets/{ticker}` returns `result` field ("yes"/"no") when settled; `GET /portfolio/settlements` returns settlement history
+- Polymarket: Market status via CLOB API `GET /markets/{condition_id}` shows resolution state
 
-### CLI & Configuration
+**Why no new crates:**
+- `tokio::time::interval` is simpler and more reliable than `tokio-cron-scheduler` for fixed-interval polling. Settlement outcomes do not require cron expressions -- they need "check every 5 minutes."
+- `reqwest` already handles all HTTP needs. No specialized settlement client exists or is needed.
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| clap | 4.5.60 | Command-line parsing | Use derive API. Subcommands for: `run` (main service), `replay` (feed playback), `config check` (validate config). Feature: `features = ["derive"]`. |
+---
 
-### Development & Testing Tools
+### 2. Signal Analysis Tooling
 
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| cargo-nextest | Fast test runner | Parallel test execution, better output than `cargo test`. |
-| cargo-watch | Auto-rebuild on save | `cargo watch -x check -x test` for tight feedback loop. |
-| tokio-console | Async runtime inspection | Connect to running process to inspect task states, waker stats, resource usage. Enable `tokio_unstable` cfg flag + `tracing` feature on tokio. |
-| cargo-deny | Dependency auditing | Check for RUSTSEC advisories (catches things like the bincode situation), license issues, duplicate deps. |
+**Need:** Compute hit rate, edge measurement, false positive rate, time-to-convergence from historical signal + settlement data.
 
-## Cargo.toml Skeleton
+**Already have:**
+- `statrs 0.18` -- Statistical distributions (already used for Black-76 pricing). Provides normal distribution for confidence intervals, but signal analysis metrics (hit rate, false positive rate) are simple ratio calculations that need no statistical library.
+- `rust_decimal` -- Exact arithmetic for P&L calculations
+- `serde + serde_json` -- Read historical JSONL signal logs, write analysis output
+- `std::fs` / `std::io::BufReader` -- Read JSONL files line by line
+- `chrono` -- Time-to-convergence calculations (signal timestamp vs settlement timestamp)
+
+**Key metrics and how they are computed (no new libraries):**
+
+| Metric | Formula | Dependencies |
+|--------|---------|--------------|
+| Hit rate | `correct_signals / total_settled_signals` | `rust_decimal` division |
+| False positive rate | `signals_that_lost / total_signals` | `rust_decimal` division |
+| Average edge | `mean(realized_pnl per signal)` | `rust_decimal` sum/count |
+| Edge decay | `signal_edge_at_t0 - edge_at_settlement` | `rust_decimal` subtraction |
+| Time-to-convergence | `settlement_ts - signal_ts` | `chrono::Duration` |
+| Sharpe proxy | `mean(daily_pnl) / stddev(daily_pnl)` | `statrs` or hand-rolled f64 math |
+| Win/loss distribution | histogram of realized P&L buckets | Simple Vec sorting |
+
+**Why no new crates:**
+- Signal analysis is arithmetic on JSONL data. The calculations are ratios, means, and standard deviations -- all trivially implemented in ~50 lines of Rust.
+- `statrs` is already available for anything requiring distribution functions. There is no "signal analysis" crate in the Rust ecosystem that would add value over custom code for this specific domain.
+- The analysis can run as a CLI subcommand (via existing `clap`) that reads JSONL files and outputs a summary, or as an in-process task that computes rolling metrics.
+
+---
+
+### 3. Failure Alerting
+
+**Need:** Detect degraded states (stale data, partial feeds, silent failures) and notify the operator.
+
+**Already have:**
+- `VenueHealth` (per-venue atomic health trackers) -- Already tracks connected/disconnected, last_message_at, last_error
+- `metrics` -- Already emits `feed_available` gauge per venue, `arb_staleness_rejections` counter
+- `tracing` -- Already logs all degraded state transitions
+- `reqwest 0.12` -- HTTP client for webhook POST notifications
+- `tokio::time::interval` -- Periodic health sweep
+- `axum 0.8` -- Already serves `/health` endpoint
+
+**Alert delivery strategy:**
+
+The system should emit alerts via **webhook POST** (to Slack, Discord, Telegram bot, or any HTTP endpoint). This is the standard approach for solo-trader alerting because:
+1. The operator already has `reqwest` in the dependency tree
+2. Webhooks work with every notification platform (Slack incoming webhooks, Discord webhooks, Telegram Bot API, PagerDuty, etc.)
+3. No SMTP configuration complexity (no `lettre` crate needed)
+4. A single `async fn send_alert(url: &str, message: &str)` using `reqwest::Client::post(url).json(&payload).send().await` is ~10 lines
+
+**Alert conditions (built on existing infrastructure):**
+
+| Condition | Detection Source | Already Exists? |
+|-----------|-----------------|-----------------|
+| Feed disconnect | `VenueHealth::is_available()` | YES |
+| Stale data (no messages for N seconds) | `VenueHealth::last_message_at()` + duration check | YES (needs sweep loop) |
+| All feeds down | All `VenueHealth` instances unavailable | YES (needs aggregation) |
+| Silent failure (engine running but no signals for N minutes) | `metrics::counter!("arb_computations_total")` stall detection | Partial (counter exists, needs staleness check) |
+| High staleness rejection rate | `metrics::counter!("arb_staleness_rejections")` rate | Partial (counter exists, needs rate windowing) |
+| Paper trade position stuck | Position in `Pending` status for > N minutes | Needs implementation |
+
+**Why no `lettre` or `event-notification` crate:**
+- Email alerting adds SMTP configuration complexity (server, port, credentials, TLS) with no benefit over webhooks for a solo trader
+- `event-notification` is an unnecessary abstraction layer when `reqwest.post(webhook_url).json(&body).send()` does the job in one line
+- Webhook URL is a single TOML config parameter -- vastly simpler than email configuration
+
+**Why no `tokio-cron-scheduler`:**
+- The health sweep is a simple `tokio::time::interval(Duration::from_secs(30))` loop
+- Cron expressions add complexity without benefit for fixed-interval checks
+- The existing codebase already uses `tokio::time::interval` for periodic tasks in `CrossAssetEngine` and `PaperTradeTracker`
+
+---
+
+### 4. File-Based State Persistence
+
+**Need:** Persist paper P&L and signal history across restarts. Load state on startup, save periodically.
+
+**Already have:**
+- `serde + serde_json` -- Serialize/deserialize state structs
+- `std::fs` + `std::io::BufWriter` -- File I/O (already used in `SignalLogger`, `TradeLogger`, `JsonlWriter`)
+- `tokio::fs` -- Async file I/O (already used in `JsonlWriter`)
+- `chrono` -- Timestamps for state snapshots
+
+**Persistence strategy: Atomic JSON snapshot files**
+
+The correct approach for this system is periodic atomic writes of small JSON state files, NOT a database, NOT append-only logs for state (those are for event logs, which already exist).
+
+**How atomic writes work without new crates:**
+
+```rust
+// Write to temp file, then rename (atomic on all filesystems)
+use std::fs;
+use std::io::Write;
+
+fn save_state(path: &str, state: &impl serde::Serialize) -> anyhow::Result<()> {
+    let tmp_path = format!("{}.tmp", path);
+    let data = serde_json::to_string_pretty(state)?;
+    fs::write(&tmp_path, data.as_bytes())?;
+    fs::rename(&tmp_path, path)?; // atomic on same filesystem
+    Ok(())
+}
+```
+
+This is the exact pattern used by every production system for small state files (< 1MB). `std::fs::rename` is atomic on all major filesystems when source and destination are on the same mount point. No `tempfile`, `atomicwrites`, or `atomic-write-file` crate needed.
+
+**State files to persist:**
+
+| File | Contents | Size Estimate | Write Frequency |
+|------|----------|---------------|-----------------|
+| `state/paper_positions.json` | Open + pending paper trade positions | < 50KB | Every position change or every 60s |
+| `state/daily_aggregates.json` | Daily P&L rollups | < 10KB | Every trade settlement or daily |
+| `state/signal_outcomes.json` | Signal-to-settlement outcome map | < 100KB (rolling 30 days) | Every settlement match |
+| `state/alert_state.json` | Alert cooldown timestamps, last alert sent | < 1KB | Every alert |
+
+**Why no database (SQLite, sled, RocksDB):**
+- Total state is < 200KB. A database adds 1-2MB of binary size and operational complexity for zero benefit.
+- The system already uses JSONL files for event logs. State files are a natural extension.
+- `serde_json` round-trips perfectly with `rust_decimal` (using `#[serde(with = "rust_decimal::serde::str")]` as already done throughout the codebase).
+- Restart is rare (days/weeks). Loading 200KB of JSON on startup takes < 1ms.
+
+**Why no `tempfile` crate:**
+- `tempfile` provides cross-platform temp file creation with automatic cleanup. For atomic state writes, we need `write-then-rename` on a known path -- `std::fs::write` + `std::fs::rename` is simpler and has no cleanup semantics to manage.
+- The codebase is already deployed on Linux (per PROJECT.md: "Single-binary Linux service"). `rename()` is atomic on Linux ext4/xfs/btrfs.
+
+**Why no `fs4` / `fs2` (file locking):**
+- Single-process system. There is no concurrent writer. File locking protects against multiple processes writing the same file -- irrelevant here.
+- If the operator accidentally runs two instances, the WebSocket connections themselves will conflict (venues rate-limit by IP/key), making file locking moot.
+
+---
+
+## Integration Points with Existing Architecture
+
+### New modules and where they connect:
+
+```
+src/
+  settlement/          # NEW: Settlement outcome tracking
+    mod.rs             # SettlementTracker task
+    types.rs           # SettlementOutcome, OutcomeMatch
+    poller.rs          # Per-venue settlement polling via reqwest
+  analysis/            # NEW: Signal analysis tooling
+    mod.rs             # AnalysisEngine or CLI subcommand
+    metrics.rs         # Hit rate, edge, FPR calculations
+    report.rs          # Summary report generation
+  alerting/            # NEW: Failure alerting
+    mod.rs             # AlertManager task
+    conditions.rs      # Alert condition evaluators
+    webhook.rs         # reqwest-based webhook sender
+  persistence/         # NEW: File-based state persistence
+    mod.rs             # StateManager (load/save)
+    types.rs           # Persisted state structs
+```
+
+### Channel wiring (extends existing mpsc pattern):
+
+| Source | Channel | Destination |
+|--------|---------|-------------|
+| `CrossAssetEngine` | `mpsc::Sender<ArbSignal>` | `SettlementTracker` (stores predictions for later comparison) |
+| `SettlementTracker` | `mpsc::Sender<OutcomeMatch>` | `AnalysisEngine` (computes hit rate etc.) |
+| `VenueHealth` (existing) | Read by | `AlertManager` (periodic sweep) |
+| `StateManager` | Called by | `PaperTradeTracker`, `SettlementTracker` (periodic save) |
+
+### Config additions to `SystemConfig` (extends existing TOML):
 
 ```toml
-[package]
-name = "prediction"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.85"
+[settlement]
+poll_interval_secs = 300        # 5 minutes
+lookback_days = 30              # How far back to check
+deribit_settlement_currency = "BTC"
 
-[dependencies]
-# Async runtime
-tokio = { version = "1.49", features = ["full"] }
+[alerting]
+enabled = true
+webhook_url = ""                # Slack/Discord/Telegram webhook URL
+sweep_interval_secs = 30        # Health check frequency
+stale_feed_threshold_secs = 120 # Alert if no messages for 2 minutes
+alert_cooldown_secs = 300       # Don't re-alert same condition for 5 minutes
 
-# Networking
-tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-tls"] }
-
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-toml = "1.0"
-postcard = { version = "1.1", features = ["use-std"] }
-
-# Numeric / math
-rust_decimal = { version = "1.40", features = ["maths", "serde-str"] }
-statrs = "0.18"
-ordered-float = "5.1"
-
-# Observability
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-appender = "0.2"
-prometheus-client = "0.24"
-
-# Concurrency
-dashmap = "6.1"
-
-# Error handling
-thiserror = "2.0"
-anyhow = "1.0"
-
-# Time & IDs
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v7"] }
-
-# CLI
-clap = { version = "4.5", features = ["derive"] }
+[persistence]
+enabled = true
+state_dir = "state"             # Directory for state files
+save_interval_secs = 60         # Periodic save frequency
 ```
+
+All new config sections use `#[serde(default)]` to maintain backward compatibility with existing config files, following the established pattern in `SystemConfig`.
+
+---
 
 ## Alternatives Considered
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| tokio-tungstenite | fastwebsockets 0.10.0 | Only if sub-microsecond WebSocket frame parsing is the bottleneck (unlikely -- network latency dominates). fastwebsockets is lower-level, requires manual frame handling, and has no built-in TLS integration. tokio-tungstenite's recent perf improvements make it the pragmatic choice. |
-| reqwest | hyper (direct) | Only if you need connection-level control (custom keepalive, HTTP/2 multiplexing tuning). reqwest wraps hyper and handles connection pooling, TLS, cookies, redirects. For exchange REST APIs, reqwest is the right abstraction level. |
-| postcard | rmp-serde (MessagePack) | If feed recordings need to be read by non-Rust tools. MessagePack has broad cross-language support. Postcard is faster and smaller but Rust-only. Since this is a single-binary Rust system, postcard is preferred. |
-| postcard | rkyv 0.8 | If zero-copy deserialization of recorded feeds is needed for ultra-fast replay. rkyv is faster but requires `#[derive(Archive)]` on every type and has a steeper learning curve. Start with postcard; migrate hot paths to rkyv only if replay speed becomes a bottleneck. |
-| rust_decimal | f64 | Never for prices/quantities. Use f64 only in internal math (Black-76 intermediate calculations, implied vol solver iterations) where exact decimal representation is unnecessary and speed matters. Convert back to rust_decimal at boundaries. |
-| prometheus-client | metrics + metrics-exporter-prometheus | If you want a facade pattern (like tracing for logs). The `metrics` crate provides `counter!()`, `gauge!()`, `histogram!()` macros with a pluggable backend. Good if other dependencies already use it. For a greenfield project, prometheus-client is simpler and has no indirection. |
-| toml | figment | If you need hierarchical config from multiple sources (file + env vars + CLI args). Figment supports layered config merging. For a single TOML config file with env var overrides, `toml` + manual env overlay is simpler and has fewer dependencies. Consider figment if config complexity grows. |
-| chrono | jiff | If comprehensive IANA timezone support is critical. For this project, all times are UTC (exchange timestamps, option expiries), so chrono is sufficient and better-known. |
-| dashmap | std::sync::RwLock\<HashMap\> | If contention is low (single writer, rare reads). DashMap shines under concurrent read-heavy workloads like order book lookups from multiple pricing tasks. For this system, dashmap is the right default. |
+| Recommended | Alternative | Why Not |
+|-------------|-------------|---------|
+| `std::fs::write` + `rename` for state | `tempfile` crate | Adds dependency for something `std::fs` does in 3 lines. `tempfile` is for temporary files with automatic cleanup -- not what we need. |
+| `std::fs::write` + `rename` for state | `atomic-write-file` crate | Same logic. Single-process, known paths, Linux target. The write-rename pattern is trivial. |
+| Webhook via `reqwest` | `lettre` (email) | SMTP config is 10x more complex than a webhook URL. Every notification platform supports webhooks. |
+| Webhook via `reqwest` | `event-notification` crate | Abstraction layer over what is a single `reqwest.post().json().send()` call. |
+| `tokio::time::interval` | `tokio-cron-scheduler` | Fixed intervals are simpler and sufficient. Cron expressions add complexity for zero benefit in this use case. |
+| No database | SQLite via `rusqlite` | Total state < 200KB. Database adds binary bloat, operational complexity, migration burden. |
+| No database | `sled` embedded DB | `sled` is effectively abandoned (no releases since 2022). Even if it weren't, same objection as SQLite. |
+| Hand-rolled signal metrics | `ta-statistics` crate | The metrics are simple ratios. Adding a time-series analysis crate for `wins / total` is over-engineering. |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| bincode (any version) | Unmaintained. RUSTSEC-2025-0141. v3.0.0 is a poison pill that refuses to compile. The maintainer ceased development after a harassment incident. | postcard 1.1.3 for binary serialization |
-| native-tls feature on tokio-tungstenite/reqwest | Links against platform OpenSSL/SChannel. Cross-compilation headaches, supply-chain risk (OpenSSL CVEs). | rustls-tls-webpki-roots -- pure Rust TLS, audited, no C dependencies |
-| prometheus (TiKV crate) | Older, unofficial. prometheus-client is the canonical Prometheus Rust client maintained under the Prometheus GitHub org. | prometheus-client 0.24.0 |
-| log crate | Predecessor to tracing. No span context, no structured fields, no async awareness. Many crates still emit log records, but tracing-subscriber captures them via its compatibility layer. | tracing 0.1 |
-| deribit-rs / deribit crate | Last updated 2021-2022. Uses outdated tokio 0.2/1.x patterns. Deribit API has evolved. | Build your own Deribit client with tokio-tungstenite + serde. The API is simple JSON-RPC over WebSocket. Custom client gives you full control over reconnection, auth refresh, and type safety. |
-| kalshi-rust / kalshi-rs | Community-maintained with uncertain update cadence. API may drift. | Build your own Kalshi client. REST API with RSA-PSS auth. Custom client ensures you handle API changes immediately. |
-| polymarket rs-clob-client | Official but may lag behind API changes. Pulling in someone else's dependency tree for what is a thin HTTP/WS wrapper adds risk. | Build your own Polymarket CLOB client. WebSocket + REST with EIP-712 signing. |
-| Any pre-built exchange SDK | Opaque error handling, version lag, dependency bloat, impedance mismatch with your internal types. | Custom thin clients per venue. You need ~5 message types per venue. The effort is small; the control is worth it. |
-
-## Stack Patterns by Variant
-
-**If adding execution (v2+):**
-- Add `ethers-rs` or `alloy` for Polygon on-chain interaction (Polymarket settlement)
-- Add `ring` or `rsa` crate for Kalshi RSA-PSS signature authentication
-- Add rate limiter: `governor` crate for respecting exchange rate limits
-- Consider `tower` middleware for retry/timeout/rate-limit composition on HTTP clients
-
-**If deploying as Docker container:**
-- Use `rustls` (already recommended) -- no OpenSSL to install in container
-- Static linking with `musl` target: `cross build --target x86_64-unknown-linux-musl`
-- Binary size ~15-25 MB with full stack, ~8-12 MB with `strip` and `opt-level = "z"`
-
-**If adding backtesting/replay:**
-- postcard for feed recording/replay (already in stack)
-- Consider `mmap` via `memmap2` crate for memory-mapped replay of large feed files
-- `indicatif` for progress bars during replay runs
+| `sled` | Abandoned since 2022, known data corruption issues | `serde_json` state files |
+| `bincode` | Abandoned, RUSTSEC-2025-0141, v3.0.0 does not compile | `serde_json` for state (human-readable, debuggable) |
+| `rusqlite` / SQLite | Massive overkill for < 200KB of state | `serde_json` state files |
+| `lettre` | SMTP complexity for a solo-trader system | Webhook via `reqwest` |
+| `tokio-cron-scheduler` | Unnecessary complexity over `tokio::time::interval` | `tokio::time::interval` |
+| Any ORM crate | No database, no ORM | Direct `serde_json` serialization |
 
 ## Version Compatibility
 
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| tokio 1.49 | tokio-tungstenite 0.28 | Both require tokio 1.x. tokio-tungstenite 0.28 depends on tokio >=1.0. |
-| tokio 1.49 | reqwest 0.13 | reqwest 0.13 uses hyper 1.x + tokio 1.x. Major version bump from reqwest 0.12. |
-| tracing 0.1 | tracing-subscriber 0.3 | Matched pair. tracing-subscriber 0.3.x works with tracing 0.1.x. |
-| tracing 0.1 | tracing-appender 0.2 | tracing-appender 0.2.x depends on tracing 0.1.x. |
-| serde 1.0 | All serde-dependent crates | Serde maintains backward compat within 1.x. No conflicts expected. |
-| rust_decimal 1.40 | serde 1.0 | Use `serde-str` feature to serialize as string (matches exchange API formats). |
-| statrs 0.18 | Rust >= 1.87 | statrs 0.18 requires Rust 1.87+. This is the newest MSRV requirement in the stack -- ensure your toolchain meets it. If on an older Rust, pin statrs to 0.17.x (Rust 1.65+). |
-| tokio-tungstenite 0.28 | rustls via rustls-tls-webpki-roots | Requires one TLS feature enabled for wss:// connections. Neither native-tls nor rustls is default. |
-| reqwest 0.13 | rustls-tls | reqwest 0.13 defaults to no TLS. Must explicitly enable `rustls-tls`. |
+No new dependencies means no new version compatibility concerns. The existing `Cargo.toml` lockfile remains unchanged for v1.1.
 
-## Critical Notes
+Key constraint: Rust 2024 edition (1.85+) is already specified in `Cargo.toml`. All existing crates support this.
 
-### MSRV (Minimum Supported Rust Version)
+## Cargo.toml Changes
 
-The binding constraint is **statrs 0.18.0 requiring Rust 1.87+**. All other crates work with Rust 1.70+. If you cannot use Rust 1.87, downgrade statrs to 0.17.x or implement the Normal CDF yourself (it is ~20 lines using the error function approximation).
+**None required.** The existing dependency set covers all v1.1 needs:
 
-**Recommendation:** Use the latest stable Rust (currently 1.85 per edition 2024 support). If statrs 0.18 fails to build, either:
-1. Update to latest nightly/beta that is >= 1.87, or
-2. Pin `statrs = "0.17"` (confirmed working on Rust 1.65+), or
-3. Implement Normal CDF directly using the Abramowitz & Stegun approximation.
-
-### Why Build Custom Exchange Clients
-
-For Deribit, Polymarket, and Kalshi, building thin custom clients is strongly recommended over using community SDKs:
-
-1. **Type safety**: Your internal types (decimal prices, strongly-typed instrument IDs) should not depend on some SDK's type decisions.
-2. **Reconnection control**: Each venue has different heartbeat/ping requirements. You need custom reconnection logic per venue.
-3. **Auth lifecycle**: Deribit uses token refresh, Kalshi uses RSA-PSS, Polymarket uses EIP-712. Each is ~50 lines of auth code.
-4. **Minimal surface**: You need ~5 message types per venue (subscribe, orderbook snapshot, orderbook delta, ticker, heartbeat). A full SDK brings hundreds of unused types.
-5. **No version lag**: When an exchange updates its API, you fix your 200-line client immediately instead of waiting for an upstream PR.
-
-### Performance Budget Estimation
-
-For the <1ms internal processing latency target:
-- **JSON deserialization** (serde_json): ~1-5 us per typical orderbook message
-- **Decimal parsing** (rust_decimal): ~50-100 ns per value
-- **Black-76 pricing** (f64 math + statrs CDF): ~200-500 ns per evaluation
-- **Channel send** (tokio mpsc): ~20-50 ns
-- **DashMap lookup**: ~50-100 ns
-
-Total estimated hot-path latency: **~10-50 us** -- well within the <1ms budget. The bottleneck will be network I/O, not computation.
+```toml
+# EXISTING -- no changes needed for v1.1
+tokio = { version = "1", features = ["full"] }          # interval, fs, channels
+serde = { version = "1.0", features = ["derive"] }      # state serialization
+serde_json = "1.0"                                       # JSON state files
+chrono = { version = "0.4", features = ["serde"] }       # timestamps
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }  # webhook + settlement polling
+tracing = "0.1"                                          # logging
+metrics = "0.24"                                         # alert condition metrics
+axum = { version = "0.8", ... }                          # health endpoint
+rust_decimal = { version = "1.40", ... }                 # P&L arithmetic
+statrs = "0.18"                                          # statistical analysis
+clap = { version = "4.5", features = ["derive"] }        # analysis CLI subcommand
+uuid = { version = "1", features = ["v7", "serde"] }     # outcome match IDs
+thiserror = "2.0"                                        # error types
+anyhow = "1.0"                                           # error propagation
+```
 
 ## Sources
 
-- [tokio crate](https://crates.io/crates/tokio) -- version 1.49.0 confirmed via docs.rs (HIGH confidence)
-- [tokio-tungstenite](https://crates.io/crates/tokio-tungstenite) -- version 0.28.0 confirmed via docs.rs (HIGH confidence)
-- [reqwest](https://docs.rs/crate/reqwest/latest) -- version 0.13.2 confirmed via docs.rs (HIGH confidence)
-- [serde](https://docs.rs/crate/serde/latest) -- version 1.0.228 confirmed via docs.rs (HIGH confidence)
-- [serde_json](https://docs.rs/crate/serde_json/latest) -- version 1.0.149 confirmed via docs.rs (HIGH confidence)
-- [rust_decimal](https://docs.rs/crate/rust_decimal/latest) -- version 1.40.0 confirmed via docs.rs (HIGH confidence)
-- [statrs](https://docs.rs/crate/statrs/latest) -- version 0.18.0 confirmed via docs.rs (HIGH confidence)
-- [tracing](https://docs.rs/crate/tracing/latest) -- version 0.1.44 confirmed via docs.rs (HIGH confidence)
-- [tracing-subscriber](https://docs.rs/crate/tracing-subscriber/latest) -- version 0.3.22 confirmed via docs.rs (HIGH confidence)
-- [tracing-appender](https://docs.rs/crate/tracing-appender/latest) -- version 0.2.4 confirmed via docs.rs (HIGH confidence)
-- [prometheus-client](https://docs.rs/crate/prometheus-client/latest) -- version 0.24.0 confirmed via docs.rs (HIGH confidence)
-- [dashmap](https://docs.rs/crate/dashmap/latest) -- stable version 6.1.0 confirmed via docs.rs (HIGH confidence)
-- [thiserror](https://docs.rs/crate/thiserror/latest) -- version 2.0.18 confirmed via docs.rs (HIGH confidence)
-- [anyhow](https://docs.rs/crate/anyhow/latest) -- version 1.0.102 confirmed via docs.rs (HIGH confidence)
-- [chrono](https://docs.rs/crate/chrono/latest) -- version 0.4.43 confirmed via docs.rs (HIGH confidence)
-- [clap](https://docs.rs/crate/clap/latest) -- version 4.5.60 confirmed via docs.rs (HIGH confidence)
-- [toml](https://docs.rs/crate/toml/latest) -- version 1.0.3 confirmed via docs.rs (HIGH confidence)
-- [postcard](https://docs.rs/crate/postcard/latest) -- version 1.1.3 confirmed via docs.rs (HIGH confidence)
-- [ordered-float](https://docs.rs/crate/ordered-float/latest) -- version 5.1.0 confirmed via docs.rs (HIGH confidence)
-- [bincode RUSTSEC-2025-0141](https://github.com/tursodatabase/libsql/issues/2207) -- unmaintained status confirmed via multiple sources (HIGH confidence)
-- [prometheus/client_rust](https://github.com/prometheus/client_rust) -- official Prometheus Rust client (HIGH confidence)
-- [Rust serialization benchmarks](https://github.com/djkoloski/rust_serialization_benchmark) -- benchmark methodology (MEDIUM confidence)
-- [tokio-tungstenite TLS features](https://lib.rs/crates/tokio-tungstenite) -- rustls feature flags documented (HIGH confidence)
-- [statrs MSRV 1.87](https://github.com/statrs-dev/statrs) -- MSRV requirement from GitHub README (MEDIUM confidence -- verify on your toolchain)
+- [Deribit API Documentation](https://docs.deribit.com/) -- Settlement endpoint `public/get_last_settlements_by_currency` (HIGH confidence)
+- [Kalshi API Documentation](https://docs.kalshi.com/api-reference/portfolio/get-settlements) -- `GET /portfolio/settlements` endpoint (HIGH confidence)
+- [Polymarket Developer Docs](https://docs.polymarket.com/developers/resolution/UMA) -- UMA Oracle resolution mechanism (MEDIUM confidence -- settlement query API still evolving)
+- [tempfile crate](https://crates.io/crates/tempfile) -- v3.20.0, evaluated and rejected as unnecessary (HIGH confidence)
+- [atomic-write-file crate](https://crates.io/crates/atomic-write-file) -- Evaluated and rejected as unnecessary for single-process use (HIGH confidence)
+- [lettre crate](https://crates.io/crates/lettre) -- v0.10+, evaluated and rejected in favor of webhook approach (HIGH confidence)
+- [serde_json latest](https://crates.io/crates/serde_json) -- v1.0.149 confirmed active maintenance through 2026 (HIGH confidence)
+- Existing codebase analysis: `src/signal/logger.rs`, `src/paper_trade/tracker.rs`, `src/feed/recording/writer.rs`, `src/feed/health.rs`, `src/health/mod.rs` -- Established patterns for JSONL logging, daily rotation, health tracking, periodic tasks (HIGH confidence)
 
 ---
-*Stack research for: Cross-venue crypto/prediction market arbitrage system*
-*Researched: 2026-02-21*
+*Stack research for: v1.1 Paper Trading Validation*
+*Researched: 2026-02-24*
