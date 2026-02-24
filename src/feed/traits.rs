@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use tokio::sync::mpsc;
 
-use crate::types::{DualTimestamp, MarketSnapshot, Venue};
+use crate::types::{DualTimestamp, Venue};
 
 /// A raw WebSocket text frame with receive timestamp.
 ///
@@ -30,18 +30,6 @@ pub trait RawDataSource: Send + 'static {
     fn start(
         &self,
     ) -> impl std::future::Future<Output = anyhow::Result<mpsc::Receiver<RawMessage>>> + Send;
-}
-
-/// Normalized data source.
-///
-/// Produces `MarketSnapshot` directly, bypassing WS parsing.
-/// Used for testing downstream consumers in isolation from the
-/// venue-specific parsing and normalization layers.
-pub trait NormalizedDataSource: Send + 'static {
-    /// Start the data source and return a receiver for normalized snapshots.
-    fn start(
-        &self,
-    ) -> impl std::future::Future<Output = anyhow::Result<mpsc::Receiver<MarketSnapshot>>> + Send;
 }
 
 /// A single line to be recorded to JSONL.
