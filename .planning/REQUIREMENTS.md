@@ -9,30 +9,30 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 
 ### Market Data Ingestion
 
-- [ ] **FEED-01**: System connects to Deribit WebSocket and subscribes to `book.{instrument}.raw` and `ticker.{instrument}.raw` channels with JSON-RPC 2.0 parsing
-- [ ] **FEED-02**: System maintains local Deribit order book with incremental delta application
+- [x] **FEED-01**: System connects to Deribit WebSocket and subscribes to `book.{instrument}.raw` and `ticker.{instrument}.raw` channels with JSON-RPC 2.0 parsing
+- [x] **FEED-02**: System maintains local Deribit order book with incremental delta application
 - [x] **FEED-03**: System connects to Polymarket CLOB WebSocket and subscribes to order book updates for target condition IDs
 - [x] **FEED-04**: System normalizes Polymarket order books from probability space (0-1) with bid/ask/depth
 - [x] **FEED-05**: System connects to Kalshi feed (REST polling or WebSocket) and normalizes contracts into probability + expiry schema
-- [ ] **FEED-06**: All feeds publish normalized MarketSnapshot events onto a bounded async channel with venue, instrument, bid/ask probability, depth, timestamps, and sequence numbers
-- [ ] **FEED-07**: System records every raw WebSocket message to line-delimited JSON with local receive timestamp and venue identifier
+- [x] **FEED-06**: All feeds publish normalized MarketSnapshot events onto a bounded async channel with venue, instrument, bid/ask probability, depth, timestamps, and sequence numbers
+- [x] **FEED-07**: System records every raw WebSocket message to line-delimited JSON with local receive timestamp and venue identifier
 - [x] **FEED-08**: System logs exchange-reported timestamps alongside local receipt timestamps for each message, documenting per-feed latency characteristics
 
 ### Feed Reliability
 
-- [ ] **RELY-01**: Each feed reconnects automatically with exponential backoff and jitter on connection loss
+- [x] **RELY-01**: Each feed reconnects automatically with exponential backoff and jitter on connection loss
 - [x] **RELY-02**: System detects stale connections via per-venue heartbeat monitoring (distinguish "quiet market" from "dead connection")
-- [ ] **RELY-03**: Staleness detection rejects any data older than a configurable threshold (default 5s) per instrument per venue
+- [x] **RELY-03**: Staleness detection rejects any data older than a configurable threshold (default 5s) per instrument per venue
 - [x] **RELY-04**: Feed drops degrade gracefully — remaining feeds continue operating, affected instruments marked unavailable, degraded state surfaced in metrics
-- [ ] **RELY-05**: Per-venue rate limiters enforce API rate limits (Deribit 20 req/s private, Kalshi tiered, Polymarket gas-aware) baked into feed and future execution layers
+- [x] **RELY-05**: Per-venue rate limiters enforce API rate limits (Deribit 20 req/s private, Kalshi tiered, Polymarket gas-aware) baked into feed and future execution layers
 - [x] **RELY-06**: System shuts down gracefully on SIGINT/SIGTERM — clean WS disconnect, flush pending writes, complete in-flight computations
 
 ### Event Mapping
 
-- [ ] **EVNT-01**: Config-driven event registry (TOML) maps equivalent instruments across Polymarket, Kalshi, and Deribit using structured fields (asset, strike, expiry, direction)
+- [x] **EVNT-01**: Config-driven event registry (TOML) maps equivalent instruments across Polymarket, Kalshi, and Deribit using structured fields (asset, strike, expiry, direction)
 - [x] **EVNT-02**: Settlement basis analyzer quantifies per-mapping: expiry/settlement time differences, settlement source differences, resolution criteria differences, producing a basis_risk_score
 - [x] **EVNT-03**: Expiry alignment validation quantifies temporal mismatch between options expiry (Deribit Friday 08:00 UTC) and prediction market resolution as basis risk
-- [ ] **EVNT-04**: Contract lifecycle manager continuously discovers new contracts, detects expiring/expired ones, and handles Deribit expiry rolls — not just at startup
+- [x] **EVNT-04**: Contract lifecycle manager continuously discovers new contracts, detects expiring/expired ones, and handles Deribit expiry rolls — not just at startup
 - [x] **EVNT-05**: Contracts approaching expiry receive special handling flags (pricing character change, liquidity warnings, elevated settlement risk)
 
 ### Pricing Engine
@@ -58,7 +58,7 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 
 ### Clock & Timestamps
 
-- [ ] **TIME-01**: Spread calculator reasons about when each price was valid, not just what it was — using exchange-reported timestamps where available
+- [x] **TIME-01**: Spread calculator reasons about when each price was valid, not just what it was — using exchange-reported timestamps where available
 - [x] **TIME-02**: All logged data includes both local receipt timestamp and exchange-reported timestamp for post-hoc latency analysis
 - [x] **TIME-03**: Per-feed latency characteristics are documented and tracked in metrics (exchange_ts vs local_ts delta)
 
@@ -124,24 +124,24 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FEED-01 | Phase 2 | Pending |
-| FEED-02 | Phase 2 | Pending |
+| FEED-01 | Phase 2 | Complete |
+| FEED-02 | Phase 2 | Complete |
 | FEED-03 | Phase 13 | Complete |
 | FEED-04 | Phase 13 | Complete |
 | FEED-05 | Phase 13 | Complete |
-| FEED-06 | Phase 2 | Pending |
-| FEED-07 | Phase 2 | Pending |
+| FEED-06 | Phase 2 | Complete |
+| FEED-07 | Phase 2 | Complete |
 | FEED-08 | Phase 12 | Complete |
-| RELY-01 | Phase 3 | Pending |
+| RELY-01 | Phase 3 | Complete |
 | RELY-02 | Phase 12 | Complete |
-| RELY-03 | Phase 3 | Pending |
+| RELY-03 | Phase 3 | Complete |
 | RELY-04 | Phase 13 | Complete |
-| RELY-05 | Phase 3 | Pending |
+| RELY-05 | Phase 3 | Complete |
 | RELY-06 | Phase 1 | Complete |
-| EVNT-01 | Phase 5 | Pending |
+| EVNT-01 | Phase 5 | Complete |
 | EVNT-02 | Phase 11 | Complete |
 | EVNT-03 | Phase 11 | Complete |
-| EVNT-04 | Phase 5 | Pending |
+| EVNT-04 | Phase 5 | Complete |
 | EVNT-05 | Phase 11 | Complete |
 | PRIC-01 | Phase 7 | Complete |
 | PRIC-02 | Phase 7 | Complete |
@@ -158,7 +158,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | SGNL-06 | Phase 8 | Complete |
 | SGNL-07 | Phase 6 | Complete |
 | SGNL-08 | Phase 6 | Complete |
-| TIME-01 | Phase 3 | Pending |
+| TIME-01 | Phase 3 | Complete |
 | TIME-02 | Phase 12 | Complete |
 | TIME-03 | Phase 12 | Complete |
 | OBSV-01 | Phase 10 | Complete |
