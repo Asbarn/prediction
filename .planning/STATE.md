@@ -39,7 +39,7 @@ Progress: [################] 100% Phase 13 plan 2/2 done
 | 10-critical-pipeline-wiring | 1/1 | 6min | 6min |
 | 11-basis-risk-consumption | 2/2 | 15min | 8min |
 | 12-kalshi-feed-hardening | 1/1 | 9min | 9min |
-| 13-phase4-verification-cleanup | 2/2 | 6min | 3min |
+| 13-phase4-verification-cleanup | 2/2 | 8min | 4min |
 
 **Recent Trend:**
 - Last 5 plans: 5min, 10min, 9min, 3min, 3min
@@ -57,6 +57,7 @@ Progress: [################] 100% Phase 13 plan 2/2 done
 | Phase 11 P01 | 5min | 2 tasks | 6 files |
 | Phase 11 P02 | 10min | 2 tasks | 11 files |
 | Phase 12 P01 | 9min | 2 tasks | 5 files |
+| Phase 13 P01 | 5min | 1 task | 1 files |
 | Phase 13 P02 | 3min | 1 task | 1 files |
 
 ## Accumulated Context
@@ -188,6 +189,8 @@ Recent decisions affecting current work:
 - [Phase 12-01]: Nested message format detected by value.get("msg").filter(|v| v.is_object()) to distinguish from SubscribedData
 - [Phase 12-01]: Exchange timestamp tracked per-market in HashMap from orderbook_delta ts field (best-effort, second-precision)
 - [Phase 12-01]: Latency metrics match Deribit/Polymarket pattern: feed_latency_ms histogram + feed_last_latency_ms gauge with venue label
+- [Phase 13-01]: Phase 12 Kalshi hardening included in FEED-05 evidence (strengthens rather than changes the requirement)
+- [Phase 13-01]: Cross-phase integration note documenting Phase 10 event_id annotation wiring in forward_snapshots()
 - [Phase 13-02]: MarketSnapshot import removed from traits.rs (only referenced by NormalizedDataSource, not used by any active code)
 
 ### Pending Todos

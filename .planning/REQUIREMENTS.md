@@ -11,9 +11,9 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 
 - [ ] **FEED-01**: System connects to Deribit WebSocket and subscribes to `book.{instrument}.raw` and `ticker.{instrument}.raw` channels with JSON-RPC 2.0 parsing
 - [ ] **FEED-02**: System maintains local Deribit order book with incremental delta application
-- [ ] **FEED-03**: System connects to Polymarket CLOB WebSocket and subscribes to order book updates for target condition IDs
-- [ ] **FEED-04**: System normalizes Polymarket order books from probability space (0-1) with bid/ask/depth
-- [ ] **FEED-05**: System connects to Kalshi feed (REST polling or WebSocket) and normalizes contracts into probability + expiry schema
+- [x] **FEED-03**: System connects to Polymarket CLOB WebSocket and subscribes to order book updates for target condition IDs
+- [x] **FEED-04**: System normalizes Polymarket order books from probability space (0-1) with bid/ask/depth
+- [x] **FEED-05**: System connects to Kalshi feed (REST polling or WebSocket) and normalizes contracts into probability + expiry schema
 - [ ] **FEED-06**: All feeds publish normalized MarketSnapshot events onto a bounded async channel with venue, instrument, bid/ask probability, depth, timestamps, and sequence numbers
 - [ ] **FEED-07**: System records every raw WebSocket message to line-delimited JSON with local receive timestamp and venue identifier
 - [x] **FEED-08**: System logs exchange-reported timestamps alongside local receipt timestamps for each message, documenting per-feed latency characteristics
@@ -23,7 +23,7 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 - [ ] **RELY-01**: Each feed reconnects automatically with exponential backoff and jitter on connection loss
 - [x] **RELY-02**: System detects stale connections via per-venue heartbeat monitoring (distinguish "quiet market" from "dead connection")
 - [ ] **RELY-03**: Staleness detection rejects any data older than a configurable threshold (default 5s) per instrument per venue
-- [ ] **RELY-04**: Feed drops degrade gracefully — remaining feeds continue operating, affected instruments marked unavailable, degraded state surfaced in metrics
+- [x] **RELY-04**: Feed drops degrade gracefully — remaining feeds continue operating, affected instruments marked unavailable, degraded state surfaced in metrics
 - [ ] **RELY-05**: Per-venue rate limiters enforce API rate limits (Deribit 20 req/s private, Kalshi tiered, Polymarket gas-aware) baked into feed and future execution layers
 - [x] **RELY-06**: System shuts down gracefully on SIGINT/SIGTERM — clean WS disconnect, flush pending writes, complete in-flight computations
 
@@ -126,16 +126,16 @@ Deferred to future release. Tracked but not in current roadmap.
 |-------------|-------|--------|
 | FEED-01 | Phase 2 | Pending |
 | FEED-02 | Phase 2 | Pending |
-| FEED-03 | Phase 13 | Pending |
-| FEED-04 | Phase 13 | Pending |
-| FEED-05 | Phase 13 | Pending |
+| FEED-03 | Phase 13 | Complete |
+| FEED-04 | Phase 13 | Complete |
+| FEED-05 | Phase 13 | Complete |
 | FEED-06 | Phase 2 | Pending |
 | FEED-07 | Phase 2 | Pending |
 | FEED-08 | Phase 12 | Complete |
 | RELY-01 | Phase 3 | Pending |
 | RELY-02 | Phase 12 | Complete |
 | RELY-03 | Phase 3 | Pending |
-| RELY-04 | Phase 13 | Pending |
+| RELY-04 | Phase 13 | Complete |
 | RELY-05 | Phase 3 | Pending |
 | RELY-06 | Phase 1 | Complete |
 | EVNT-01 | Phase 5 | Pending |
