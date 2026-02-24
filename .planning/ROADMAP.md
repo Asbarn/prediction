@@ -117,6 +117,6 @@ Phases 14 and 15 can execute in parallel (no dependency between them). Phase 16 
 |-------|-----------|----------------|--------|-----------|
 | 1-13 | v1.0 MVP | 36/36 | Complete | 2026-02-24 |
 | 14. Failure Alerting | 2/2 | Complete    | 2026-02-24 | - |
-| 15. State Persistence | v1.1 | 0/2 | Planned | - |
+| 15. State Persistence | 1/2 | In Progress|  | - |
 | 16. Settlement Outcome Tracking | v1.1 | 0/TBD | Not started | - |
 | 17. Signal Analysis Tooling | v1.1 | 0/TBD | Not started | - |

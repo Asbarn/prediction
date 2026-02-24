@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.1 Paper Trading Validation -- Phase 14 (Failure Alerting)
+**Current focus:** v1.1 Paper Trading Validation -- Phase 15 (State Persistence)
 
 ## Current Position
 
-Phase: 14 of 17 (Failure Alerting) -- COMPLETE
-Plan: 2 of 2 complete
-Status: Phase 14 complete, ready for phase 15
-Last activity: 2026-02-24 -- Completed 14-02 (AlertMonitor sweep loop)
+Phase: 15 of 17 (State Persistence)
+Plan: 1 of 2 complete
+Status: Executing phase 15
+Last activity: 2026-02-24 -- Completed 15-01 (Persistence foundation types and utilities)
 
-Progress: [######################........] 72% (v1.0: 36/36 plans | v1.1: 2/TBD plans)
+Progress: [########################......] 78% (v1.0: 36/36 plans | v1.1: 3/TBD plans)
 
 ## Performance Metrics
 
@@ -26,13 +26,14 @@ Progress: [######################........] 72% (v1.0: 36/36 plans | v1.1: 2/TBD 
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1:**
-- Plans completed: 2
+- Plans completed: 3
 - Phases: 4 (14-17)
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
 | 14-failure-alerting | 01 | 7min | 3 | 6 |
 | 14-failure-alerting | 02 | 14min | 3 | 8 |
+| 15-state-persistence | 01 | 7min | 2 | 7 |
 
 ## Accumulated Context
 
@@ -50,6 +51,8 @@ Recent decisions:
 - 14-02: AlertMonitor collects conditions into Vec before processing for clean cleanup separation
 - 14-02: Liveness recording at end of computation loop (not per-pattern) captures full evaluation cycles
 - 14-02: Startup grace period for signal gap avoids false alarms during pipeline warmup
+- 15-01: Deserialize added to DailyRollup in Task 1 (pulled forward) to unblock CheckpointState compilation
+- 15-01: CheckpointState version is u32 (not semver string) for compact schema evolution
 
 ### Pending Todos
 
@@ -61,10 +64,10 @@ None.
 - Expired test instrument BTC-27JUN25-100000-C in events.toml
 - Kalshi market_tickers = [] in default config
 - Polymarket has no clean resolution endpoint -- must infer from Gamma API closed flag + price lock
-- Windows rename() is not atomic when target exists -- needs remove-before-rename in persistence
+- Windows rename() is not atomic when target exists -- RESOLVED: atomic_write() uses remove-then-rename fallback
 
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 14-02-PLAN.md (AlertMonitor sweep loop) -- Phase 14 complete
-Next action: Plan phase 15 (backtester) or execute next milestone phase
+Stopped at: Completed 15-01-PLAN.md (Persistence foundation types and utilities)
+Next action: Execute 15-02 (checkpoint loop, startup recovery, JSONL replay)

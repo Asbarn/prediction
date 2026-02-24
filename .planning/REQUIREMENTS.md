@@ -38,11 +38,11 @@ Requirements for Paper Trading Validation milestone. Each maps to roadmap phases
 
 ### State Persistence
 
-- [ ] **PRST-01**: System periodically checkpoints paper trade state to JSON file
-- [ ] **PRST-02**: Checkpoint writes use atomic write-then-rename pattern (Windows-compatible)
+- [x] **PRST-01**: System periodically checkpoints paper trade state to JSON file
+- [x] **PRST-02**: Checkpoint writes use atomic write-then-rename pattern (Windows-compatible)
 - [ ] **PRST-03**: System recovers paper trade state from checkpoint on startup
 - [ ] **PRST-04**: System replays JSONL trade events after checkpoint timestamp for complete recovery
-- [ ] **PRST-05**: Checkpoint includes signal analysis accumulator state
+- [x] **PRST-05**: Checkpoint includes signal analysis accumulator state
 
 ## v2 Requirements
 
@@ -109,11 +109,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ALRT-04 | Phase 14 | Complete |
 | ALRT-05 | Phase 14 | Complete |
 | ALRT-06 | Phase 14 | Complete |
-| PRST-01 | Phase 15 | Pending |
-| PRST-02 | Phase 15 | Pending |
+| PRST-01 | Phase 15 | Complete |
+| PRST-02 | Phase 15 | Complete |
 | PRST-03 | Phase 15 | Pending |
 | PRST-04 | Phase 15 | Pending |
-| PRST-05 | Phase 15 | Pending |
+| PRST-05 | Phase 15 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 25 total
