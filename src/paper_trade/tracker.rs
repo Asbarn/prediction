@@ -174,6 +174,18 @@ pub enum TradeEvent {
     },
 }
 
+impl TradeEvent {
+    /// Extract the timestamp from any TradeEvent variant.
+    pub fn timestamp_ms(&self) -> i64 {
+        match self {
+            TradeEvent::Signal { timestamp_ms, .. } => *timestamp_ms,
+            TradeEvent::Entry { timestamp_ms, .. } => *timestamp_ms,
+            TradeEvent::Mtm { timestamp_ms, .. } => *timestamp_ms,
+            TradeEvent::Settlement { timestamp_ms, .. } => *timestamp_ms,
+        }
+    }
+}
+
 impl PaperTradeTracker {
     /// Create a new PaperTradeTracker with the given configuration.
     pub fn new(config: PaperTradeConfig) -> Self {

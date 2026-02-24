@@ -6,5 +6,7 @@
 
 pub mod atomic;
 pub mod checkpoint;
+pub mod recovery;
 
 pub use checkpoint::CheckpointState;
+pub use recovery::{load_checkpoint, replay_trade_events};
