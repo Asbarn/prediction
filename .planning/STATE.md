@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-21)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Phase 11: Basis Risk Consumption
+**Current focus:** Phase 12: Kalshi Feed Hardening
 
 ## Current Position
 
-Phase: 11 of 11 (Basis Risk Consumption)
-Plan: 2 of 2 in current phase
+Phase: 12 of 12 (Kalshi Feed Hardening)
+Plan: 1 of 1 in current phase
 Status: Complete
-Last activity: 2026-02-24 -- Completed 11-02 (BasisRiskCache engine consumption)
+Last activity: 2026-02-24 -- Completed 12-01 (Kalshi heartbeat timeout + exchange timestamp propagation)
 
-Progress: [################] 100% Phase 11 complete (2/2 plans done)
+Progress: [################] 100% Phase 12 complete (1/1 plans done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 30
+- Total plans completed: 31
 - Average duration: 10min
-- Total execution time: ~4.6 hours
+- Total execution time: ~4.8 hours
 
 **By Phase:**
 
@@ -38,9 +38,10 @@ Progress: [################] 100% Phase 11 complete (2/2 plans done)
 | 09-replay-and-hardening | 3/3 | 47min | 16min |
 | 10-critical-pipeline-wiring | 1/1 | 6min | 6min |
 | 11-basis-risk-consumption | 2/2 | 15min | 8min |
+| 12-kalshi-feed-hardening | 1/1 | 9min | 9min |
 
 **Recent Trend:**
-- Last 5 plans: 12min, 6min, 6min, 5min, 10min
+- Last 5 plans: 6min, 6min, 5min, 10min, 9min
 - Trend: stable
 
 *Updated after each plan completion*
@@ -54,6 +55,7 @@ Progress: [################] 100% Phase 11 complete (2/2 plans done)
 | Phase 10 P01 | 6min | 2 tasks | 4 files |
 | Phase 11 P01 | 5min | 2 tasks | 6 files |
 | Phase 11 P02 | 10min | 2 tasks | 11 files |
+| Phase 12 P01 | 9min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -180,6 +182,10 @@ Recent decisions affecting current work:
 - [Phase 11-02]: Replay/mock pre-populates cache from active_approved() mappings since lifecycle manager doesn't run
 - [Phase 11-02]: Near-expiry threshold inflation: threshold_value *= risk_inflation_factor before status check
 - [Phase 11-02]: basis_risk_premium field uses serde(default) for backward-compatible JSONL deserialization
+- [Phase 12-01]: Kalshi heartbeat timeout 30s default (3x 10s Ping interval), configurable via heartbeat_timeout_ms
+- [Phase 12-01]: Nested message format detected by value.get("msg").filter(|v| v.is_object()) to distinguish from SubscribedData
+- [Phase 12-01]: Exchange timestamp tracked per-market in HashMap from orderbook_delta ts field (best-effort, second-precision)
+- [Phase 12-01]: Latency metrics match Deribit/Polymarket pattern: feed_latency_ms histogram + feed_last_latency_ms gauge with venue label
 
 ### Pending Todos
 
@@ -193,5 +199,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 11-02-PLAN.md (BasisRiskCache engine consumption -- Phase 11 complete)
-Resume file: .planning/phases/11-basis-risk-consumption/11-02-SUMMARY.md
+Stopped at: Completed 12-01-PLAN.md (Kalshi heartbeat timeout + exchange timestamp propagation -- Phase 12 complete)
+Resume file: .planning/phases/12-kalshi-feed-hardening/12-01-SUMMARY.md

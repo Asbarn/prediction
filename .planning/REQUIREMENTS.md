@@ -16,12 +16,12 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 - [ ] **FEED-05**: System connects to Kalshi feed (REST polling or WebSocket) and normalizes contracts into probability + expiry schema
 - [ ] **FEED-06**: All feeds publish normalized MarketSnapshot events onto a bounded async channel with venue, instrument, bid/ask probability, depth, timestamps, and sequence numbers
 - [ ] **FEED-07**: System records every raw WebSocket message to line-delimited JSON with local receive timestamp and venue identifier
-- [ ] **FEED-08**: System logs exchange-reported timestamps alongside local receipt timestamps for each message, documenting per-feed latency characteristics
+- [x] **FEED-08**: System logs exchange-reported timestamps alongside local receipt timestamps for each message, documenting per-feed latency characteristics
 
 ### Feed Reliability
 
 - [ ] **RELY-01**: Each feed reconnects automatically with exponential backoff and jitter on connection loss
-- [ ] **RELY-02**: System detects stale connections via per-venue heartbeat monitoring (distinguish "quiet market" from "dead connection")
+- [x] **RELY-02**: System detects stale connections via per-venue heartbeat monitoring (distinguish "quiet market" from "dead connection")
 - [ ] **RELY-03**: Staleness detection rejects any data older than a configurable threshold (default 5s) per instrument per venue
 - [ ] **RELY-04**: Feed drops degrade gracefully — remaining feeds continue operating, affected instruments marked unavailable, degraded state surfaced in metrics
 - [ ] **RELY-05**: Per-venue rate limiters enforce API rate limits (Deribit 20 req/s private, Kalshi tiered, Polymarket gas-aware) baked into feed and future execution layers
@@ -59,8 +59,8 @@ Requirements for initial release (paper trading / signal generation). Each maps 
 ### Clock & Timestamps
 
 - [ ] **TIME-01**: Spread calculator reasons about when each price was valid, not just what it was — using exchange-reported timestamps where available
-- [ ] **TIME-02**: All logged data includes both local receipt timestamp and exchange-reported timestamp for post-hoc latency analysis
-- [ ] **TIME-03**: Per-feed latency characteristics are documented and tracked in metrics (exchange_ts vs local_ts delta)
+- [x] **TIME-02**: All logged data includes both local receipt timestamp and exchange-reported timestamp for post-hoc latency analysis
+- [x] **TIME-03**: Per-feed latency characteristics are documented and tracked in metrics (exchange_ts vs local_ts delta)
 
 ### Observability
 
@@ -131,9 +131,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | FEED-05 | Phase 13 | Pending |
 | FEED-06 | Phase 2 | Pending |
 | FEED-07 | Phase 2 | Pending |
-| FEED-08 | Phase 12 | Pending |
+| FEED-08 | Phase 12 | Complete |
 | RELY-01 | Phase 3 | Pending |
-| RELY-02 | Phase 12 | Pending |
+| RELY-02 | Phase 12 | Complete |
 | RELY-03 | Phase 3 | Pending |
 | RELY-04 | Phase 13 | Pending |
 | RELY-05 | Phase 3 | Pending |
@@ -159,8 +159,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | SGNL-07 | Phase 6 | Complete |
 | SGNL-08 | Phase 6 | Complete |
 | TIME-01 | Phase 3 | Pending |
-| TIME-02 | Phase 12 | Pending |
-| TIME-03 | Phase 12 | Pending |
+| TIME-02 | Phase 12 | Complete |
+| TIME-03 | Phase 12 | Complete |
 | OBSV-01 | Phase 10 | Complete |
 | OBSV-02 | Phase 1 | Complete |
 | OBSV-03 | Phase 6 | Complete |
