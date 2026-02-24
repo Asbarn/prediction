@@ -22,7 +22,7 @@ pub struct VenueHealth {
     venue: Venue,
     is_available: AtomicBool,
     last_error: Mutex<Option<String>>,
-    last_message_at: Mutex<Option<DateTime<Utc>>>,
+    pub(crate) last_message_at: Mutex<Option<DateTime<Utc>>>,
     connection_count: AtomicU64,
 }
 

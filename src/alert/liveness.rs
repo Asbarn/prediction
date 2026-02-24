@@ -18,9 +18,9 @@ use chrono::Utc;
 /// All timestamps are stored as epoch milliseconds in `AtomicI64`.
 /// A value of 0 means "never recorded".
 pub struct PipelineLiveness {
-    last_spread_computed_at: AtomicI64,
-    last_signal_evaluated_at: AtomicI64,
-    last_settlement_checked_at: AtomicI64,
+    pub(crate) last_spread_computed_at: AtomicI64,
+    pub(crate) last_signal_evaluated_at: AtomicI64,
+    pub(crate) last_settlement_checked_at: AtomicI64,
 }
 
 impl PipelineLiveness {

@@ -183,6 +183,8 @@ pub struct ActiveAlert {
     pub last_seen: DateTime<Utc>,
     /// Number of consecutive evaluations where the condition was true.
     pub count: u64,
+    /// When tracing::warn! was last emitted (for cooldown suppression).
+    pub last_warned_at: DateTime<Utc>,
 }
 
 #[cfg(test)]
@@ -413,6 +415,7 @@ mod tests {
             first_seen: now,
             last_seen: now,
             count: 1,
+            last_warned_at: now,
         };
         assert_eq!(alert.count, 1);
         assert_eq!(alert.first_seen, alert.last_seen);
@@ -429,6 +432,7 @@ mod tests {
             first_seen: now,
             last_seen: now,
             count: 1,
+            last_warned_at: now,
         };
         // Simulate subsequent evaluations
         alert.count += 1;
