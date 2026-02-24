@@ -230,7 +230,11 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Formal Phase 4 verification confirms FEED-03 (Polymarket connection), FEED-04 (Polymarket normalization), FEED-05 (Kalshi connection), RELY-04 (graceful degradation) all satisfy their requirement criteria
   2. NormalizedDataSource trait is either implemented with at least one concrete implementation or removed as dead code
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 13-01-PLAN.md -- Formal goal-backward verification of Phase 4 (FEED-03, FEED-04, FEED-05, RELY-04)
+- [ ] 13-02-PLAN.md -- Remove NormalizedDataSource dead code, verify TEST-01 satisfaction
 
 ## Progress
 
@@ -251,4 +255,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 | 10. Critical Pipeline Wiring | 1/1 | Complete    | 2026-02-24 |
 | 11. BasisRiskScore Downstream Consumption | 2/2 | Complete    | 2026-02-24 |
 | 12. Kalshi Feed Hardening | 1/1 | Complete    | 2026-02-24 |
-| 13. Phase 4 Verification & Cleanup | 0/0 | Pending | - |
+| 13. Phase 4 Verification & Cleanup | 0/2 | Pending | - |
