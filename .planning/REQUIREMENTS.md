@@ -15,7 +15,7 @@ Requirements for Paper Trading Validation milestone. Each maps to roadmap phases
 - [x] **STTL-04**: Settlement outcomes are normalized to a unified SettlementOutcome type across all venues
 - [ ] **STTL-05**: Settlement outcomes are logged to JSONL for historical analysis
 - [ ] **STTL-06**: Paper trade positions are auto-settled when settlement outcomes arrive
-- [ ] **STTL-07**: System detects and processes events that expired while offline (backfill on startup)
+- [x] **STTL-07**: System detects and processes events that expired while offline (backfill on startup)
 
 ### Signal Analysis
 
@@ -95,7 +95,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STTL-04 | Phase 16 | Complete |
 | STTL-05 | Phase 16 | Pending |
 | STTL-06 | Phase 16 | Pending |
-| STTL-07 | Phase 16 | Pending |
+| STTL-07 | Phase 16 | Complete |
 | ANLZ-01 | Phase 17 | Pending |
 | ANLZ-02 | Phase 17 | Pending |
 | ANLZ-03 | Phase 17 | Pending |

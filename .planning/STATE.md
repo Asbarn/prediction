@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 16 of 17 (Settlement Outcome Tracking)
-Plan: 1 of 3 complete
+Plan: 2 of 3 complete
 Status: Executing phase 16
-Last activity: 2026-02-25 -- Completed 16-01 (Settlement types, config, and resolution checkers)
+Last activity: 2026-02-25 -- Completed 16-02 (SettlementMonitor task with four-tier polling)
 
 Progress: [##########################....] 83% (v1.0: 36/36 plans | v1.1: 6/TBD plans)
 
@@ -26,7 +26,7 @@ Progress: [##########################....] 83% (v1.0: 36/36 plans | v1.1: 6/TBD 
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1:**
-- Plans completed: 6
+- Plans completed: 7
 - Phases: 4 (14-17)
 
 | Phase | Plan | Duration | Tasks | Files |
@@ -36,6 +36,7 @@ Progress: [##########################....] 83% (v1.0: 36/36 plans | v1.1: 6/TBD 
 | 15-state-persistence | 01 | 7min | 2 | 7 |
 | 15-state-persistence | 02 | 8min | 2 | 4 |
 | 16-settlement-outcome-tracking | 01 | 8min | 2 | 8 |
+| 16-settlement-outcome-tracking | 02 | 7min | 1 | 3 |
 
 ## Accumulated Context
 
@@ -62,6 +63,9 @@ Recent decisions:
 - 16-01: CheckContext struct passes expiry/strike/direction to venue checkers alongside event_id/instrument
 - 16-01: Kalshi scalar detection checks settlement_value_dollars for non-binary values even on yes/no results
 - 16-01: Polymarket outcome_prices parsed as Vec<String> (JSON-in-JSON) with configurable threshold
+- 16-02: Free function check_trigger() avoids borrow checker conflict in two-phase poll_cycle
+- 16-02: TrackedEvent.is_backfill with serde(default) for backward-compatible serialization
+- 16-02: Backfill timeouts stored in drain vec; caller sends after initialization complete
 
 ### Pending Todos
 
@@ -78,5 +82,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 16-01-PLAN.md (Settlement types, config, and resolution checkers)
-Next action: Execute 16-02-PLAN.md (SettlementMonitor task)
+Stopped at: Completed 16-02-PLAN.md (SettlementMonitor task with four-tier polling)
+Next action: Execute 16-03-PLAN.md (Paper trade integration)
