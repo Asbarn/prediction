@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.1 Paper Trading Validation -- Phase 15 (State Persistence)
+**Current focus:** v1.1 Paper Trading Validation -- Phase 16 (Settlement Outcome Tracking)
 
 ## Current Position
 
-Phase: 15 of 17 (State Persistence) -- COMPLETE
-Plan: 2 of 2 complete
-Status: Phase 15 complete
-Last activity: 2026-02-24 -- Completed 15-02 (Checkpoint loop, startup recovery, JSONL replay)
+Phase: 16 of 17 (Settlement Outcome Tracking)
+Plan: 1 of 3 complete
+Status: Executing phase 16
+Last activity: 2026-02-25 -- Completed 16-01 (Settlement types, config, and resolution checkers)
 
-Progress: [#########################.....] 80% (v1.0: 36/36 plans | v1.1: 5/TBD plans)
+Progress: [##########################....] 83% (v1.0: 36/36 plans | v1.1: 6/TBD plans)
 
 ## Performance Metrics
 
@@ -26,7 +26,7 @@ Progress: [#########################.....] 80% (v1.0: 36/36 plans | v1.1: 5/TBD 
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1:**
-- Plans completed: 5
+- Plans completed: 6
 - Phases: 4 (14-17)
 
 | Phase | Plan | Duration | Tasks | Files |
@@ -35,6 +35,7 @@ Progress: [#########################.....] 80% (v1.0: 36/36 plans | v1.1: 5/TBD 
 | 14-failure-alerting | 02 | 14min | 3 | 8 |
 | 15-state-persistence | 01 | 7min | 2 | 7 |
 | 15-state-persistence | 02 | 8min | 2 | 4 |
+| 16-settlement-outcome-tracking | 01 | 8min | 2 | 8 |
 
 ## Accumulated Context
 
@@ -57,6 +58,10 @@ Recent decisions:
 - 15-02: Checkpoint tick uses Duration::from_secs(u64::MAX) when persistence disabled to avoid overhead
 - 15-02: Final checkpoint after trade_logger.flush() ensures JSONL completeness up to checkpoint timestamp
 - 15-02: Recovery errors degrade gracefully with warnings, never block startup
+- 16-01: VenueChecker enum dispatch instead of async-trait crate -- zero new dependencies
+- 16-01: CheckContext struct passes expiry/strike/direction to venue checkers alongside event_id/instrument
+- 16-01: Kalshi scalar detection checks settlement_value_dollars for non-binary values even on yes/no results
+- 16-01: Polymarket outcome_prices parsed as Vec<String> (JSON-in-JSON) with configurable threshold
 
 ### Pending Todos
 
@@ -72,6 +77,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-24
-Stopped at: Completed 15-02-PLAN.md (Checkpoint loop, startup recovery, JSONL replay)
-Next action: Research and plan phase 16 (Settlement monitoring)
+Last session: 2026-02-25
+Stopped at: Completed 16-01-PLAN.md (Settlement types, config, and resolution checkers)
+Next action: Execute 16-02-PLAN.md (SettlementMonitor task)
