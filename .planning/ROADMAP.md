@@ -84,12 +84,13 @@ Plans:
   3. After a Polymarket event resolves, the system detects resolution via the Gamma API and records the settlement outcome
   4. Settlement outcomes from all three venues are normalized to a single SettlementOutcome type and logged to JSONL for historical analysis
   5. Paper trade positions are automatically marked as settled (with realized P&L) when the corresponding settlement outcome arrives
-**Plans**: 3 plans
+**Plans**: 4 plans
 
 Plans:
-- [ ] 16-01-PLAN.md -- Settlement types, config, ResolutionChecker trait, and venue implementations (Deribit, Kalshi, Polymarket)
-- [ ] 16-02-PLAN.md -- SettlementMonitor task with four-tier polling cadence and startup backfill
-- [ ] 16-03-PLAN.md -- PaperTradeTracker settlement integration, checkpoint extension, and main.rs wiring
+- [x] 16-01-PLAN.md -- Settlement types, config, ResolutionChecker trait, and venue implementations (Deribit, Kalshi, Polymarket)
+- [x] 16-02-PLAN.md -- SettlementMonitor task with four-tier polling cadence and startup backfill
+- [x] 16-03-PLAN.md -- PaperTradeTracker settlement integration, checkpoint extension, and main.rs wiring
+- [ ] 16-04-PLAN.md -- Gap closure: Wire venue resolution checkers into SettlementMonitor in main.rs
 
 ### Phase 17: Signal Analysis Tooling
 **Goal**: Operator can answer "are the arbitrage signals generating real alpha?" with statistical evidence -- hit rate, cost-adjusted edge, false positive rate, and time-to-convergence computed from settled positions
@@ -118,5 +119,5 @@ Phases 14 and 15 can execute in parallel (no dependency between them). Phase 16 
 | 1-13 | v1.0 MVP | 36/36 | Complete | 2026-02-24 |
 | 14. Failure Alerting | 2/2 | Complete    | 2026-02-24 | - |
 | 15. State Persistence | 2/2 | Complete    | 2026-02-24 | - |
-| 16. Settlement Outcome Tracking | 3/3 | Complete | 2026-02-26 | - |
+| 16. Settlement Outcome Tracking | 3/4 | Gap closure | 2026-02-26 | - |
 | 17. Signal Analysis Tooling | v1.1 | 0/TBD | Not started | - |
