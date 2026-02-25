@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 16 of 17 (Settlement Outcome Tracking)
-Plan: 3 of 3 complete
+Plan: 4 of 4 complete
 Status: Phase 16 complete
-Last activity: 2026-02-26 -- Completed 16-03 (Paper trade integration)
+Last activity: 2026-02-26 -- Completed 16-04 (Venue checker wiring)
 
-Progress: [############################..] 90% (v1.0: 36/36 plans | v1.1: 8/TBD plans)
+Progress: [############################..] 90% (v1.0: 36/36 plans | v1.1: 9/TBD plans)
 
 ## Performance Metrics
 
@@ -26,7 +26,7 @@ Progress: [############################..] 90% (v1.0: 36/36 plans | v1.1: 8/TBD 
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1:**
-- Plans completed: 8
+- Plans completed: 9
 - Phases: 4 (14-17)
 
 | Phase | Plan | Duration | Tasks | Files |
@@ -38,6 +38,7 @@ Progress: [############################..] 90% (v1.0: 36/36 plans | v1.1: 8/TBD 
 | 16-settlement-outcome-tracking | 01 | 8min | 2 | 8 |
 | 16-settlement-outcome-tracking | 02 | 7min | 1 | 3 |
 | 16-settlement-outcome-tracking | 03 | 17min | 2 | 10 |
+| 16-settlement-outcome-tracking | 04 | 2min | 1 | 1 |
 
 ## Accumulated Context
 
@@ -73,6 +74,9 @@ Recent decisions:
 - 16-03: Rate limiters created for Polymarket/Kalshi in pipeline at 5 req/s default for settlement REST calls
 - 16-03: Settlement channel kept open when monitor disabled via _settlement_tx_hold variable
 - 16-03: CheckpointState version bumped to 2 with backward-compatible serde(default) on settlement_tracking
+- 16-04: Deribit REST URL derived from ws_url config (replace wss->https, truncate at /ws/) rather than adding a new config field
+- 16-04: Kalshi settlement checker replicates private key loading inline (load_kalshi_key_from_file is private to pipeline.rs)
+- 16-04: Fallback rate limiters created at 5 req/s for any venue missing from pipeline_handles.venue_rate_limiters
 
 ### Pending Todos
 
@@ -89,5 +93,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 16-03-PLAN.md (Paper trade integration -- Phase 16 complete)
+Stopped at: Completed 16-04-PLAN.md (Venue checker wiring -- Phase 16 fully complete)
 Next action: Research and plan Phase 17 (Signal Analysis Tooling)
