@@ -402,7 +402,8 @@ async fn main() -> anyhow::Result<()> {
             // -- State Persistence Recovery (Phase 15) --
             let paper_trade_config = config.system.paper_trade.clone();
             let persistence_config = config.system.persistence.clone();
-            let mut paper_tracker = PaperTradeTracker::new(paper_trade_config);
+            let settlement_log_dir = "settlement_logs";
+            let mut paper_tracker = PaperTradeTracker::new(paper_trade_config, settlement_log_dir);
 
             if persistence_config.enabled {
                 let checkpoint_dir = std::path::Path::new(&persistence_config.checkpoint_dir);
@@ -473,8 +474,12 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
 
+            // Settlement channel placeholder (SettlementMonitor wiring comes in Task 2)
+            let (_settlement_tx, settlement_rx) =
+                mpsc::channel::<prediction::settlement::types::SettlementOutcome>(256);
+
             let ptrade_cancel = shutdown_token.child_token();
-            tokio::spawn(paper_tracker.run(signal_rx, ptrade_snap_rx, ptrade_cancel));
+            tokio::spawn(paper_tracker.run(signal_rx, ptrade_snap_rx, settlement_rx, ptrade_cancel));
 
             // Spawn PricingEngine (receives from fan-out, outputs ImpliedProbability)
             let pricing_config = config.system.pricing.clone();

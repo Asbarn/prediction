@@ -1,12 +1,15 @@
-//! Paper trade position lifecycle: Pending -> Open -> Settled.
+//! Paper trade position lifecycle: Pending -> Open -> PartiallySettled -> Settled.
 //!
 //! Tracks hypothetical positions from signal through fill to settlement,
 //! recording adverse selection (signal vs fill spread difference), mark-to-market
-//! history, and final settlement P&L.
+//! history, per-leg settlement P&L, and cross-venue divergence annotations.
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use crate::settlement::types::{
+    DivergenceType, OutcomeKind, SettledLeg, SettlementDivergence,
+};
 use crate::spread::patterns::{SpreadPattern, SpreadResult};
 
 /// Position lifecycle status.
@@ -16,6 +19,8 @@ pub enum PositionStatus {
     Pending,
     /// Position filled, tracking MTM.
     Open,
+    /// Some venue legs settled, waiting for remaining.
+    PartiallySettled,
     /// Position closed with final P&L.
     Settled,
 }
@@ -58,6 +63,12 @@ pub struct PaperPosition {
     pub settlement_pnl: Option<Decimal>,
     /// Timestamp when the position was settled.
     pub settled_at_ms: Option<i64>,
+    /// Settled venue legs with per-leg P&L breakdown.
+    #[serde(default)]
+    pub settled_legs: Vec<SettledLeg>,
+    /// Cross-venue divergence annotation (populated when all legs settle).
+    #[serde(default)]
+    pub divergence: Option<SettlementDivergence>,
 }
 
 /// A single mark-to-market snapshot during position lifetime.
@@ -94,6 +105,8 @@ impl PaperPosition {
             mtm_history: Vec::new(),
             settlement_pnl: None,
             settled_at_ms: None,
+            settled_legs: Vec::new(),
+            divergence: None,
         }
     }
 
@@ -141,6 +154,119 @@ impl PaperPosition {
         self.status = PositionStatus::Settled;
     }
 
+    /// Record a settled venue leg. Transitions Open -> PartiallySettled.
+    ///
+    /// Does NOT set `settlement_pnl` -- that happens in `finalize_settlement()`
+    /// once all legs are settled.
+    pub fn record_settled_leg(&mut self, leg: SettledLeg) {
+        self.settled_legs.push(leg);
+        if self.status == PositionStatus::Open {
+            self.status = PositionStatus::PartiallySettled;
+        }
+    }
+
+    /// Check if all expected venue legs have settled.
+    pub fn all_legs_settled(&self, expected_venue_count: usize) -> bool {
+        self.settled_legs.len() >= expected_venue_count
+    }
+
+    /// Finalize settlement by computing position-level P&L rollup from settled legs.
+    ///
+    /// Sets `settlement_pnl` to net P&L (fee-adjusted headline number per CONTEXT.md).
+    pub fn finalize_settlement(&mut self) {
+        let total_raw_pnl: Decimal = self.settled_legs.iter().map(|l| l.raw_pnl).sum();
+        let total_net_pnl: Decimal = self.settled_legs.iter().map(|l| l.net_pnl).sum();
+        let _total_fees: Decimal = self
+            .settled_legs
+            .iter()
+            .map(|l| l.entry_fee + l.exit_fee)
+            .sum();
+        let _total_slippage: Decimal = self
+            .settled_legs
+            .iter()
+            .map(|l| l.slippage_estimate)
+            .sum();
+
+        // Net P&L is the headline number per CONTEXT.md decision
+        self.settlement_pnl = Some(total_net_pnl);
+        self.settled_at_ms = Some(chrono::Utc::now().timestamp_millis());
+        self.status = PositionStatus::Settled;
+
+        let _ = total_raw_pnl; // used by caller via settled_legs
+    }
+
+    /// Compute cross-venue divergence annotation from settled legs.
+    ///
+    /// Returns None if fewer than 2 legs (no cross-venue comparison possible).
+    pub fn compute_divergence(&self) -> Option<SettlementDivergence> {
+        if self.settled_legs.len() < 2 {
+            return None;
+        }
+
+        // Check for outcome disagreements
+        let outcomes: Vec<&OutcomeKind> = self.settled_legs.iter().map(|l| &l.outcome).collect();
+
+        // Check for ambiguous resolutions
+        let has_ambiguous = outcomes.iter().any(|o| matches!(o, OutcomeKind::Ambiguous { .. }));
+        if has_ambiguous {
+            let impact = self.compute_divergence_impact_bps();
+            return Some(SettlementDivergence {
+                divergence_type: DivergenceType::AmbiguousResolution,
+                basis_risk_score_at_entry: Decimal::ZERO,
+                actual_impact_bps: impact,
+            });
+        }
+
+        // Check for binary disagreement (Yes vs No)
+        let has_yes = outcomes.iter().any(|o| matches!(o, OutcomeKind::Yes));
+        let has_no = outcomes.iter().any(|o| matches!(o, OutcomeKind::No));
+        if has_yes && has_no {
+            let impact = self.compute_divergence_impact_bps();
+            return Some(SettlementDivergence {
+                divergence_type: DivergenceType::BinaryDisagree,
+                basis_risk_score_at_entry: Decimal::ZERO,
+                actual_impact_bps: impact,
+            });
+        }
+
+        // Check for timing gap (> 4 hours between venue resolutions)
+        let resolved_times: Vec<i64> = self
+            .settled_legs
+            .iter()
+            .map(|l| l.resolved_at.timestamp())
+            .collect();
+        if resolved_times.len() >= 2 {
+            let min_t = resolved_times.iter().min().copied().unwrap_or(0);
+            let max_t = resolved_times.iter().max().copied().unwrap_or(0);
+            let gap_hours = (max_t - min_t) / 3600;
+            if gap_hours > 4 {
+                let impact = self.compute_divergence_impact_bps();
+                return Some(SettlementDivergence {
+                    divergence_type: DivergenceType::TimingGap,
+                    basis_risk_score_at_entry: Decimal::ZERO,
+                    actual_impact_bps: impact,
+                });
+            }
+        }
+
+        None
+    }
+
+    /// Compute the actual P&L impact of divergence in basis points.
+    ///
+    /// Impact = absolute difference in raw_pnl across legs, converted to bps of notional.
+    fn compute_divergence_impact_bps(&self) -> Decimal {
+        if self.settled_legs.len() < 2 || self.notional.is_zero() {
+            return Decimal::ZERO;
+        }
+        let raw_pnls: Vec<Decimal> = self.settled_legs.iter().map(|l| l.raw_pnl).collect();
+        let min_pnl = raw_pnls.iter().min().copied().unwrap_or(Decimal::ZERO);
+        let max_pnl = raw_pnls.iter().max().copied().unwrap_or(Decimal::ZERO);
+        let diff = (max_pnl - min_pnl).abs();
+        // Convert to basis points of notional: (diff / notional) * 10000
+        (diff / self.notional) * Decimal::new(10000, 0)
+    }
+
     /// Get the current P&L: settlement P&L if settled, latest MTM P&L if open.
     pub fn current_pnl(&self) -> Option<Decimal> {
         if let Some(pnl) = self.settlement_pnl {
@@ -153,12 +279,32 @@ impl PaperPosition {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settlement::types::{OutcomeKind, ResolutionSource};
     use crate::spread::patterns::SpreadPattern;
+    use crate::types::Venue;
+    use chrono::Utc;
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
     fn dec(s: &str) -> Decimal {
         Decimal::from_str(s).unwrap()
+    }
+
+    fn make_settled_leg(venue: Venue, outcome: OutcomeKind, raw_pnl: Decimal, fees: Decimal) -> SettledLeg {
+        let net_pnl = raw_pnl - fees;
+        SettledLeg {
+            venue,
+            outcome,
+            raw_pnl,
+            entry_fee: fees,
+            exit_fee: Decimal::ZERO,
+            slippage_estimate: Decimal::ZERO,
+            net_pnl,
+            fee_model_version: "v1.0".to_string(),
+            resolved_at: Utc::now(),
+            detected_at: Utc::now(),
+            resolution_source: ResolutionSource::DeribitDelivery,
+        }
     }
 
     fn make_signal() -> SpreadResult {
@@ -299,5 +445,123 @@ mod tests {
         let signal = make_signal();
         let pos = PaperPosition::new_pending(&signal, dec("500"));
         assert!(pos.current_pnl().is_none());
+    }
+
+    #[test]
+    fn record_settled_leg_transitions_open_to_partially_settled() {
+        let signal = make_signal();
+        let mut pos = PaperPosition::new_pending(&signal, dec("500"));
+        pos.fill(dec("0.46"), dec("0.49"), 1700000001000);
+        assert_eq!(pos.status, PositionStatus::Open);
+
+        let leg = make_settled_leg(Venue::Polymarket, OutcomeKind::Yes, dec("50.0"), dec("2.5"));
+        pos.record_settled_leg(leg);
+
+        assert_eq!(pos.status, PositionStatus::PartiallySettled);
+        assert_eq!(pos.settled_legs.len(), 1);
+    }
+
+    #[test]
+    fn all_legs_settled_checks_count() {
+        let signal = make_signal();
+        let mut pos = PaperPosition::new_pending(&signal, dec("500"));
+        pos.fill(dec("0.46"), dec("0.49"), 1700000001000);
+
+        assert!(!pos.all_legs_settled(2));
+
+        let leg1 = make_settled_leg(Venue::Polymarket, OutcomeKind::Yes, dec("50.0"), dec("2.5"));
+        pos.record_settled_leg(leg1);
+        assert!(!pos.all_legs_settled(2));
+
+        let leg2 = make_settled_leg(Venue::Kalshi, OutcomeKind::Yes, dec("-30.0"), dec("1.0"));
+        pos.record_settled_leg(leg2);
+        assert!(pos.all_legs_settled(2));
+
+        // Also works for single-leg
+        let signal2 = make_signal();
+        let mut pos2 = PaperPosition::new_pending(&signal2, dec("500"));
+        pos2.fill(dec("0.46"), dec("0.49"), 1700000001000);
+        let leg = make_settled_leg(Venue::Deribit, OutcomeKind::Yes, dec("100.0"), dec("0.0"));
+        pos2.record_settled_leg(leg);
+        assert!(pos2.all_legs_settled(1));
+    }
+
+    #[test]
+    fn finalize_settlement_computes_correct_rollup() {
+        let signal = make_signal();
+        let mut pos = PaperPosition::new_pending(&signal, dec("500"));
+        pos.fill(dec("0.46"), dec("0.49"), 1700000001000);
+
+        let leg1 = make_settled_leg(Venue::Polymarket, OutcomeKind::Yes, dec("150.0"), dec("2.5"));
+        let leg2 = make_settled_leg(Venue::Kalshi, OutcomeKind::Yes, dec("-50.0"), dec("1.0"));
+        pos.record_settled_leg(leg1);
+        pos.record_settled_leg(leg2);
+
+        pos.finalize_settlement();
+
+        assert_eq!(pos.status, PositionStatus::Settled);
+        // net_pnl = (150.0 - 2.5) + (-50.0 - 1.0) = 147.5 + (-51.0) = 96.5
+        assert_eq!(pos.settlement_pnl, Some(dec("96.5")));
+        assert!(pos.settled_at_ms.is_some());
+    }
+
+    #[test]
+    fn compute_divergence_detects_binary_disagree() {
+        let signal = make_signal();
+        let mut pos = PaperPosition::new_pending(&signal, dec("500"));
+        pos.fill(dec("0.46"), dec("0.49"), 1700000001000);
+
+        let leg1 = make_settled_leg(Venue::Polymarket, OutcomeKind::Yes, dec("250.0"), dec("0.0"));
+        let leg2 = make_settled_leg(Venue::Kalshi, OutcomeKind::No, dec("-250.0"), dec("0.0"));
+        pos.record_settled_leg(leg1);
+        pos.record_settled_leg(leg2);
+
+        let div = pos.compute_divergence();
+        assert!(div.is_some());
+        let div = div.unwrap();
+        assert_eq!(div.divergence_type, DivergenceType::BinaryDisagree);
+        // Impact = |250 - (-250)| / 500 * 10000 = 500/500 * 10000 = 10000 bps
+        assert_eq!(div.actual_impact_bps, dec("10000"));
+    }
+
+    #[test]
+    fn compute_divergence_returns_none_for_single_leg() {
+        let signal = make_signal();
+        let mut pos = PaperPosition::new_pending(&signal, dec("500"));
+        pos.fill(dec("0.46"), dec("0.49"), 1700000001000);
+
+        let leg = make_settled_leg(Venue::Polymarket, OutcomeKind::Yes, dec("50.0"), dec("0.0"));
+        pos.record_settled_leg(leg);
+
+        assert!(pos.compute_divergence().is_none());
+    }
+
+    #[test]
+    fn compute_divergence_detects_ambiguous_resolution() {
+        let signal = make_signal();
+        let mut pos = PaperPosition::new_pending(&signal, dec("500"));
+        pos.fill(dec("0.46"), dec("0.49"), 1700000001000);
+
+        let leg1 = make_settled_leg(Venue::Polymarket, OutcomeKind::Yes, dec("50.0"), dec("0.0"));
+        let leg2 = make_settled_leg(
+            Venue::Kalshi,
+            OutcomeKind::Ambiguous { settlement_price: dec("0.42") },
+            dec("-30.0"),
+            dec("0.0"),
+        );
+        pos.record_settled_leg(leg1);
+        pos.record_settled_leg(leg2);
+
+        let div = pos.compute_divergence();
+        assert!(div.is_some());
+        assert_eq!(div.unwrap().divergence_type, DivergenceType::AmbiguousResolution);
+    }
+
+    #[test]
+    fn new_pending_has_empty_settled_legs_and_no_divergence() {
+        let signal = make_signal();
+        let pos = PaperPosition::new_pending(&signal, dec("500"));
+        assert!(pos.settled_legs.is_empty());
+        assert!(pos.divergence.is_none());
     }
 }

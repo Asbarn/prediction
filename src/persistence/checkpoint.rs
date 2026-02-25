@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::paper_trade::aggregator::DailyRollup;
 use crate::paper_trade::position::PaperPosition;
+use crate::settlement::types::PollingTier;
+use crate::types::Venue;
 
 /// Complete snapshot of the paper trade engine state at a point in time.
 ///
@@ -30,12 +32,29 @@ pub struct CheckpointState {
     pub daily_rollups: HashMap<String, DailyRollup>,
     /// Running total trade count.
     pub total_trades: u64,
+    /// Settlement tracking state persisted across restarts.
+    /// Keyed by event_id, contains per-venue polling tier and last-check timestamp.
+    /// Per user decision: "Extend Phase 15 CheckpointState with settlement-related
+    /// fields (last_settlement_check per position, polling tier). Single file, single atomic write."
+    #[serde(default)]
+    pub settlement_tracking: HashMap<String, Vec<SettlementTrackingEntry>>,
+}
+
+/// Settlement tracking entry persisted in checkpoint for cross-restart state preservation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SettlementTrackingEntry {
+    pub event_id: String,
+    pub venue: Venue,
+    pub venue_instrument: String,
+    pub polling_tier: PollingTier,
+    pub last_checked_ms: Option<i64>,
+    pub trigger_time_ms: Option<i64>,
 }
 
 impl CheckpointState {
     /// Current schema version. Bump when the checkpoint format changes.
     pub fn current_version() -> u32 {
-        1
+        2
     }
 }
 
@@ -111,6 +130,7 @@ mod tests {
             open: vec![open_pos],
             daily_rollups,
             total_trades: 42,
+            settlement_tracking: HashMap::new(),
         };
 
         // Serialize to JSON
@@ -121,7 +141,7 @@ mod tests {
             serde_json::from_str(&json).expect("deserialize");
 
         // Verify all fields
-        assert_eq!(restored.version, 1);
+        assert_eq!(restored.version, CheckpointState::current_version());
         assert_eq!(restored.checkpoint_timestamp_ms, 1700000005000);
         assert_eq!(restored.total_trades, 42);
         assert_eq!(restored.pending.len(), 1);

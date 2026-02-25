@@ -124,6 +124,7 @@ mod tests {
             open: Vec::new(),
             daily_rollups: HashMap::new(),
             total_trades: 42,
+            settlement_tracking: HashMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&state).unwrap();
@@ -131,6 +132,7 @@ mod tests {
         fs::write(&path, &json).unwrap();
 
         let loaded = load_checkpoint(&dir).unwrap().expect("should load checkpoint");
+        // Version is set to 1 in the test data but deserializes correctly
         assert_eq!(loaded.version, 1);
         assert_eq!(loaded.checkpoint_timestamp_ms, 1700000005000);
         assert_eq!(loaded.total_trades, 42);

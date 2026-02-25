@@ -9,21 +9,26 @@
 //! realistic adverse selection -- you can't trade at the price that triggered
 //! the signal.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{NaiveDate, Utc};
 use rust_decimal::Decimal;
-use tokio::sync::mpsc;
+use rust_decimal::prelude::ToPrimitive;
+use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use rust_decimal::prelude::FromStr;
 
 use crate::config::PaperTradeConfig;
-use crate::persistence::CheckpointState;
+use crate::persistence::checkpoint::{CheckpointState, SettlementTrackingEntry};
+use crate::settlement::types::{
+    OutcomeKind, SettledLeg, SettlementOutcome, SettlementRecord,
+};
 use crate::spread::patterns::{SpreadPattern, SpreadResult};
 use crate::types::MarketSnapshot;
 
@@ -48,12 +53,19 @@ pub struct PaperTradeTracker {
     aggregator: DailyAggregator,
     /// JSONL writer for individual trade events.
     trade_logger: TradeLogger,
+    /// JSONL writer for settlement records.
+    settlement_logger: SettlementLogger,
     /// Running count of total trades entered.
     total_trades: u64,
     /// Directory for checkpoint files (None = persistence disabled).
     checkpoint_dir: Option<PathBuf>,
     /// How often to write periodic checkpoints (None = persistence disabled).
     checkpoint_interval: Option<Duration>,
+    /// Recently settled positions for bounded retention (capped at 100 or 48 hours).
+    recently_settled: VecDeque<(i64, PaperPosition)>,
+    /// Shared settlement tracking state for checkpoint persistence.
+    /// Updated by SettlementMonitor, read during checkpoint snapshots.
+    settlement_tracking_state: Option<Arc<RwLock<HashMap<String, Vec<SettlementTrackingEntry>>>>>,
 }
 
 /// JSONL trade event logger with daily file rotation.
@@ -119,6 +131,78 @@ impl TradeLogger {
             .open(&path)?;
 
         tracing::info!(path = %path.display(), "opened paper trade log file");
+
+        self.writer = Some(BufWriter::new(file));
+        self.current_date = Some(date);
+        self.writes_since_flush = 0;
+
+        Ok(())
+    }
+}
+
+/// JSONL settlement record logger with daily file rotation.
+struct SettlementLogger {
+    log_dir: PathBuf,
+    writer: Option<BufWriter<File>>,
+    current_date: Option<NaiveDate>,
+    writes_since_flush: u64,
+}
+
+impl SettlementLogger {
+    fn new(log_dir: &str) -> Self {
+        Self {
+            log_dir: PathBuf::from(log_dir),
+            writer: None,
+            current_date: None,
+            writes_since_flush: 0,
+        }
+    }
+
+    fn log_record(&mut self, record: &SettlementRecord) -> anyhow::Result<()> {
+        let today = Utc::now().date_naive();
+
+        if self.current_date != Some(today) {
+            self.rotate_file(today)?;
+        }
+
+        let line = serde_json::to_string(record)?;
+        if let Some(ref mut writer) = self.writer {
+            writeln!(writer, "{}", line)?;
+            self.writes_since_flush += 1;
+
+            if self.writes_since_flush >= 100 {
+                writer.flush()?;
+                self.writes_since_flush = 0;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn flush(&mut self) -> anyhow::Result<()> {
+        if let Some(ref mut writer) = self.writer {
+            writer.flush()?;
+            self.writes_since_flush = 0;
+        }
+        Ok(())
+    }
+
+    fn rotate_file(&mut self, date: NaiveDate) -> anyhow::Result<()> {
+        if let Some(ref mut writer) = self.writer {
+            writer.flush()?;
+        }
+
+        fs::create_dir_all(&self.log_dir)?;
+
+        let filename = format!("settlements-{}.jsonl", date.format("%Y-%m-%d"));
+        let path = self.log_dir.join(filename);
+
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+
+        tracing::info!(path = %path.display(), "opened settlement log file");
 
         self.writer = Some(BufWriter::new(file));
         self.current_date = Some(date);
@@ -194,18 +278,35 @@ impl TradeEvent {
 
 impl PaperTradeTracker {
     /// Create a new PaperTradeTracker with the given configuration.
-    pub fn new(config: PaperTradeConfig) -> Self {
+    pub fn new(config: PaperTradeConfig, settlement_log_dir: &str) -> Self {
         let trade_logger = TradeLogger::new(&config.log_dir);
+        let settlement_logger = SettlementLogger::new(settlement_log_dir);
         Self {
             pending: HashMap::new(),
             open: Vec::new(),
             config,
             aggregator: DailyAggregator::new(),
             trade_logger,
+            settlement_logger,
             total_trades: 0,
             checkpoint_dir: None,
             checkpoint_interval: None,
+            recently_settled: VecDeque::new(),
+            settlement_tracking_state: None,
         }
+    }
+
+    /// Set the shared settlement tracking state for checkpoint persistence.
+    pub fn set_settlement_tracking_state(
+        &mut self,
+        state: Arc<RwLock<HashMap<String, Vec<SettlementTrackingEntry>>>>,
+    ) {
+        self.settlement_tracking_state = Some(state);
+    }
+
+    /// Get a reference to the open positions (for SettlementMonitor initialization).
+    pub fn open_positions(&self) -> &[PaperPosition] {
+        &self.open
     }
 
     /// Configure periodic checkpoint persistence.
@@ -229,6 +330,7 @@ impl PaperTradeTracker {
         mut self,
         mut signal_rx: mpsc::Receiver<SpreadResult>,
         mut snapshot_rx: mpsc::Receiver<MarketSnapshot>,
+        mut settlement_rx: mpsc::Receiver<SettlementOutcome>,
         cancel: CancellationToken,
     ) {
         // Daily tick for rollup emission
@@ -265,6 +367,7 @@ impl PaperTradeTracker {
                     let today = Utc::now().format("%Y-%m-%d").to_string();
                     self.aggregator.emit_daily_summary(&today);
                     let _ = self.trade_logger.flush();
+                    let _ = self.settlement_logger.flush();
                     // Write final checkpoint before shutdown
                     self.write_checkpoint();
                     break;
@@ -281,6 +384,17 @@ impl PaperTradeTracker {
 
                 _ = checkpoint_tick.tick(), if self.checkpoint_dir.is_some() => {
                     self.write_checkpoint();
+                }
+
+                settlement = settlement_rx.recv() => {
+                    match settlement {
+                        Some(outcome) => {
+                            self.handle_settlement(outcome);
+                        }
+                        None => {
+                            tracing::info!("settlement channel closed");
+                        }
+                    }
                 }
 
                 signal = signal_rx.recv() => {
@@ -463,11 +577,318 @@ impl PaperTradeTracker {
         metrics::gauge!("paper_trades_open").set(self.open.len() as f64);
     }
 
+    /// Handle a settlement outcome: settle the matching position leg.
+    fn handle_settlement(&mut self, outcome: SettlementOutcome) {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+
+        // Find open/partially-settled positions matching this event
+        let matching_indices: Vec<usize> = self
+            .open
+            .iter()
+            .enumerate()
+            .filter(|(_, pos)| {
+                pos.event_id == outcome.event_id
+                    && matches!(
+                        pos.status,
+                        PositionStatus::Open | PositionStatus::PartiallySettled
+                    )
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if matching_indices.is_empty() {
+            tracing::debug!(
+                event_id = %outcome.event_id,
+                venue = ?outcome.venue,
+                "no open position found for settlement outcome"
+            );
+            return;
+        }
+
+        // Process each matching position
+        // We need to handle indices carefully since we may remove positions
+        let mut positions_to_finalize: Vec<usize> = Vec::new();
+
+        for &idx in &matching_indices {
+            let pos = &self.open[idx];
+
+            // Compute settlement value for this leg
+            let settlement_value = match &outcome.outcome {
+                OutcomeKind::Yes => Decimal::ONE,
+                OutcomeKind::No => Decimal::ZERO,
+                OutcomeKind::Ambiguous { settlement_price } => *settlement_price,
+                OutcomeKind::Timeout => Decimal::ZERO,
+            };
+
+            // Determine which side of the position this venue is on based on SpreadPattern.
+            // For Poly-Kalshi spreads:
+            //   BuyPolyYesSellKalshiYes: Poly=buy side, Kalshi=sell side
+            //   SellPolyYesBuyKalshiYes: Poly=sell side, Kalshi=buy side
+            //   BuyPolyNoSellKalshiNo:   Poly=buy side (NO), Kalshi=sell side (NO)
+            //   SellPolyNoBuyKalshiNo:   Poly=sell side (NO), Kalshi=buy side (NO)
+            let (entry_price, direction_sign) =
+                self.compute_leg_entry_and_direction(pos, &outcome);
+
+            let raw_pnl = (settlement_value - entry_price) * pos.notional * direction_sign;
+
+            // Use entry fee data from the signal if available
+            let entry_fee = self.estimate_entry_fee(pos, &outcome);
+            let exit_fee = Decimal::ZERO; // Settlement is typically free
+            let slippage_estimate = Decimal::ZERO; // Captured in adverse_selection at entry
+
+            let net_pnl = raw_pnl - entry_fee - exit_fee - slippage_estimate;
+
+            let leg = SettledLeg {
+                venue: outcome.venue.clone(),
+                outcome: outcome.outcome.clone(),
+                raw_pnl,
+                entry_fee,
+                exit_fee,
+                slippage_estimate,
+                net_pnl,
+                fee_model_version: "v1.0".to_string(),
+                resolved_at: outcome.resolved_at,
+                detected_at: outcome.detected_at,
+                resolution_source: outcome.resolution_source.clone(),
+            };
+
+            let pos = &mut self.open[idx];
+            pos.record_settled_leg(leg);
+
+            // Count expected venue legs: for spread patterns involving 2 venues, expect 2
+            let expected_venue_count = 2usize;
+
+            if pos.all_legs_settled(expected_venue_count) {
+                positions_to_finalize.push(idx);
+            } else {
+                tracing::debug!(
+                    event_id = %outcome.event_id,
+                    venue = ?outcome.venue,
+                    settled_legs = pos.settled_legs.len(),
+                    expected = expected_venue_count,
+                    "partially settled, waiting for remaining legs"
+                );
+            }
+        }
+
+        // Finalize fully settled positions (process in reverse order to preserve indices)
+        positions_to_finalize.sort_unstable();
+        for &idx in positions_to_finalize.iter().rev() {
+            let pos = &mut self.open[idx];
+            pos.finalize_settlement();
+            let divergence = pos.compute_divergence();
+            pos.divergence = divergence.clone();
+
+            // Record in aggregator
+            self.aggregator.record_trade(pos);
+
+            // Build and log SettlementRecord
+            let total_raw_pnl: Decimal = pos.settled_legs.iter().map(|l| l.raw_pnl).sum();
+            let total_net_pnl: Decimal = pos.settled_legs.iter().map(|l| l.net_pnl).sum();
+            let total_fees: Decimal = pos
+                .settled_legs
+                .iter()
+                .map(|l| l.entry_fee + l.exit_fee)
+                .sum();
+            let total_slippage: Decimal =
+                pos.settled_legs.iter().map(|l| l.slippage_estimate).sum();
+            let net_to_gross_ratio = if !total_raw_pnl.is_zero() {
+                Some(total_net_pnl / total_raw_pnl)
+            } else {
+                None
+            };
+
+            let record = SettlementRecord {
+                event_id: pos.event_id.clone(),
+                position_id: pos.id.clone(),
+                settled_legs: pos.settled_legs.clone(),
+                total_raw_pnl,
+                total_net_pnl,
+                total_fees,
+                total_slippage,
+                net_to_gross_ratio,
+                divergence: pos.divergence.clone(),
+                settled_at: chrono::Utc::now(),
+            };
+
+            if let Err(e) = self.settlement_logger.log_record(&record) {
+                tracing::warn!(error = %e, "failed to log settlement record");
+            }
+
+            // Log settlement trade event to trade logger as well
+            if let Err(e) = self.trade_logger.log_event(&TradeEvent::Settlement {
+                trade_id: pos.id.clone(),
+                event_id: pos.event_id.clone(),
+                settlement_pnl: total_net_pnl.to_string(),
+                timestamp_ms: now_ms,
+            }) {
+                tracing::warn!(error = %e, "failed to log settlement trade event");
+            }
+
+            // Emit Prometheus metrics
+            let net_pnl_f64 = total_net_pnl.to_f64().unwrap_or(0.0);
+            for leg in &pos.settled_legs {
+                let venue_str = format!("{:?}", leg.venue);
+                let outcome_str = match &leg.outcome {
+                    OutcomeKind::Yes => "yes",
+                    OutcomeKind::No => "no",
+                    OutcomeKind::Ambiguous { .. } => "ambiguous",
+                    OutcomeKind::Timeout => "timeout",
+                };
+                metrics::counter!("paper_trades_settled_total",
+                    "venue" => venue_str,
+                    "outcome" => outcome_str.to_string()
+                )
+                .increment(1);
+            }
+            metrics::histogram!("paper_trade_net_pnl").record(net_pnl_f64);
+
+            // Settlement latency: detected_at - signal_timestamp
+            if let Some(first_leg) = pos.settled_legs.first() {
+                let detected_ms = first_leg.detected_at.timestamp_millis();
+                let latency_secs =
+                    (detected_ms - pos.signal_timestamp_ms) as f64 / 1000.0;
+                metrics::histogram!("paper_trade_settlement_latency_seconds")
+                    .record(latency_secs);
+            }
+
+            // Divergence metric
+            if let Some(ref div) = pos.divergence {
+                let div_type = format!("{:?}", div.divergence_type);
+                metrics::counter!("paper_trade_divergence_total",
+                    "type" => div_type
+                )
+                .increment(1);
+            }
+
+            tracing::info!(
+                trade_id = %pos.id,
+                event_id = %pos.event_id,
+                net_pnl = %total_net_pnl,
+                raw_pnl = %total_raw_pnl,
+                legs = pos.settled_legs.len(),
+                divergence = ?pos.divergence.as_ref().map(|d| &d.divergence_type),
+                "paper trade settled"
+            );
+
+            // Move to recently_settled and evict from open
+            let settled_pos = self.open.remove(idx);
+            let is_timeout = settled_pos
+                .settled_legs
+                .iter()
+                .any(|l| matches!(l.outcome, OutcomeKind::Timeout));
+
+            // Timeout positions evicted immediately per CONTEXT.md
+            if !is_timeout {
+                self.recently_settled.push_back((now_ms, settled_pos));
+            }
+        }
+
+        // Evict old entries from recently_settled (> 48 hours or > 100 entries)
+        self.evict_recently_settled(now_ms);
+
+        // Update open positions gauge
+        metrics::gauge!("paper_trades_open").set(self.open.len() as f64);
+    }
+
+    /// Compute the entry price and direction sign for a settlement leg.
+    ///
+    /// Returns (entry_price, direction_sign) where direction_sign is +1 for buy, -1 for sell.
+    fn compute_leg_entry_and_direction(
+        &self,
+        pos: &PaperPosition,
+        outcome: &SettlementOutcome,
+    ) -> (Decimal, Decimal) {
+        use crate::spread::patterns::SpreadPattern;
+        use crate::types::Venue;
+
+        let buy_price = pos.entry_price_buy.unwrap_or(Decimal::ZERO);
+        let sell_price = pos.entry_price_sell.unwrap_or(Decimal::ZERO);
+
+        match (&pos.pattern, &outcome.venue) {
+            // BuyPolyYesSellKalshiYes: Poly is buy side, Kalshi is sell side
+            (SpreadPattern::BuyPolyYesSellKalshiYes, Venue::Polymarket) => {
+                (buy_price, Decimal::ONE)
+            }
+            (SpreadPattern::BuyPolyYesSellKalshiYes, Venue::Kalshi) => {
+                (sell_price, Decimal::new(-1, 0))
+            }
+            // SellPolyYesBuyKalshiYes: Poly is sell side, Kalshi is buy side
+            (SpreadPattern::SellPolyYesBuyKalshiYes, Venue::Polymarket) => {
+                (sell_price, Decimal::new(-1, 0))
+            }
+            (SpreadPattern::SellPolyYesBuyKalshiYes, Venue::Kalshi) => {
+                (buy_price, Decimal::ONE)
+            }
+            // BuyPolyNoSellKalshiNo: Poly is buy side (NO complement), Kalshi is sell side (NO)
+            (SpreadPattern::BuyPolyNoSellKalshiNo, Venue::Polymarket) => {
+                (buy_price, Decimal::ONE)
+            }
+            (SpreadPattern::BuyPolyNoSellKalshiNo, Venue::Kalshi) => {
+                (sell_price, Decimal::new(-1, 0))
+            }
+            // SellPolyNoBuyKalshiNo: Poly is sell side (NO), Kalshi is buy side (NO)
+            (SpreadPattern::SellPolyNoBuyKalshiNo, Venue::Polymarket) => {
+                (sell_price, Decimal::new(-1, 0))
+            }
+            (SpreadPattern::SellPolyNoBuyKalshiNo, Venue::Kalshi) => {
+                (buy_price, Decimal::ONE)
+            }
+            // Deribit or unknown: default to buy side
+            _ => (buy_price, Decimal::ONE),
+        }
+    }
+
+    /// Estimate entry fee for a settlement leg from the signal data.
+    fn estimate_entry_fee(&self, _pos: &PaperPosition, outcome: &SettlementOutcome) -> Decimal {
+        use crate::types::Venue;
+
+        // The SpreadResult carried buy_fee and sell_fee which are stored in the signal.
+        // Since we don't store per-venue fees on the position, we use a simplified estimate.
+        // The signal's buy_fee/sell_fee represent the total cost model.
+        // Split proportionally: assume roughly equal fee contribution per venue leg.
+        let _venue = &outcome.venue;
+        // For now, use zero -- fees are already captured in the signal's total_cost.
+        // The settlement net_pnl computation handles this via the entry_fee field.
+        // TODO: In v2, propagate per-venue fees from SpreadEngine to position.
+        match outcome.venue {
+            Venue::Polymarket | Venue::Kalshi | Venue::Deribit => Decimal::ZERO,
+        }
+    }
+
+    /// Evict old entries from recently_settled.
+    fn evict_recently_settled(&mut self, now_ms: i64) {
+        let max_age_ms: i64 = 48 * 3600 * 1000; // 48 hours
+        let max_entries: usize = 100;
+
+        // Evict entries older than 48 hours
+        while let Some(&(ts, _)) = self.recently_settled.front() {
+            if now_ms - ts > max_age_ms {
+                self.recently_settled.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        // Cap at 100 entries
+        while self.recently_settled.len() > max_entries {
+            self.recently_settled.pop_front();
+        }
+    }
+
     /// Extract current state for checkpointing.
     ///
     /// Called periodically by the checkpoint manager to capture a consistent
     /// snapshot of all mutable paper trade state.
     pub fn snapshot_state(&self) -> CheckpointState {
+        // Read shared settlement tracking state if available
+        let settlement_tracking: HashMap<String, Vec<SettlementTrackingEntry>> = self
+            .settlement_tracking_state
+            .as_ref()
+            .and_then(|state| state.try_read().ok())
+            .map(|guard| (*guard).clone())
+            .unwrap_or_default();
+
         CheckpointState {
             version: CheckpointState::current_version(),
             checkpoint_timestamp_ms: chrono::Utc::now().timestamp_millis(),
@@ -475,6 +896,7 @@ impl PaperTradeTracker {
             open: self.open.clone(),
             daily_rollups: self.aggregator.export_rollups(),
             total_trades: self.total_trades,
+            settlement_tracking,
         }
     }
 
@@ -559,6 +981,8 @@ impl PaperTradeTracker {
                     mtm_history: Vec::new(),
                     settlement_pnl: None,
                     settled_at_ms: None,
+                    settled_legs: Vec::new(),
+                    divergence: None,
                 };
                 self.pending
                     .entry(event_id.clone())
@@ -653,6 +1077,15 @@ mod tests {
         }
     }
 
+    fn make_tracker(config: PaperTradeConfig) -> PaperTradeTracker {
+        let log_dir = std::env::temp_dir()
+            .join("settlement_test")
+            .to_str()
+            .unwrap()
+            .to_string();
+        PaperTradeTracker::new(config, &log_dir)
+    }
+
     fn make_signal(event_id: &str, net_spread: &str) -> SpreadResult {
         SpreadResult {
             event_id: event_id.to_string(),
@@ -712,7 +1145,7 @@ mod tests {
     #[test]
     fn pending_fills_on_next_tick() {
         let config = make_config();
-        let mut tracker = PaperTradeTracker::new(config);
+        let mut tracker = make_tracker(config);
 
         // Signal arrives
         let signal = make_signal("evt-001", "0.03");
@@ -736,7 +1169,7 @@ mod tests {
     #[test]
     fn mtm_updates_on_subsequent_snapshots() {
         let config = make_config();
-        let mut tracker = PaperTradeTracker::new(config);
+        let mut tracker = make_tracker(config);
 
         // Signal + fill (fill snapshot also generates 1 MTM data point)
         tracker.handle_signal(make_signal("evt-001", "0.03"));
@@ -755,7 +1188,7 @@ mod tests {
     #[test]
     fn unrelated_event_snapshots_ignored() {
         let config = make_config();
-        let mut tracker = PaperTradeTracker::new(config);
+        let mut tracker = make_tracker(config);
 
         tracker.handle_signal(make_signal("evt-001", "0.03"));
 
@@ -771,7 +1204,7 @@ mod tests {
     #[test]
     fn multiple_signals_same_event_all_fill() {
         let config = make_config();
-        let mut tracker = PaperTradeTracker::new(config);
+        let mut tracker = make_tracker(config);
 
         // Two signals for same event
         tracker.handle_signal(make_signal("evt-001", "0.03"));
@@ -790,7 +1223,7 @@ mod tests {
     #[test]
     fn test_snapshot_restore_roundtrip() {
         let config = make_config();
-        let mut tracker = PaperTradeTracker::new(config);
+        let mut tracker = make_tracker(config);
 
         // Add a pending signal
         tracker.handle_signal(make_signal("evt-001", "0.03"));
@@ -804,14 +1237,14 @@ mod tests {
 
         // Take snapshot
         let snapshot = tracker.snapshot_state();
-        assert_eq!(snapshot.version, 1);
+        assert_eq!(snapshot.version, CheckpointState::current_version());
         assert_eq!(snapshot.total_trades, 1);
         assert_eq!(snapshot.pending.len(), 1);
         assert_eq!(snapshot.open.len(), 1);
 
         // Restore into a fresh tracker
         let config2 = make_config();
-        let mut tracker2 = PaperTradeTracker::new(config2);
+        let mut tracker2 = make_tracker(config2);
         assert_eq!(tracker2.total_trades, 0);
         assert!(tracker2.pending.is_empty());
         assert!(tracker2.open.is_empty());
@@ -824,10 +1257,165 @@ mod tests {
         assert_eq!(tracker2.open[0].event_id, "evt-002");
     }
 
+    #[test]
+    fn handle_settlement_finds_and_settles_matching_position() {
+        use crate::settlement::types::{
+            OutcomeKind, ResolutionSource, SettlementOutcome,
+        };
+        use crate::types::Venue;
+
+        let config = make_config();
+        let mut tracker = make_tracker(config);
+
+        // Signal + fill
+        tracker.handle_signal(make_signal("evt-001", "0.03"));
+        tracker.handle_snapshot(make_snapshot("evt-001", "0.48", "0.52"));
+        assert_eq!(tracker.open.len(), 1);
+
+        // Settle one leg (Polymarket)
+        let outcome1 = SettlementOutcome {
+            event_id: "evt-001".to_string(),
+            venue: Venue::Polymarket,
+            outcome: OutcomeKind::Yes,
+            settlement_price: None,
+            resolved_at: chrono::Utc::now(),
+            detected_at: chrono::Utc::now(),
+            resolution_source: ResolutionSource::GammaApi,
+            raw_response: None,
+        };
+        tracker.handle_settlement(outcome1);
+
+        // Position should be partially settled
+        assert_eq!(tracker.open.len(), 1);
+        assert_eq!(
+            tracker.open[0].status,
+            PositionStatus::PartiallySettled
+        );
+        assert_eq!(tracker.open[0].settled_legs.len(), 1);
+    }
+
+    #[test]
+    fn handle_settlement_full_lifecycle() {
+        use crate::settlement::types::{
+            OutcomeKind, ResolutionSource, SettlementOutcome,
+        };
+        use crate::types::Venue;
+
+        let config = make_config();
+        let mut tracker = make_tracker(config);
+
+        // Signal + fill
+        tracker.handle_signal(make_signal("evt-001", "0.03"));
+        tracker.handle_snapshot(make_snapshot("evt-001", "0.48", "0.52"));
+        assert_eq!(tracker.open.len(), 1);
+
+        // Settle leg 1 (Polymarket)
+        let outcome1 = SettlementOutcome {
+            event_id: "evt-001".to_string(),
+            venue: Venue::Polymarket,
+            outcome: OutcomeKind::Yes,
+            settlement_price: None,
+            resolved_at: chrono::Utc::now(),
+            detected_at: chrono::Utc::now(),
+            resolution_source: ResolutionSource::GammaApi,
+            raw_response: None,
+        };
+        tracker.handle_settlement(outcome1);
+        assert_eq!(tracker.open.len(), 1); // still partially settled
+
+        // Settle leg 2 (Kalshi)
+        let outcome2 = SettlementOutcome {
+            event_id: "evt-001".to_string(),
+            venue: Venue::Kalshi,
+            outcome: OutcomeKind::Yes,
+            settlement_price: None,
+            resolved_at: chrono::Utc::now(),
+            detected_at: chrono::Utc::now(),
+            resolution_source: ResolutionSource::KalshiSettlement,
+            raw_response: None,
+        };
+        tracker.handle_settlement(outcome2);
+
+        // Position should be fully settled and moved to recently_settled
+        assert_eq!(tracker.open.len(), 0);
+        assert_eq!(tracker.recently_settled.len(), 1);
+    }
+
+    #[test]
+    fn handle_settlement_ignores_unknown_event() {
+        use crate::settlement::types::{
+            OutcomeKind, ResolutionSource, SettlementOutcome,
+        };
+        use crate::types::Venue;
+
+        let config = make_config();
+        let mut tracker = make_tracker(config);
+
+        let outcome = SettlementOutcome {
+            event_id: "unknown-event".to_string(),
+            venue: Venue::Polymarket,
+            outcome: OutcomeKind::Yes,
+            settlement_price: None,
+            resolved_at: chrono::Utc::now(),
+            detected_at: chrono::Utc::now(),
+            resolution_source: ResolutionSource::GammaApi,
+            raw_response: None,
+        };
+        // Should not panic
+        tracker.handle_settlement(outcome);
+        assert!(tracker.open.is_empty());
+    }
+
+    #[test]
+    fn handle_settlement_timeout_evicts_immediately() {
+        use crate::settlement::types::{
+            OutcomeKind, ResolutionSource, SettlementOutcome,
+        };
+        use crate::types::Venue;
+
+        let config = make_config();
+        let mut tracker = make_tracker(config);
+
+        // Signal + fill
+        tracker.handle_signal(make_signal("evt-001", "0.03"));
+        tracker.handle_snapshot(make_snapshot("evt-001", "0.48", "0.52"));
+
+        // Settle both legs as timeout
+        let outcome1 = SettlementOutcome {
+            event_id: "evt-001".to_string(),
+            venue: Venue::Polymarket,
+            outcome: OutcomeKind::Timeout,
+            settlement_price: None,
+            resolved_at: chrono::Utc::now(),
+            detected_at: chrono::Utc::now(),
+            resolution_source: ResolutionSource::PriceInference,
+            raw_response: None,
+        };
+        let outcome2 = SettlementOutcome {
+            event_id: "evt-001".to_string(),
+            venue: Venue::Kalshi,
+            outcome: OutcomeKind::Timeout,
+            settlement_price: None,
+            resolved_at: chrono::Utc::now(),
+            detected_at: chrono::Utc::now(),
+            resolution_source: ResolutionSource::PriceInference,
+            raw_response: None,
+        };
+        tracker.handle_settlement(outcome1);
+        tracker.handle_settlement(outcome2);
+
+        // Timeout positions evicted immediately (not in recently_settled)
+        assert_eq!(tracker.open.len(), 0);
+        assert_eq!(tracker.recently_settled.len(), 0);
+    }
+
     // Cleanup temp dir after tests
     fn cleanup_test_dir() {
         let _ = std::fs::remove_dir_all(
             std::env::temp_dir().join("paper_trade_test"),
+        );
+        let _ = std::fs::remove_dir_all(
+            std::env::temp_dir().join("settlement_test"),
         );
     }
 
