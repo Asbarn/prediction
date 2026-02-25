@@ -13,8 +13,8 @@ Requirements for Paper Trading Validation milestone. Each maps to roadmap phases
 - [x] **STTL-02**: System polls Kalshi REST API for event resolution results
 - [x] **STTL-03**: System infers Polymarket event resolution from Gamma API (closed flag + price lock to 0 or 1)
 - [x] **STTL-04**: Settlement outcomes are normalized to a unified SettlementOutcome type across all venues
-- [ ] **STTL-05**: Settlement outcomes are logged to JSONL for historical analysis
-- [ ] **STTL-06**: Paper trade positions are auto-settled when settlement outcomes arrive
+- [x] **STTL-05**: Settlement outcomes are logged to JSONL for historical analysis
+- [x] **STTL-06**: Paper trade positions are auto-settled when settlement outcomes arrive
 - [x] **STTL-07**: System detects and processes events that expired while offline (backfill on startup)
 
 ### Signal Analysis
@@ -93,8 +93,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STTL-02 | Phase 16 | Complete |
 | STTL-03 | Phase 16 | Complete |
 | STTL-04 | Phase 16 | Complete |
-| STTL-05 | Phase 16 | Pending |
-| STTL-06 | Phase 16 | Pending |
+| STTL-05 | Phase 16 | Complete |
+| STTL-06 | Phase 16 | Complete |
 | STTL-07 | Phase 16 | Complete |
 | ANLZ-01 | Phase 17 | Pending |
 | ANLZ-02 | Phase 17 | Pending |

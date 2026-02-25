@@ -36,7 +36,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 - [x] **Phase 14: Failure Alerting** - Detect silent degradation, stale data, and partial feeds before they corrupt validation data (completed 2026-02-24)
 - [x] **Phase 15: State Persistence** - Survive restarts without losing weeks of paper trade and signal history (completed 2026-02-24)
-- [ ] **Phase 16: Settlement Outcome Tracking** - Know how events actually resolved so signal predictions can be verified
+- [x] **Phase 16: Settlement Outcome Tracking** - Know how events actually resolved so signal predictions can be verified (completed 2026-02-26)
 - [ ] **Phase 17: Signal Analysis Tooling** - Measure hit rate, edge, false positive rate, and time-to-convergence to answer "are signals real?"
 
 ## Phase Details
@@ -118,5 +118,5 @@ Phases 14 and 15 can execute in parallel (no dependency between them). Phase 16 
 | 1-13 | v1.0 MVP | 36/36 | Complete | 2026-02-24 |
 | 14. Failure Alerting | 2/2 | Complete    | 2026-02-24 | - |
 | 15. State Persistence | 2/2 | Complete    | 2026-02-24 | - |
-| 16. Settlement Outcome Tracking | 2/3 | In Progress|  | - |
+| 16. Settlement Outcome Tracking | 3/3 | Complete | 2026-02-26 | - |
 | 17. Signal Analysis Tooling | v1.1 | 0/TBD | Not started | - |

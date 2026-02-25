@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 16 of 17 (Settlement Outcome Tracking)
-Plan: 2 of 3 complete
-Status: Executing phase 16
-Last activity: 2026-02-25 -- Completed 16-02 (SettlementMonitor task with four-tier polling)
+Plan: 3 of 3 complete
+Status: Phase 16 complete
+Last activity: 2026-02-26 -- Completed 16-03 (Paper trade integration)
 
-Progress: [##########################....] 83% (v1.0: 36/36 plans | v1.1: 6/TBD plans)
+Progress: [############################..] 90% (v1.0: 36/36 plans | v1.1: 8/TBD plans)
 
 ## Performance Metrics
 
@@ -26,7 +26,7 @@ Progress: [##########################....] 83% (v1.0: 36/36 plans | v1.1: 6/TBD 
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1:**
-- Plans completed: 7
+- Plans completed: 8
 - Phases: 4 (14-17)
 
 | Phase | Plan | Duration | Tasks | Files |
@@ -37,6 +37,7 @@ Progress: [##########################....] 83% (v1.0: 36/36 plans | v1.1: 6/TBD 
 | 15-state-persistence | 02 | 8min | 2 | 4 |
 | 16-settlement-outcome-tracking | 01 | 8min | 2 | 8 |
 | 16-settlement-outcome-tracking | 02 | 7min | 1 | 3 |
+| 16-settlement-outcome-tracking | 03 | 17min | 2 | 10 |
 
 ## Accumulated Context
 
@@ -66,6 +67,12 @@ Recent decisions:
 - 16-02: Free function check_trigger() avoids borrow checker conflict in two-phase poll_cycle
 - 16-02: TrackedEvent.is_backfill with serde(default) for backward-compatible serialization
 - 16-02: Backfill timeouts stored in drain vec; caller sends after initialization complete
+- 16-03: Arc<RwLock<HashMap>> shared state between SettlementMonitor and PaperTradeTracker for checkpoint inclusion
+- 16-03: Net P&L (fee-adjusted) as headline settlement_pnl per CONTEXT.md decision
+- 16-03: Timeout positions evicted immediately from recently_settled per CONTEXT.md
+- 16-03: Rate limiters created for Polymarket/Kalshi in pipeline at 5 req/s default for settlement REST calls
+- 16-03: Settlement channel kept open when monitor disabled via _settlement_tx_hold variable
+- 16-03: CheckpointState version bumped to 2 with backward-compatible serde(default) on settlement_tracking
 
 ### Pending Todos
 
@@ -81,6 +88,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-25
-Stopped at: Completed 16-02-PLAN.md (SettlementMonitor task with four-tier polling)
-Next action: Execute 16-03-PLAN.md (Paper trade integration)
+Last session: 2026-02-26
+Stopped at: Completed 16-03-PLAN.md (Paper trade integration -- Phase 16 complete)
+Next action: Research and plan Phase 17 (Signal Analysis Tooling)
