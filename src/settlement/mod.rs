@@ -7,6 +7,7 @@
 pub mod config;
 pub mod deribit;
 pub mod kalshi;
+pub mod monitor;
 pub mod polymarket;
 pub mod traits;
 pub mod types;

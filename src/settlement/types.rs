@@ -306,6 +306,11 @@ pub struct TrackedEvent {
     pub strike: Decimal,
     /// Direction (above/below).
     pub direction: Direction,
+    /// Whether this event was created via startup backfill.
+    /// Backfill events use try_acquire on the shared rate limiter
+    /// to avoid starving live feeds during startup contention.
+    #[serde(default)]
+    pub is_backfill: bool,
 }
 
 /// Custom serde module for Option<Decimal> using string representation.
@@ -620,6 +625,7 @@ mod tests {
             asset: "BTC".to_string(),
             strike: dec!(100000),
             direction: Direction::Above,
+            is_backfill: false,
         };
 
         let json = serde_json::to_string(&event).expect("serialize");
@@ -630,6 +636,7 @@ mod tests {
         assert_eq!(deserialized.venue, Venue::Deribit);
         assert_eq!(deserialized.strike, dec!(100000));
         assert_eq!(deserialized.direction, Direction::Above);
+        assert!(!deserialized.is_backfill);
     }
 
     #[test]
