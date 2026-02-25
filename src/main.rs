@@ -19,7 +19,7 @@ use prediction::pricing::engine::PricingEngine;
 use prediction::pricing::types::ImpliedProbability;
 use prediction::signal::{ArbSignal, CrossAssetEngine};
 use prediction::spread::{SpreadEngine, SpreadResult};
-use prediction::types::MarketSnapshot;
+use prediction::types::{MarketSnapshot, Venue};
 
 #[derive(Parser)]
 #[command(name = "prediction")]
@@ -506,16 +506,140 @@ async fn main() -> anyhow::Result<()> {
 
             if settlement_config.enabled && is_live {
                 use prediction::settlement::monitor::SettlementMonitor;
+                use prediction::settlement::deribit::DeribitResolutionChecker;
+                use prediction::settlement::kalshi::KalshiResolutionChecker;
+                use prediction::settlement::polymarket::PolymarketResolutionChecker;
+                use prediction::settlement::traits::VenueChecker;
+                use prediction::feed::reliability::VenueRateLimiter;
 
                 let settlement_cancel = shutdown_token.child_token();
-                let checkers = std::collections::HashMap::new();
-                // Note: Venue checkers require HTTP clients and venue-specific configuration.
-                // They are constructed lazily here. In production, each venue checker is
-                // built with its shared rate limiter from pipeline_handles.venue_rate_limiters.
-                // For now, the SettlementMonitor operates with whatever checkers are available.
-                // Full venue checker construction would require reqwest::Client and per-venue
-                // REST URLs which are part of the venue config but not currently exposed.
-                // The framework is complete -- venue checkers are plugged in as they become available.
+
+                // Shared HTTP client for all settlement REST calls
+                let settlement_http_client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(30))
+                    .build()
+                    .expect("settlement HTTP client");
+
+                let mut checkers = std::collections::HashMap::new();
+
+                // -- Deribit checker (always available, public API, no auth) --
+                {
+                    // Derive REST base URL from WS URL:
+                    //   wss://test.deribit.com/ws/api/v2 -> https://test.deribit.com
+                    let deribit_rest_url = {
+                        let ws = &config.venues.deribit.ws_url;
+                        let base = ws
+                            .replace("wss://", "https://")
+                            .replace("ws://", "http://");
+                        match base.find("/ws/") {
+                            Some(pos) => base[..pos].to_string(),
+                            None => base,
+                        }
+                    };
+                    let deribit_limiter = pipeline_handles
+                        .venue_rate_limiters
+                        .get(&Venue::Deribit)
+                        .cloned()
+                        .unwrap_or_else(|| VenueRateLimiter::new("deribit_settlement", 5));
+                    let deribit_checker = DeribitResolutionChecker::new(
+                        settlement_http_client.clone(),
+                        deribit_rest_url,
+                        deribit_limiter,
+                    );
+                    checkers.insert(Venue::Deribit, VenueChecker::Deribit(deribit_checker));
+                }
+
+                // -- Kalshi checker (conditional on credentials) --
+                {
+                    let api_key_id = config.credentials.kalshi_api_key_id.clone();
+                    let private_key_pem = config
+                        .credentials
+                        .kalshi_private_key
+                        .clone()
+                        .or_else(|| {
+                            config
+                                .venues
+                                .kalshi
+                                .private_key_path
+                                .as_ref()
+                                .and_then(|path| match std::fs::read_to_string(path) {
+                                    Ok(content) => Some(content),
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            path = %path,
+                                            error = %e,
+                                            "failed to read Kalshi private key file for settlement"
+                                        );
+                                        None
+                                    }
+                                })
+                        });
+
+                    match (api_key_id, private_key_pem) {
+                        (Some(key_id), Some(pem)) => {
+                            match prediction::feed::kalshi::auth::load_kalshi_private_key(&pem) {
+                                Ok(private_key) => {
+                                    let kalshi_limiter = pipeline_handles
+                                        .venue_rate_limiters
+                                        .get(&Venue::Kalshi)
+                                        .cloned()
+                                        .unwrap_or_else(|| {
+                                            VenueRateLimiter::new("kalshi_settlement", 5)
+                                        });
+                                    let kalshi_checker = KalshiResolutionChecker::new(
+                                        settlement_http_client.clone(),
+                                        config.venues.kalshi.rest_url.clone(),
+                                        key_id,
+                                        private_key,
+                                        kalshi_limiter,
+                                    );
+                                    checkers.insert(
+                                        Venue::Kalshi,
+                                        VenueChecker::Kalshi(kalshi_checker),
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        error = %e,
+                                        "Kalshi RSA key invalid, settlement checker skipped"
+                                    );
+                                }
+                            }
+                        }
+                        _ => {
+                            tracing::warn!(
+                                "Kalshi credentials not configured, settlement checker skipped"
+                            );
+                        }
+                    }
+                }
+
+                // -- Polymarket checker (always available, no auth) --
+                {
+                    let poly_limiter = pipeline_handles
+                        .venue_rate_limiters
+                        .get(&Venue::Polymarket)
+                        .cloned()
+                        .unwrap_or_else(|| VenueRateLimiter::new("polymarket_settlement", 5));
+                    let poly_checker = PolymarketResolutionChecker::new(
+                        settlement_http_client.clone(),
+                        config.venues.polymarket.gamma_api_url.clone(),
+                        settlement_config.polymarket_price_lock_threshold,
+                        poly_limiter,
+                    );
+                    checkers.insert(
+                        Venue::Polymarket,
+                        VenueChecker::Polymarket(poly_checker),
+                    );
+                }
+
+                tracing::info!(
+                    checkers = checkers.len(),
+                    deribit = checkers.contains_key(&Venue::Deribit),
+                    kalshi = checkers.contains_key(&Venue::Kalshi),
+                    polymarket = checkers.contains_key(&Venue::Polymarket),
+                    "settlement venue checkers registered"
+                );
 
                 let mut settlement_monitor = SettlementMonitor::new(
                     event_registry.clone(),
