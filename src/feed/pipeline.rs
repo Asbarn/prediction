@@ -48,6 +48,9 @@ pub struct PipelineHandles {
     pub snapshot_rx: mpsc::Receiver<MarketSnapshot>,
     /// Per-venue health trackers (populated in Live mode, empty in Mock/Replay).
     pub venue_health: Vec<Arc<VenueHealth>>,
+    /// Per-venue rate limiters for sharing with settlement and future execution.
+    /// Clones of the same Arc<GovernorLimiter> used by feed supervisors.
+    pub venue_rate_limiters: std::collections::HashMap<Venue, VenueRateLimiter>,
 }
 
 /// Selects how the pipeline receives raw market data.
@@ -98,6 +101,7 @@ pub async fn run_multi_venue_pipeline(
             Ok(PipelineHandles {
                 snapshot_rx,
                 venue_health: vec![],
+                venue_rate_limiters: std::collections::HashMap::new(),
             })
         }
     }
@@ -113,6 +117,8 @@ async fn run_live_multi_venue(
 ) -> anyhow::Result<PipelineHandles> {
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<MarketSnapshot>(FAN_IN_BUFFER);
     let mut venue_health_handles: Vec<Arc<VenueHealth>> = Vec::new();
+    let mut rate_limiters: std::collections::HashMap<Venue, VenueRateLimiter> =
+        std::collections::HashMap::new();
 
     // --- Deribit pipeline ---
     {
@@ -127,6 +133,7 @@ async fn run_live_multi_venue(
 
         let rate_limiter =
             VenueRateLimiter::new("deribit", config.deribit.rate_limit_per_second);
+        rate_limiters.insert(Venue::Deribit, rate_limiter.clone());
         tracing::info!(
             venue = "deribit",
             rate_limit = config.deribit.rate_limit_per_second,
@@ -177,6 +184,11 @@ async fn run_live_multi_venue(
             venue_cancel.clone(),
         );
 
+        // Create rate limiter for settlement sharing (Polymarket feed is WS, not rate-limited,
+        // but settlement checker needs a rate limiter for REST API calls).
+        let poly_rate_limiter = VenueRateLimiter::new("polymarket", 5);
+        rate_limiters.insert(Venue::Polymarket, poly_rate_limiter);
+
         let (supervisor_tx, supervisor_rx) = mpsc::channel::<RawMessage>(1024);
         let supervisor = PolymarketSupervisor::new(
             config.polymarket.clone(),
@@ -210,6 +222,11 @@ async fn run_live_multi_venue(
     {
         let health = VenueHealth::new(Venue::Kalshi);
         venue_health_handles.push(health.clone());
+
+        // Create rate limiter for settlement sharing (Kalshi feed is WS, not rate-limited,
+        // but settlement checker needs a rate limiter for REST API calls).
+        let kalshi_rate_limiter = VenueRateLimiter::new("kalshi", 5);
+        rate_limiters.insert(Venue::Kalshi, kalshi_rate_limiter);
 
         let api_key_id = credentials.kalshi_api_key_id.clone();
         let private_key_pem = credentials
@@ -286,6 +303,7 @@ async fn run_live_multi_venue(
     Ok(PipelineHandles {
         snapshot_rx,
         venue_health: venue_health_handles,
+        venue_rate_limiters: rate_limiters,
     })
 }
 

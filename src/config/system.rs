@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::alert::config::AlertConfig;
 use crate::pricing::config::PricingConfig;
+use crate::settlement::config::SettlementConfig;
 use crate::signal::config::SignalGenerationConfig;
 use crate::spread::config::SpreadConfig;
 
@@ -43,6 +44,10 @@ pub struct SystemConfig {
     /// Uses `#[serde(default)]` so existing config files without `[persistence]` still load.
     #[serde(default)]
     pub persistence: PersistenceConfig,
+    /// Settlement outcome tracking configuration (Phase 16).
+    /// Uses `#[serde(default)]` so existing config files without `[settlement]` still load.
+    #[serde(default)]
+    pub settlement: SettlementConfig,
 }
 
 /// State persistence configuration for checkpoint-based recovery.

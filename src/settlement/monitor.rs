@@ -19,6 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::alert::liveness::PipelineLiveness;
 use crate::events::registry::EventRegistry;
 use crate::paper_trade::position::PaperPosition;
+use crate::persistence::checkpoint::SettlementTrackingEntry;
 use crate::settlement::config::SettlementConfig;
 use crate::settlement::traits::{CheckContext, VenueChecker};
 use crate::settlement::types::{
@@ -49,6 +50,9 @@ pub struct SettlementMonitor {
     cancel: CancellationToken,
     /// Backfill timeouts to be drained by caller after initialization.
     backfill_timeouts: Vec<SettlementOutcome>,
+    /// Shared settlement tracking state for checkpoint persistence.
+    /// Updated after each poll_cycle so PaperTradeTracker can include it in checkpoints.
+    settlement_tracking_state: Option<Arc<RwLock<HashMap<String, Vec<SettlementTrackingEntry>>>>>,
 }
 
 impl SettlementMonitor {
@@ -63,6 +67,7 @@ impl SettlementMonitor {
         liveness: Arc<PipelineLiveness>,
         config: SettlementConfig,
         cancel: CancellationToken,
+        settlement_tracking_state: Option<Arc<RwLock<HashMap<String, Vec<SettlementTrackingEntry>>>>>,
     ) -> Self {
         Self {
             registry,
@@ -73,6 +78,7 @@ impl SettlementMonitor {
             config,
             cancel,
             backfill_timeouts: Vec::new(),
+            settlement_tracking_state,
         }
     }
 
@@ -104,6 +110,7 @@ impl SettlementMonitor {
                 }
                 _ = interval.tick() => {
                     self.poll_cycle().await;
+                    self.update_shared_tracking_state();
                     self.liveness.record_settlement_check();
                 }
             }
@@ -711,6 +718,80 @@ impl SettlementMonitor {
     pub fn tracked_event_count(&self) -> usize {
         self.tracked_events.values().map(|v| v.len()).sum()
     }
+
+    /// Snapshot settlement tracking state into checkpoint-compatible entries.
+    ///
+    /// Converts internal TrackedEvent state into SettlementTrackingEntry values
+    /// and writes them to the shared state (read by PaperTradeTracker during checkpoint).
+    fn update_shared_tracking_state(&self) {
+        if let Some(ref shared) = self.settlement_tracking_state {
+            let mut tracking: HashMap<String, Vec<SettlementTrackingEntry>> = HashMap::new();
+            for (event_id, tracked_list) in &self.tracked_events {
+                let entries: Vec<SettlementTrackingEntry> = tracked_list
+                    .iter()
+                    .map(|t| SettlementTrackingEntry {
+                        event_id: t.event_id.clone(),
+                        venue: t.venue.clone(),
+                        venue_instrument: t.venue_instrument.clone(),
+                        polling_tier: t.polling_tier.clone(),
+                        last_checked_ms: t.last_checked.map(|dt| dt.timestamp_millis()),
+                        trigger_time_ms: t.trigger_time.map(|dt| dt.timestamp_millis()),
+                    })
+                    .collect();
+                tracking.insert(event_id.clone(), entries);
+            }
+            if let Ok(mut guard) = shared.try_write() {
+                *guard = tracking;
+            }
+        }
+    }
+
+    /// Restore tracked events from checkpoint settlement_tracking data.
+    ///
+    /// Reconstructs TrackedEvent entries with their persisted polling_tier and
+    /// last_checked timestamps instead of re-deriving from scratch.
+    pub fn restore_tracking(
+        &mut self,
+        tracking: HashMap<String, Vec<SettlementTrackingEntry>>,
+    ) {
+        use chrono::TimeZone;
+
+        for (event_id, entries) in tracking {
+            let tracked_list: Vec<TrackedEvent> = entries
+                .into_iter()
+                .filter_map(|entry| {
+                    // We need to look up the event mapping to get expiry/asset/strike/direction.
+                    // For now, create minimal TrackedEvent with persisted tier and timestamps.
+                    // The initialize_from_registry call will fill in any missing events.
+                    let last_checked = entry.last_checked_ms.and_then(|ms| {
+                        Utc.timestamp_millis_opt(ms).single()
+                    });
+                    let trigger_time = entry.trigger_time_ms.and_then(|ms| {
+                        Utc.timestamp_millis_opt(ms).single()
+                    });
+
+                    Some(TrackedEvent {
+                        event_id: entry.event_id,
+                        venue: entry.venue,
+                        venue_instrument: entry.venue_instrument,
+                        polling_tier: entry.polling_tier,
+                        last_checked,
+                        trigger_time,
+                        // These will be filled by initialize_from_registry if needed
+                        expiry: String::new(),
+                        asset: String::new(),
+                        strike: Decimal::ZERO,
+                        direction: crate::config::Direction::Above,
+                        is_backfill: false,
+                    })
+                })
+                .collect();
+
+            if !tracked_list.is_empty() {
+                self.tracked_events.insert(event_id, tracked_list);
+            }
+        }
+    }
 }
 
 /// Check trigger conditions for a Waiting event (free function to avoid borrow issues).
@@ -893,6 +974,7 @@ mod tests {
             liveness,
             settlement_config,
             cancel,
+            None,
         );
 
         (monitor, rx)

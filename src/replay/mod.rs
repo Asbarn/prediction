@@ -170,6 +170,7 @@ pub async fn run_replay_pipeline(
         return Ok(PipelineHandles {
             snapshot_rx: rx,
             venue_health: vec![],
+            venue_rate_limiters: std::collections::HashMap::new(),
         });
     }
 
@@ -248,6 +249,7 @@ pub async fn run_replay_pipeline(
     Ok(PipelineHandles {
         snapshot_rx,
         venue_health: vec![],
+        venue_rate_limiters: std::collections::HashMap::new(),
     })
 }
 

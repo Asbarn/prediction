@@ -44,7 +44,19 @@ log_dir = "paper_trades"           # Output directory for paper trade JSONL
 [prometheus]
 port = 9000                        # Prometheus scrape port
 
+[persistence]
+checkpoint_interval_secs = 10
+
 # [pricing]
 # Options pricing engine configuration (Phase 7).
 # All defaults are sensible -- uncomment and override as needed.
 # See src/pricing/config.rs for all parameters.
+
+# [settlement]
+# enabled = true
+# base_poll_interval_secs = 60
+# aggressive_interval_secs = 120
+# patient_interval_secs = 900
+# lazy_interval_secs = 7200
+# timeout_hours = 168
+# settlement_log_dir = "settlement_logs"

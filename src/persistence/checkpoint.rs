@@ -18,7 +18,7 @@ use crate::types::Venue;
 /// Serialized to JSON and written atomically to disk by the checkpoint manager.
 /// On startup, the most recent valid checkpoint is loaded and passed to
 /// `PaperTradeTracker::restore_state()`.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointState {
     /// Schema version for forward compatibility.
     pub version: u32,
@@ -62,7 +62,9 @@ impl CheckpointState {
 mod tests {
     use super::*;
     use crate::paper_trade::position::PaperPosition;
+    use crate::settlement::types::PollingTier;
     use crate::spread::patterns::{SpreadPattern, SpreadResult};
+    use crate::types::Venue;
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
@@ -158,5 +160,125 @@ mod tests {
         assert_eq!(rollup.losing_trades, 2);
         assert_eq!(rollup.max_win, dec("15.00"));
         assert_eq!(rollup.max_loss, dec("-3.50"));
+    }
+
+    #[test]
+    fn v1_checkpoint_backward_compatibility() {
+        // A v1 checkpoint (without settlement_tracking) should deserialize
+        // with settlement_tracking defaulting to an empty HashMap.
+        let v1_json = r#"{
+            "version": 1,
+            "checkpoint_timestamp_ms": 1700000005000,
+            "pending": {},
+            "open": [],
+            "daily_rollups": {},
+            "total_trades": 42
+        }"#;
+
+        let restored: CheckpointState =
+            serde_json::from_str(v1_json).expect("v1 should deserialize");
+        assert_eq!(restored.version, 1);
+        assert_eq!(restored.total_trades, 42);
+        assert!(restored.settlement_tracking.is_empty());
+    }
+
+    #[test]
+    fn v2_checkpoint_roundtrip_with_settlement_tracking() {
+        let now = chrono::Utc::now();
+
+        let mut settlement_tracking = HashMap::new();
+        settlement_tracking.insert(
+            "BTC-100K".to_string(),
+            vec![
+                SettlementTrackingEntry {
+                    event_id: "BTC-100K".to_string(),
+                    venue: Venue::Deribit,
+                    venue_instrument: "BTC-27JUN25-100000-C".to_string(),
+                    polling_tier: PollingTier::Aggressive { started_at: now },
+                    last_checked_ms: Some(now.timestamp_millis()),
+                    trigger_time_ms: Some(now.timestamp_millis()),
+                },
+                SettlementTrackingEntry {
+                    event_id: "BTC-100K".to_string(),
+                    venue: Venue::Polymarket,
+                    venue_instrument: "0xabc".to_string(),
+                    polling_tier: PollingTier::Patient { started_at: now },
+                    last_checked_ms: Some(now.timestamp_millis()),
+                    trigger_time_ms: None,
+                },
+            ],
+        );
+        settlement_tracking.insert(
+            "ETH-5K".to_string(),
+            vec![SettlementTrackingEntry {
+                event_id: "ETH-5K".to_string(),
+                venue: Venue::Kalshi,
+                venue_instrument: "KXETHD-25JUN30-T5000".to_string(),
+                polling_tier: PollingTier::Lazy { started_at: now },
+                last_checked_ms: None,
+                trigger_time_ms: None,
+            }],
+        );
+
+        let state = CheckpointState {
+            version: CheckpointState::current_version(),
+            checkpoint_timestamp_ms: 1700000005000,
+            pending: HashMap::new(),
+            open: vec![],
+            daily_rollups: HashMap::new(),
+            total_trades: 10,
+            settlement_tracking,
+        };
+
+        let json = serde_json::to_string_pretty(&state).expect("serialize");
+        let restored: CheckpointState =
+            serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(restored.version, 2);
+        assert_eq!(restored.settlement_tracking.len(), 2);
+
+        let btc_entries = &restored.settlement_tracking["BTC-100K"];
+        assert_eq!(btc_entries.len(), 2);
+        assert_eq!(btc_entries[0].venue, Venue::Deribit);
+        assert!(matches!(btc_entries[0].polling_tier, PollingTier::Aggressive { .. }));
+        assert!(btc_entries[0].last_checked_ms.is_some());
+        assert_eq!(btc_entries[1].venue, Venue::Polymarket);
+        assert!(matches!(btc_entries[1].polling_tier, PollingTier::Patient { .. }));
+
+        let eth_entries = &restored.settlement_tracking["ETH-5K"];
+        assert_eq!(eth_entries.len(), 1);
+        assert_eq!(eth_entries[0].venue, Venue::Kalshi);
+        assert!(matches!(eth_entries[0].polling_tier, PollingTier::Lazy { .. }));
+        assert!(eth_entries[0].last_checked_ms.is_none());
+    }
+
+    #[test]
+    fn settlement_tracking_entry_serde_all_polling_tiers() {
+        let now = chrono::Utc::now();
+        let tiers = vec![
+            PollingTier::Waiting,
+            PollingTier::Aggressive { started_at: now },
+            PollingTier::Patient { started_at: now },
+            PollingTier::Lazy { started_at: now },
+            PollingTier::TimedOut,
+            PollingTier::Resolved,
+        ];
+
+        for tier in tiers {
+            let entry = SettlementTrackingEntry {
+                event_id: "test".to_string(),
+                venue: Venue::Deribit,
+                venue_instrument: "inst".to_string(),
+                polling_tier: tier.clone(),
+                last_checked_ms: Some(12345),
+                trigger_time_ms: None,
+            };
+
+            let json = serde_json::to_string(&entry).expect("serialize");
+            let restored: SettlementTrackingEntry =
+                serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(restored.polling_tier, tier);
+            assert_eq!(restored.last_checked_ms, Some(12345));
+        }
     }
 }

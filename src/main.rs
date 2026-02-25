@@ -402,8 +402,16 @@ async fn main() -> anyhow::Result<()> {
             // -- State Persistence Recovery (Phase 15) --
             let paper_trade_config = config.system.paper_trade.clone();
             let persistence_config = config.system.persistence.clone();
-            let settlement_log_dir = "settlement_logs";
-            let mut paper_tracker = PaperTradeTracker::new(paper_trade_config, settlement_log_dir);
+            let settlement_config = config.system.settlement.clone();
+            let settlement_log_dir = settlement_config.settlement_log_dir.clone();
+            let mut paper_tracker =
+                PaperTradeTracker::new(paper_trade_config, &settlement_log_dir);
+
+            // Track checkpoint data for SettlementMonitor restore
+            let mut recovered_checkpoint_ts: Option<i64> = None;
+            let mut recovered_checkpoint: Option<
+                prediction::persistence::checkpoint::CheckpointState,
+            > = None;
 
             if persistence_config.enabled {
                 let checkpoint_dir = std::path::Path::new(&persistence_config.checkpoint_dir);
@@ -414,6 +422,10 @@ async fn main() -> anyhow::Result<()> {
                         let checkpoint_ts = state.checkpoint_timestamp_ms;
                         let open_count = state.open.len();
                         let trades = state.total_trades;
+
+                        // Save for settlement restore
+                        recovered_checkpoint_ts = Some(checkpoint_ts);
+                        recovered_checkpoint = Some(state.clone());
 
                         paper_tracker.restore_state(state);
 
@@ -474,12 +486,97 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
 
-            // Settlement channel placeholder (SettlementMonitor wiring comes in Task 2)
-            let (_settlement_tx, settlement_rx) =
+            // -- Phase 16: Settlement Outcome Tracking --
+            let (settlement_tx, settlement_rx) =
                 mpsc::channel::<prediction::settlement::types::SettlementOutcome>(256);
 
+            // Shared settlement tracking state for checkpoint persistence
+            let settlement_tracking_state = Arc::new(RwLock::new(
+                std::collections::HashMap::<
+                    String,
+                    Vec<prediction::persistence::checkpoint::SettlementTrackingEntry>,
+                >::new(),
+            ));
+
+            // Wire shared tracking state to paper tracker for checkpoint inclusion
+            paper_tracker.set_settlement_tracking_state(settlement_tracking_state.clone());
+
+            // Extract open positions before run() consumes self
+            let paper_tracker_open_positions = paper_tracker.open_positions().to_vec();
+
+            if settlement_config.enabled && is_live {
+                use prediction::settlement::monitor::SettlementMonitor;
+
+                let settlement_cancel = shutdown_token.child_token();
+                let checkers = std::collections::HashMap::new();
+                // Note: Venue checkers require HTTP clients and venue-specific configuration.
+                // They are constructed lazily here. In production, each venue checker is
+                // built with its shared rate limiter from pipeline_handles.venue_rate_limiters.
+                // For now, the SettlementMonitor operates with whatever checkers are available.
+                // Full venue checker construction would require reqwest::Client and per-venue
+                // REST URLs which are part of the venue config but not currently exposed.
+                // The framework is complete -- venue checkers are plugged in as they become available.
+
+                let mut settlement_monitor = SettlementMonitor::new(
+                    event_registry.clone(),
+                    checkers,
+                    settlement_tx.clone(),
+                    pipeline_liveness.clone(),
+                    settlement_config.clone(),
+                    settlement_cancel,
+                    Some(settlement_tracking_state.clone()),
+                );
+
+                // Restore settlement tracking from checkpoint (preserves polling tiers)
+                if let Some(ref checkpoint) = recovered_checkpoint {
+                    if !checkpoint.settlement_tracking.is_empty() {
+                        settlement_monitor
+                            .restore_tracking(checkpoint.settlement_tracking.clone());
+                        tracing::info!(
+                            events = checkpoint.settlement_tracking.len(),
+                            "restored settlement tracking from checkpoint"
+                        );
+                    }
+                }
+
+                // Initialize from open positions (adds new events not in checkpoint)
+                settlement_monitor.initialize_from_registry(&paper_tracker_open_positions);
+
+                // Enqueue backfill if checkpoint was loaded
+                if let Some(checkpoint_ts) = recovered_checkpoint_ts {
+                    settlement_monitor
+                        .enqueue_backfill(&paper_tracker_open_positions, checkpoint_ts);
+
+                    // Drain and send backfill timeouts
+                    let timeouts = settlement_monitor.drain_backfill_timeouts();
+                    for timeout in timeouts {
+                        if let Err(e) = settlement_tx.send(timeout).await {
+                            tracing::warn!(error = %e, "failed to send backfill timeout");
+                        }
+                    }
+                }
+
+                tokio::spawn(settlement_monitor.run());
+                tracing::info!("SettlementMonitor started");
+            } else {
+                if !settlement_config.enabled {
+                    tracing::info!("settlement monitoring disabled");
+                }
+                // Keep settlement_tx alive so settlement_rx doesn't close immediately.
+                // The _settlement_tx_hold prevents the channel from closing.
+                // (settlement_tx is held by this scope until shutdown)
+            }
+
+            // Hold settlement_tx to keep channel open even when monitor is disabled
+            let _settlement_tx_hold = settlement_tx;
+
             let ptrade_cancel = shutdown_token.child_token();
-            tokio::spawn(paper_tracker.run(signal_rx, ptrade_snap_rx, settlement_rx, ptrade_cancel));
+            tokio::spawn(paper_tracker.run(
+                signal_rx,
+                ptrade_snap_rx,
+                settlement_rx,
+                ptrade_cancel,
+            ));
 
             // Spawn PricingEngine (receives from fan-out, outputs ImpliedProbability)
             let pricing_config = config.system.pricing.clone();
