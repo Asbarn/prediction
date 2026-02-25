@@ -11,6 +11,7 @@ pub mod persistence;
 pub mod pricing;
 pub mod replay;
 pub mod shutdown;
+pub mod settlement;
 pub mod signal;
 pub mod spread;
 pub mod types;
