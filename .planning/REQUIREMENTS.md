@@ -19,11 +19,11 @@ Requirements for Paper Trading Validation milestone. Each maps to roadmap phases
 
 ### Signal Analysis
 
-- [ ] **ANLZ-01**: System computes hit rate (profitable-at-settlement / total-settled positions)
-- [ ] **ANLZ-02**: System computes cost-adjusted average edge per settled position
-- [ ] **ANLZ-03**: System computes false positive rate (signals resulting in loss at settlement)
-- [ ] **ANLZ-04**: System computes time-to-convergence (signal generation to price convergence duration)
-- [ ] **ANLZ-05**: System correlates threshold status (PassedBoth / PassedStaticOnly / Filtered) with settlement outcomes
+- [x] **ANLZ-01**: System computes hit rate (profitable-at-settlement / total-settled positions)
+- [x] **ANLZ-02**: System computes cost-adjusted average edge per settled position
+- [x] **ANLZ-03**: System computes false positive rate (signals resulting in loss at settlement)
+- [x] **ANLZ-04**: System computes time-to-convergence (signal generation to price convergence duration)
+- [x] **ANLZ-05**: System correlates threshold status (PassedBoth / PassedStaticOnly / Filtered) with settlement outcomes
 - [ ] **ANLZ-06**: Analysis metrics are exposed as Prometheus gauges
 - [ ] **ANLZ-07**: Analysis results are logged to structured JSONL
 
@@ -96,11 +96,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STTL-05 | Phase 16 | Complete |
 | STTL-06 | Phase 16 | Complete |
 | STTL-07 | Phase 16 | Complete |
-| ANLZ-01 | Phase 17 | Pending |
-| ANLZ-02 | Phase 17 | Pending |
-| ANLZ-03 | Phase 17 | Pending |
-| ANLZ-04 | Phase 17 | Pending |
-| ANLZ-05 | Phase 17 | Pending |
+| ANLZ-01 | Phase 17 | Complete |
+| ANLZ-02 | Phase 17 | Complete |
+| ANLZ-03 | Phase 17 | Complete |
+| ANLZ-04 | Phase 17 | Complete |
+| ANLZ-05 | Phase 17 | Complete |
 | ANLZ-06 | Phase 17 | Pending |
 | ANLZ-07 | Phase 17 | Pending |
 | ALRT-01 | Phase 14 | Complete |

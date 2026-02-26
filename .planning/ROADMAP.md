@@ -120,4 +120,4 @@ Phases 14 and 15 can execute in parallel (no dependency between them). Phase 16 
 | 14. Failure Alerting | 2/2 | Complete    | 2026-02-24 | - |
 | 15. State Persistence | 2/2 | Complete    | 2026-02-24 | - |
 | 16. Settlement Outcome Tracking | 4/4 | Complete    | 2026-02-25 | - |
-| 17. Signal Analysis Tooling | v1.1 | 0/TBD | Not started | - |
+| 17. Signal Analysis Tooling | 1/3 | In Progress|  | - |

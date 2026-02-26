@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 
 ## Current Position
 
-Phase: 16 of 17 (Settlement Outcome Tracking)
-Plan: 4 of 4 complete
-Status: Phase 16 complete
-Last activity: 2026-02-26 -- Completed 16-04 (Venue checker wiring)
+Phase: 17 of 17 (Signal Analysis Tooling)
+Plan: 1 of 3 complete
+Status: Executing Phase 17
+Last activity: 2026-02-26 -- Completed 17-01 (Signal Analysis Core Types)
 
-Progress: [############################..] 90% (v1.0: 36/36 plans | v1.1: 9/TBD plans)
+Progress: [############################..] 93% (v1.0: 36/36 plans | v1.1: 10/TBD plans)
 
 ## Performance Metrics
 
@@ -26,7 +26,7 @@ Progress: [############################..] 90% (v1.0: 36/36 plans | v1.1: 9/TBD 
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1:**
-- Plans completed: 9
+- Plans completed: 10
 - Phases: 4 (14-17)
 
 | Phase | Plan | Duration | Tasks | Files |
@@ -39,6 +39,7 @@ Progress: [############################..] 90% (v1.0: 36/36 plans | v1.1: 9/TBD 
 | 16-settlement-outcome-tracking | 02 | 7min | 1 | 3 |
 | 16-settlement-outcome-tracking | 03 | 17min | 2 | 10 |
 | 16-settlement-outcome-tracking | 04 | 2min | 1 | 1 |
+| 17-signal-analysis-tooling | 01 | 12min | 2 | 15 |
 
 ## Accumulated Context
 
@@ -77,6 +78,9 @@ Recent decisions:
 - 16-04: Deribit REST URL derived from ws_url config (replace wss->https, truncate at /ws/) rather than adding a new config field
 - 16-04: Kalshi settlement checker replicates private key loading inline (load_kalshi_key_from_file is private to pipeline.rs)
 - 16-04: Fallback rate limiters created at 5 req/s for any venue missing from pipeline_handles.venue_rate_limiters
+- 17-01: Hash derive added to ThresholdStatus for AccumulatorKey HashMap usage
+- 17-01: ThresholdStatus computed from static_floor comparison in SpreadEngine (PassedBoth vs PassedStaticOnly vs Filtered)
+- 17-01: False positive rate = (gross_hits - net_hits) / total_settled (fees ate the edge)
 
 ### Pending Todos
 
@@ -93,5 +97,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 16-04-PLAN.md (Venue checker wiring -- Phase 16 fully complete)
-Next action: Research and plan Phase 17 (Signal Analysis Tooling)
+Stopped at: Completed 17-01-PLAN.md (Signal Analysis Core Types)
+Next action: Execute 17-02-PLAN.md (Pipeline Integration)
