@@ -24,8 +24,8 @@ Requirements for Paper Trading Validation milestone. Each maps to roadmap phases
 - [x] **ANLZ-03**: System computes false positive rate (signals resulting in loss at settlement)
 - [x] **ANLZ-04**: System computes time-to-convergence (signal generation to price convergence duration)
 - [x] **ANLZ-05**: System correlates threshold status (PassedBoth / PassedStaticOnly / Filtered) with settlement outcomes
-- [ ] **ANLZ-06**: Analysis metrics are exposed as Prometheus gauges
-- [ ] **ANLZ-07**: Analysis results are logged to structured JSONL
+- [x] **ANLZ-06**: Analysis metrics are exposed as Prometheus gauges
+- [x] **ANLZ-07**: Analysis results are logged to structured JSONL
 
 ### Failure Alerting
 
@@ -101,8 +101,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ANLZ-03 | Phase 17 | Complete |
 | ANLZ-04 | Phase 17 | Complete |
 | ANLZ-05 | Phase 17 | Complete |
-| ANLZ-06 | Phase 17 | Pending |
-| ANLZ-07 | Phase 17 | Pending |
+| ANLZ-06 | Phase 17 | Complete |
+| ANLZ-07 | Phase 17 | Complete |
 | ALRT-01 | Phase 14 | Complete |
 | ALRT-02 | Phase 14 | Complete |
 | ALRT-03 | Phase 14 | Complete |

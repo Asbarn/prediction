@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 17 of 17 (Signal Analysis Tooling)
-Plan: 1 of 3 complete
+Plan: 2 of 3 complete
 Status: Executing Phase 17
-Last activity: 2026-02-26 -- Completed 17-01 (Signal Analysis Core Types)
+Last activity: 2026-02-26 -- Completed 17-02 (Pipeline Integration)
 
-Progress: [############################..] 93% (v1.0: 36/36 plans | v1.1: 10/TBD plans)
+Progress: [############################..] 93% (v1.0: 36/36 plans | v1.1: 11/TBD plans)
 
 ## Performance Metrics
 
@@ -26,7 +26,7 @@ Progress: [############################..] 93% (v1.0: 36/36 plans | v1.1: 10/TBD
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1:**
-- Plans completed: 10
+- Plans completed: 11
 - Phases: 4 (14-17)
 
 | Phase | Plan | Duration | Tasks | Files |
@@ -40,6 +40,7 @@ Progress: [############################..] 93% (v1.0: 36/36 plans | v1.1: 10/TBD
 | 16-settlement-outcome-tracking | 03 | 17min | 2 | 10 |
 | 16-settlement-outcome-tracking | 04 | 2min | 1 | 1 |
 | 17-signal-analysis-tooling | 01 | 12min | 2 | 15 |
+| 17-signal-analysis-tooling | 02 | 11min | 2 | 5 |
 
 ## Accumulated Context
 
@@ -81,6 +82,10 @@ Recent decisions:
 - 17-01: Hash derive added to ThresholdStatus for AccumulatorKey HashMap usage
 - 17-01: ThresholdStatus computed from static_floor comparison in SpreadEngine (PassedBoth vs PassedStaticOnly vs Filtered)
 - 17-01: False positive rate = (gross_hits - net_hits) / total_settled (fees ate the edge)
+- 17-02: analysis_accumulators stored as Vec<(K,V)> in CheckpointState for JSON key compatibility
+- 17-02: SettlementLogger::log_record made generic over impl Serialize for both record types
+- 17-02: Prometheus gauges emitted once after settlement batch (not per-position) for efficiency
+- 17-02: Stale fill detection applied at signal time matching SpreadResult exchange timestamps
 
 ### Pending Todos
 
@@ -97,5 +102,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 17-01-PLAN.md (Signal Analysis Core Types)
-Next action: Execute 17-02-PLAN.md (Pipeline Integration)
+Stopped at: Completed 17-02-PLAN.md (Pipeline Integration)
+Next action: Execute 17-03-PLAN.md
