@@ -404,8 +404,9 @@ async fn main() -> anyhow::Result<()> {
             let persistence_config = config.system.persistence.clone();
             let settlement_config = config.system.settlement.clone();
             let settlement_log_dir = settlement_config.settlement_log_dir.clone();
+            let analysis_config = config.system.analysis.clone();
             let mut paper_tracker =
-                PaperTradeTracker::new(paper_trade_config, &settlement_log_dir);
+                PaperTradeTracker::new(paper_trade_config, &settlement_log_dir, analysis_config);
 
             // Track checkpoint data for SettlementMonitor restore
             let mut recovered_checkpoint_ts: Option<i64> = None;

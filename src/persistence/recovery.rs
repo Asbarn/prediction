@@ -125,6 +125,7 @@ mod tests {
             daily_rollups: HashMap::new(),
             total_trades: 42,
             settlement_tracking: HashMap::new(),
+            analysis_accumulators: HashMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&state).unwrap();

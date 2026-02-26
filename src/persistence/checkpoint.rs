@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::paper_trade::aggregator::DailyRollup;
+use crate::paper_trade::analyzer::{AccumulatorBucket, AccumulatorKey};
 use crate::paper_trade::position::PaperPosition;
 use crate::settlement::types::PollingTier;
 use crate::types::Venue;
@@ -38,6 +39,10 @@ pub struct CheckpointState {
     /// fields (last_settlement_check per position, polling tier). Single file, single atomic write."
     #[serde(default)]
     pub settlement_tracking: HashMap<String, Vec<SettlementTrackingEntry>>,
+    /// Signal analysis accumulator state for cross-restart persistence.
+    /// Keyed by AccumulatorKey (venue_pair + event_id + threshold_status).
+    #[serde(default)]
+    pub analysis_accumulators: HashMap<AccumulatorKey, AccumulatorBucket>,
 }
 
 /// Settlement tracking entry persisted in checkpoint for cross-restart state preservation.
@@ -54,7 +59,7 @@ pub struct SettlementTrackingEntry {
 impl CheckpointState {
     /// Current schema version. Bump when the checkpoint format changes.
     pub fn current_version() -> u32 {
-        2
+        3
     }
 }
 
@@ -134,6 +139,7 @@ mod tests {
             daily_rollups,
             total_trades: 42,
             settlement_tracking: HashMap::new(),
+            analysis_accumulators: HashMap::new(),
         };
 
         // Serialize to JSON
@@ -229,13 +235,14 @@ mod tests {
             daily_rollups: HashMap::new(),
             total_trades: 10,
             settlement_tracking,
+            analysis_accumulators: HashMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&state).expect("serialize");
         let restored: CheckpointState =
             serde_json::from_str(&json).expect("deserialize");
 
-        assert_eq!(restored.version, 2);
+        assert_eq!(restored.version, 3);
         assert_eq!(restored.settlement_tracking.len(), 2);
 
         let btc_entries = &restored.settlement_tracking["BTC-100K"];

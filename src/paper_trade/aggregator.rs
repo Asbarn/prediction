@@ -9,6 +9,7 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
+use super::analyzer::LifetimeSummary;
 use super::position::PaperPosition;
 
 /// Daily P&L rollup aggregator.
@@ -125,7 +126,11 @@ impl DailyAggregator {
     }
 
     /// Emit daily summary via tracing and Prometheus metrics.
-    pub fn emit_daily_summary(&self, date: &str) {
+    ///
+    /// If an `analysis_summary` is provided and has settled positions, also emits
+    /// the signal analysis daily summary with hit rate, edge, convergence, and
+    /// false positive rate metrics.
+    pub fn emit_daily_summary(&self, date: &str, analysis_summary: Option<&LifetimeSummary>) {
         if let Some(rollup) = self.daily_pnl.get(date) {
             let total_pnl_f64 = rollup.total_pnl.to_f64().unwrap_or(0.0);
             let avg_pnl_f64 = rollup.avg_pnl.to_f64().unwrap_or(0.0);
@@ -150,6 +155,26 @@ impl DailyAggregator {
                     0.0
                 },
             );
+        }
+
+        // Emit signal analysis daily summary if available
+        if let Some(summary) = analysis_summary {
+            if summary.total_settled > 0 {
+                tracing::info!(
+                    date = date,
+                    total_settled = summary.total_settled,
+                    gross_hit_rate = format!("{:.1}%", summary.gross_hit_rate * 100.0),
+                    net_hit_rate = format!("{:.1}%", summary.net_hit_rate * 100.0),
+                    avg_net_edge = format!("{:.4}", summary.avg_net_edge),
+                    false_positive_rate = format!("{:.1}%", summary.false_positive_rate * 100.0),
+                    avg_convergence_secs = format!("{:.0}", summary.avg_convergence_secs),
+                    stale_fills = summary.stale_fill_count,
+                    "DAILY ANALYSIS SUMMARY"
+                );
+
+                metrics::gauge!("signal_analysis_daily_settled").set(summary.total_settled as f64);
+                metrics::gauge!("signal_analysis_daily_net_hit_rate").set(summary.net_hit_rate);
+            }
         }
     }
 

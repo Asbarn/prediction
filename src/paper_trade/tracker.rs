@@ -24,15 +24,16 @@ use tokio_util::sync::CancellationToken;
 
 use rust_decimal::prelude::FromStr;
 
-use crate::config::PaperTradeConfig;
+use crate::config::{AnalysisConfig, PaperTradeConfig};
 use crate::persistence::checkpoint::{CheckpointState, SettlementTrackingEntry};
 use crate::settlement::types::{
-    OutcomeKind, SettledLeg, SettlementOutcome, SettlementRecord,
+    OutcomeKind, SettledLeg, SettlementOutcome,
 };
 use crate::spread::patterns::{SpreadPattern, SpreadResult};
 use crate::types::MarketSnapshot;
 
 use super::aggregator::DailyAggregator;
+use super::analyzer::SignalAnalyzer;
 use super::position::{PaperPosition, PositionStatus};
 
 /// Paper trade tracking engine.
@@ -51,6 +52,8 @@ pub struct PaperTradeTracker {
     config: PaperTradeConfig,
     /// Daily P&L aggregator.
     aggregator: DailyAggregator,
+    /// Signal analysis engine (Phase 17).
+    analyzer: SignalAnalyzer,
     /// JSONL writer for individual trade events.
     trade_logger: TradeLogger,
     /// JSONL writer for settlement records.
@@ -158,7 +161,7 @@ impl SettlementLogger {
         }
     }
 
-    fn log_record(&mut self, record: &SettlementRecord) -> anyhow::Result<()> {
+    fn log_record(&mut self, record: &impl serde::Serialize) -> anyhow::Result<()> {
         let today = Utc::now().date_naive();
 
         if self.current_date != Some(today) {
@@ -278,7 +281,7 @@ impl TradeEvent {
 
 impl PaperTradeTracker {
     /// Create a new PaperTradeTracker with the given configuration.
-    pub fn new(config: PaperTradeConfig, settlement_log_dir: &str) -> Self {
+    pub fn new(config: PaperTradeConfig, settlement_log_dir: &str, analysis_config: AnalysisConfig) -> Self {
         let trade_logger = TradeLogger::new(&config.log_dir);
         let settlement_logger = SettlementLogger::new(settlement_log_dir);
         Self {
@@ -286,6 +289,7 @@ impl PaperTradeTracker {
             open: Vec::new(),
             config,
             aggregator: DailyAggregator::new(),
+            analyzer: SignalAnalyzer::new(analysis_config),
             trade_logger,
             settlement_logger,
             total_trades: 0,
@@ -307,6 +311,11 @@ impl PaperTradeTracker {
     /// Get a reference to the open positions (for SettlementMonitor initialization).
     pub fn open_positions(&self) -> &[PaperPosition] {
         &self.open
+    }
+
+    /// Get a reference to the signal analyzer (for tests and daily summary).
+    pub fn analyzer(&self) -> &SignalAnalyzer {
+        &self.analyzer
     }
 
     /// Configure periodic checkpoint persistence.
@@ -363,9 +372,10 @@ impl PaperTradeTracker {
                         open_positions = self.open.len(),
                         "PaperTradeTracker shutting down"
                     );
-                    // Emit final daily summary
+                    // Emit final daily summary with analysis metrics
                     let today = Utc::now().format("%Y-%m-%d").to_string();
-                    self.aggregator.emit_daily_summary(&today);
+                    let analysis_summary = self.analyzer.lifetime_summary();
+                    self.aggregator.emit_daily_summary(&today, Some(&analysis_summary));
                     let _ = self.trade_logger.flush();
                     let _ = self.settlement_logger.flush();
                     // Write final checkpoint before shutdown
@@ -376,8 +386,9 @@ impl PaperTradeTracker {
                 _ = daily_tick.tick() => {
                     let today = Utc::now().format("%Y-%m-%d").to_string();
                     if today != last_date {
-                        // Day boundary crossed -- emit yesterday's summary
-                        self.aggregator.emit_daily_summary(&last_date);
+                        // Day boundary crossed -- emit yesterday's summary with analysis metrics
+                        let analysis_summary = self.analyzer.lifetime_summary();
+                        self.aggregator.emit_daily_summary(&last_date, Some(&analysis_summary));
                         last_date = today;
                     }
                 }
@@ -429,7 +440,8 @@ impl PaperTradeTracker {
         let today = Utc::now().format("%Y-%m-%d").to_string();
         self.aggregator.record_signal(&today);
 
-        let position = PaperPosition::new_pending(&signal, self.config.notional_per_trade);
+        let mut position = PaperPosition::new_pending(&signal, self.config.notional_per_trade);
+        position.mark_stale_fill(self.analyzer.config().max_leg_fill_gap_ms);
         let trade_id = position.id.clone();
         let event_id = signal.event_id.clone();
 
@@ -682,38 +694,31 @@ impl PaperTradeTracker {
             // Record in aggregator
             self.aggregator.record_trade(pos);
 
-            // Build and log SettlementRecord
-            let total_raw_pnl: Decimal = pos.settled_legs.iter().map(|l| l.raw_pnl).sum();
-            let total_net_pnl: Decimal = pos.settled_legs.iter().map(|l| l.net_pnl).sum();
-            let total_fees: Decimal = pos
-                .settled_legs
-                .iter()
-                .map(|l| l.entry_fee + l.exit_fee)
-                .sum();
-            let total_slippage: Decimal =
-                pos.settled_legs.iter().map(|l| l.slippage_estimate).sum();
-            let net_to_gross_ratio = if !total_raw_pnl.is_zero() {
-                Some(total_net_pnl / total_raw_pnl)
-            } else {
-                None
-            };
+            // Record in SignalAnalyzer: updates accumulators, returns enriched record
+            let analysis_record = self.analyzer.record_settlement(pos);
 
-            let record = SettlementRecord {
-                event_id: pos.event_id.clone(),
-                position_id: pos.id.clone(),
-                settled_legs: pos.settled_legs.clone(),
-                total_raw_pnl,
-                total_net_pnl,
-                total_fees,
-                total_slippage,
-                net_to_gross_ratio,
-                divergence: pos.divergence.clone(),
-                settled_at: chrono::Utc::now(),
-            };
-
-            if let Err(e) = self.settlement_logger.log_record(&record) {
-                tracing::warn!(error = %e, "failed to log settlement record");
+            // Log enriched AnalysisSettlementRecord to settlement JSONL
+            if let Err(e) = self.settlement_logger.log_record(&analysis_record) {
+                tracing::warn!(error = %e, "failed to log analysis settlement record");
             }
+
+            // Human-readable settlement log line
+            tracing::info!(
+                event_id = %pos.event_id,
+                venue_pair = %analysis_record.venue_pair,
+                outcome = if analysis_record.net_hit { "hit" } else { "miss" },
+                convergence_secs = analysis_record.convergence_secs,
+                threshold_status = ?analysis_record.threshold_status,
+                stale_fill = analysis_record.stale_fill,
+                "SETTLED: {} {} {} edge (net), {}",
+                pos.event_id,
+                analysis_record.venue_pair,
+                analysis_record.total_net_pnl,
+                if analysis_record.net_hit { "hit" } else { "miss" }
+            );
+
+            let total_net_pnl: Decimal = pos.settled_legs.iter().map(|l| l.net_pnl).sum();
+            let total_raw_pnl: Decimal = pos.settled_legs.iter().map(|l| l.raw_pnl).sum();
 
             // Log settlement trade event to trade logger as well
             if let Err(e) = self.trade_logger.log_event(&TradeEvent::Settlement {
@@ -725,7 +730,7 @@ impl PaperTradeTracker {
                 tracing::warn!(error = %e, "failed to log settlement trade event");
             }
 
-            // Emit Prometheus metrics
+            // Emit Prometheus metrics (per-trade)
             let net_pnl_f64 = total_net_pnl.to_f64().unwrap_or(0.0);
             for leg in &pos.settled_legs {
                 let venue_str = format!("{:?}", leg.venue);
@@ -783,6 +788,9 @@ impl PaperTradeTracker {
                 self.recently_settled.push_back((now_ms, settled_pos));
             }
         }
+
+        // Emit Prometheus gauges with latest accumulator values after all settlements processed
+        self.analyzer.emit_prometheus_gauges();
 
         // Evict old entries from recently_settled (> 48 hours or > 100 entries)
         self.evict_recently_settled(now_ms);
@@ -897,6 +905,7 @@ impl PaperTradeTracker {
             daily_rollups: self.aggregator.export_rollups(),
             total_trades: self.total_trades,
             settlement_tracking,
+            analysis_accumulators: self.analyzer.export_state(),
         }
     }
 
@@ -909,6 +918,7 @@ impl PaperTradeTracker {
         self.open = state.open;
         self.aggregator.import_rollups(state.daily_rollups);
         self.total_trades = state.total_trades;
+        self.analyzer.import_state(state.analysis_accumulators);
     }
 
     /// Write a checkpoint of current state to disk using atomic write.
@@ -1055,6 +1065,7 @@ impl PaperTradeTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::AnalysisConfig;
     use crate::spread::patterns::SpreadPattern;
     use crate::types::{
         DualTimestamp, EventId, InstrumentId, Probability, TraceId, Venue,
@@ -1088,7 +1099,7 @@ mod tests {
             .to_str()
             .unwrap()
             .to_string();
-        PaperTradeTracker::new(config, &log_dir)
+        PaperTradeTracker::new(config, &log_dir, AnalysisConfig::default())
     }
 
     fn make_signal(event_id: &str, net_spread: &str) -> SpreadResult {
@@ -1413,6 +1424,107 @@ mod tests {
         // Timeout positions evicted immediately (not in recently_settled)
         assert_eq!(tracker.open.len(), 0);
         assert_eq!(tracker.recently_settled.len(), 0);
+    }
+
+    #[test]
+    fn handle_settlement_updates_analyzer_accumulators() {
+        use crate::settlement::types::{
+            OutcomeKind, ResolutionSource, SettlementOutcome,
+        };
+        use crate::types::Venue;
+
+        let config = make_config();
+        let mut tracker = make_tracker(config);
+
+        // Signal + fill
+        tracker.handle_signal(make_signal("evt-001", "0.03"));
+        tracker.handle_snapshot(make_snapshot("evt-001", "0.48", "0.52"));
+        assert_eq!(tracker.open.len(), 1);
+
+        // Settle leg 1 (Polymarket)
+        let outcome1 = SettlementOutcome {
+            event_id: "evt-001".to_string(),
+            venue: Venue::Polymarket,
+            outcome: OutcomeKind::Yes,
+            settlement_price: None,
+            resolved_at: chrono::Utc::now(),
+            detected_at: chrono::Utc::now(),
+            resolution_source: ResolutionSource::GammaApi,
+            raw_response: None,
+        };
+        tracker.handle_settlement(outcome1);
+
+        // Settle leg 2 (Kalshi)
+        let outcome2 = SettlementOutcome {
+            event_id: "evt-001".to_string(),
+            venue: Venue::Kalshi,
+            outcome: OutcomeKind::Yes,
+            settlement_price: None,
+            resolved_at: chrono::Utc::now(),
+            detected_at: chrono::Utc::now(),
+            resolution_source: ResolutionSource::KalshiSettlement,
+            raw_response: None,
+        };
+        tracker.handle_settlement(outcome2);
+
+        // Position should be fully settled
+        assert_eq!(tracker.open.len(), 0);
+
+        // Analyzer should have recorded the settlement
+        let summary = tracker.analyzer().lifetime_summary();
+        assert_eq!(summary.total_settled, 1);
+        // Should have a hit rate (gross or net depending on P&L direction)
+        assert!(summary.gross_hit_rate >= 0.0);
+        assert!(summary.net_hit_rate >= 0.0);
+    }
+
+    #[test]
+    fn handle_settlement_enriched_record_fields() {
+        use crate::settlement::types::{
+            OutcomeKind, ResolutionSource, SettlementOutcome,
+        };
+        use crate::types::Venue;
+
+        let config = make_config();
+        let mut tracker = make_tracker(config);
+
+        // Use signal with exchange timestamps for stale fill detection
+        let mut signal = make_signal("evt-002", "0.03");
+        signal.poly_exchange_ts = Some(1700000000100);
+        signal.kalshi_exchange_ts = Some(1700000000200);
+        signal.threshold_status = Some(crate::signal::types::ThresholdStatus::PassedBoth);
+        tracker.handle_signal(signal);
+        tracker.handle_snapshot(make_snapshot("evt-002", "0.48", "0.52"));
+
+        // Settle both legs
+        let outcome1 = SettlementOutcome {
+            event_id: "evt-002".to_string(),
+            venue: Venue::Polymarket,
+            outcome: OutcomeKind::Yes,
+            settlement_price: None,
+            resolved_at: chrono::Utc::now(),
+            detected_at: chrono::Utc::now(),
+            resolution_source: ResolutionSource::GammaApi,
+            raw_response: None,
+        };
+        let outcome2 = SettlementOutcome {
+            event_id: "evt-002".to_string(),
+            venue: Venue::Kalshi,
+            outcome: OutcomeKind::Yes,
+            settlement_price: None,
+            resolved_at: chrono::Utc::now(),
+            detected_at: chrono::Utc::now(),
+            resolution_source: ResolutionSource::KalshiSettlement,
+            raw_response: None,
+        };
+        tracker.handle_settlement(outcome1);
+        tracker.handle_settlement(outcome2);
+
+        // Verify analyzer state after enriched record was produced
+        let summary = tracker.analyzer().lifetime_summary();
+        assert_eq!(summary.total_settled, 1);
+        // Convergence secs should be > 0 (settled_at > signal_timestamp)
+        assert!(summary.avg_convergence_secs > 0.0);
     }
 
     // Cleanup temp dir after tests
