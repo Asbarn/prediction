@@ -27,7 +27,7 @@ use crate::events::discovery::{
 };
 use crate::events::registry::EventRegistry;
 use crate::events::risk::{check_expiry_warning, inflate_risk_score, compute_risk_for_mapping, BasisRiskCache, CachedRiskInfo};
-use crate::events::toml_writer::{append_candidate_to_toml, mark_expired_in_toml, append_candidates_to_doc, mark_expired_batch_in_doc, CandidateMapping, CandidateVenues};
+use crate::events::toml_writer::{append_candidates_to_doc, mark_expired_batch_in_doc, CandidateMapping, CandidateVenues};
 use crate::feed::kalshi::auth::load_kalshi_private_key;
 use crate::feed::reliability::VenueRateLimiter;
 use crate::types::Venue;
@@ -151,7 +151,7 @@ impl ContractLifecycleManager {
 
     /// Main loop: poll at the minimum venue interval, check each venue's
     /// individual interval, and run the full lifecycle cycle.
-    pub async fn run(self) {
+    pub async fn run(mut self) {
         let min_interval = self.discovery_config.min_poll_interval_secs();
         let mut interval = tokio::time::interval(Duration::from_secs(min_interval));
         let mut last_deribit_poll = Instant::now() - Duration::from_secs(min_interval + 1);
@@ -178,13 +178,16 @@ impl ContractLifecycleManager {
 
     /// Single poll cycle: discover, match, expire, roll, warn, refresh.
     async fn poll_cycle(
-        &self,
+        &mut self,
         last_deribit_poll: &mut Instant,
         last_kalshi_poll: &mut Instant,
         last_polymarket_poll: &mut Instant,
     ) {
         let mut all_discovered: Vec<DiscoveredInstrument> = Vec::new();
-        let mut toml_modified = false;
+        let mut deribit_polled = false;
+        let mut kalshi_polled = false;
+        let mut deribit_suspect = false;
+        let mut kalshi_suspect = false;
 
         // 1. Discover instruments from each venue (only if interval elapsed)
         // --- Deribit ---
@@ -193,6 +196,7 @@ impl ContractLifecycleManager {
         {
             *last_deribit_poll = Instant::now();
             metrics::counter!("lifecycle_discovery_polls", "venue" => "deribit").increment(1);
+            let deribit_limiter = self.venue_rate_limiters.get(&Venue::Deribit);
             match discover_deribit(
                 &self.http_client,
                 &format!(
@@ -207,15 +211,33 @@ impl ContractLifecycleManager {
                         .unwrap_or("www.deribit.com")
                 ),
                 &self.discovery_config.deribit_currencies,
+                deribit_limiter,
             )
             .await
             {
                 Ok(instruments) => {
+                    let count = instruments.len();
                     tracing::info!(
                         venue = "deribit",
-                        count = instruments.len(),
+                        count = count,
                         "discovered instruments"
                     );
+                    if self.previous_poll_counts.is_suspect(
+                        Venue::Deribit,
+                        count,
+                        self.discovery_config.partial_response_threshold,
+                    ) {
+                        tracing::warn!(
+                            venue = "deribit",
+                            previous = ?self.previous_poll_counts.counts.get(&Venue::Deribit),
+                            current = count,
+                            "suspect partial API response -- skipping expiry evaluation for Deribit"
+                        );
+                        deribit_suspect = true;
+                    } else {
+                        self.previous_poll_counts.update(Venue::Deribit, count);
+                    }
+                    deribit_polled = true;
                     all_discovered.extend(instruments);
                 }
                 Err(e) => {
@@ -247,21 +269,40 @@ impl ContractLifecycleManager {
             match (api_key_id, private_key_pem) {
                 (Some(key_id), Some(pem)) => match load_kalshi_private_key(&pem) {
                     Ok(private_key) => {
+                        let kalshi_limiter = self.venue_rate_limiters.get(&Venue::Kalshi);
                         match discover_kalshi(
                             &self.http_client,
                             &self.venues_config.kalshi.rest_url,
                             &key_id,
                             &private_key,
                             &self.discovery_config.kalshi_series_tickers,
+                            kalshi_limiter,
                         )
                         .await
                         {
                             Ok(instruments) => {
+                                let count = instruments.len();
                                 tracing::info!(
                                     venue = "kalshi",
-                                    count = instruments.len(),
+                                    count = count,
                                     "discovered instruments"
                                 );
+                                if self.previous_poll_counts.is_suspect(
+                                    Venue::Kalshi,
+                                    count,
+                                    self.discovery_config.partial_response_threshold,
+                                ) {
+                                    tracing::warn!(
+                                        venue = "kalshi",
+                                        previous = ?self.previous_poll_counts.counts.get(&Venue::Kalshi),
+                                        current = count,
+                                        "suspect partial API response -- skipping expiry evaluation for Kalshi"
+                                    );
+                                    kalshi_suspect = true;
+                                } else {
+                                    self.previous_poll_counts.update(Venue::Kalshi, count);
+                                }
+                                kalshi_polled = true;
                                 all_discovered.extend(instruments);
                             }
                             Err(e) => {
@@ -339,26 +380,16 @@ impl ContractLifecycleManager {
         let new_candidates = filter_new_candidates(&candidates, &registry);
         drop(registry);
 
-        for candidate in &new_candidates {
-            match self.append_candidate(candidate).await {
-                Ok(()) => {
-                    tracing::info!(
-                        event_id = %candidate.id,
-                        deribit = ?candidate.venues.deribit,
-                        kalshi = ?candidate.venues.kalshi,
-                        "discovered new candidate mapping"
-                    );
-                    metrics::counter!("lifecycle_candidates_discovered").increment(1);
-                    toml_modified = true;
-                }
-                Err(e) => {
-                    tracing::error!(
-                        event_id = %candidate.id,
-                        error = %e,
-                        "failed to append candidate to events.toml"
-                    );
-                }
-            }
+        // Collect candidates for batched write (no per-item writes)
+        let mut candidates_to_append: Vec<CandidateMapping> = new_candidates;
+        for candidate in &candidates_to_append {
+            tracing::info!(
+                event_id = %candidate.id,
+                deribit = ?candidate.venues.deribit,
+                kalshi = ?candidate.venues.kalshi,
+                "discovered new candidate mapping"
+            );
+            metrics::counter!("lifecycle_candidates_discovered").increment(1);
         }
 
         // 3. Flag novel/unmatched instruments
@@ -375,7 +406,7 @@ impl ContractLifecycleManager {
             );
         }
 
-        // 4. Detect expired instruments
+        // 4. Detect expired instruments using consecutive-absence tracking
         let registry = self.registry.read().await;
         let all_mappings = registry.all_mappings().to_vec();
         drop(registry);
@@ -385,47 +416,89 @@ impl ContractLifecycleManager {
             .map(|d| (d.venue, d.instrument_id.as_str()))
             .collect();
 
+        let mut events_to_expire: Vec<String> = Vec::new();
+
         for mapping in &all_mappings {
             if mapping.status == LifecycleStatus::Expired {
                 continue;
             }
 
-            // Check each venue's instrument against discovered
-            let mut any_expired = false;
-
+            // Check Deribit absence (only if Deribit was polled and not suspect)
             if let Some(ref deribit) = mapping.venues.deribit {
-                if !all_discovered.is_empty()
-                    && all_discovered.iter().any(|d| d.venue == Venue::Deribit)
-                    && !discovered_ids.contains(&(Venue::Deribit, deribit.instrument.as_str()))
-                {
-                    any_expired = true;
+                if deribit_polled && !deribit_suspect {
+                    if discovered_ids.contains(&(Venue::Deribit, deribit.instrument.as_str())) {
+                        self.absence_tracker.record_present(Venue::Deribit, &deribit.instrument);
+                    } else {
+                        let should_expire = self.absence_tracker.record_absent(
+                            Venue::Deribit, &deribit.instrument,
+                        );
+                        if should_expire {
+                            events_to_expire.push(mapping.id.clone());
+                            self.absence_tracker.remove(Venue::Deribit, &deribit.instrument);
+                        }
+                    }
                 }
             }
 
-            if any_expired {
-                match self.mark_expired(&mapping.id).await {
-                    Ok(()) => {
-                        tracing::warn!(event_id = %mapping.id, "mapping expired");
-                        toml_modified = true;
-
-                        // 5. Handle Deribit expiry rolls
-                        if let Some(ref deribit) = mapping.venues.deribit {
-                            self.handle_deribit_roll(mapping, deribit, &all_discovered, &mut toml_modified)
-                                .await;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            event_id = %mapping.id,
-                            error = %e,
-                            "failed to mark mapping as expired"
+            // Check Kalshi absence (only if Kalshi was polled and not suspect)
+            if let Some(ref kalshi) = mapping.venues.kalshi {
+                if kalshi_polled && !kalshi_suspect {
+                    if discovered_ids.contains(&(Venue::Kalshi, kalshi.ticker.as_str())) {
+                        self.absence_tracker.record_present(Venue::Kalshi, &kalshi.ticker);
+                    } else if !events_to_expire.contains(&mapping.id) {
+                        // Don't double-expire if Deribit already triggered
+                        let should_expire = self.absence_tracker.record_absent(
+                            Venue::Kalshi, &kalshi.ticker,
                         );
+                        if should_expire {
+                            events_to_expire.push(mapping.id.clone());
+                            self.absence_tracker.remove(Venue::Kalshi, &kalshi.ticker);
+                        }
                     }
                 }
             }
         }
 
-        // 6. Apply expiry warnings to near-expiry active mappings
+        // Log expirations
+        for event_id in &events_to_expire {
+            tracing::warn!(event_id = %event_id, "mapping expired (consecutive absence threshold reached)");
+        }
+
+        // 5. Handle Deribit expiry rolls for expired mappings
+        for event_id in &events_to_expire {
+            if let Some(mapping) = all_mappings.iter().find(|m| &m.id == event_id) {
+                if let Some(ref deribit) = mapping.venues.deribit {
+                    if let Some(roll_candidate) = self.find_deribit_roll(mapping, deribit, &all_discovered) {
+                        tracing::info!(
+                            old_event = %mapping.id,
+                            old_instrument = %deribit.instrument,
+                            new_event = %roll_candidate.id,
+                            "Deribit expiry roll: created new candidate (approved=false)"
+                        );
+                        candidates_to_append.push(roll_candidate);
+                    }
+                }
+            }
+        }
+
+        // 6. Batched TOML write -- single atomic write per poll cycle
+        let needs_write = !candidates_to_append.is_empty() || !events_to_expire.is_empty();
+        if needs_write {
+            match self.batched_toml_write(&candidates_to_append, &events_to_expire).await {
+                Ok(()) => {
+                    tracing::info!(
+                        appended = candidates_to_append.len(),
+                        expired = events_to_expire.len(),
+                        "batched TOML write complete"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "batched TOML write failed");
+                }
+            }
+        }
+
+        // 7. Apply expiry warnings to near-expiry active mappings
         let registry = self.registry.read().await;
         let mut warning_count: u64 = 0;
         let now = Utc::now();
@@ -470,7 +543,7 @@ impl ContractLifecycleManager {
         metrics::gauge!("lifecycle_expiry_warnings").set(warning_count as f64);
         drop(registry);
 
-        // 6b. Populate BasisRiskCache for downstream engines
+        // 7b. Populate BasisRiskCache for downstream engines
         {
             let registry = self.registry.read().await;
             let mut cache = self.basis_risk_cache.write().await;
@@ -531,47 +604,56 @@ impl ContractLifecycleManager {
             );
         }
 
-        // 7. Refresh runtime registry if TOML was modified
-        if toml_modified {
+        // 8. Refresh runtime registry if TOML was modified
+        if needs_write {
             self.refresh_registry().await;
         }
     }
 
-    /// Append a candidate mapping to events.toml with atomic write.
-    async fn append_candidate(&self, candidate: &CandidateMapping) -> anyhow::Result<()> {
+    /// Batched TOML write: parse once, apply all mutations, write once.
+    async fn batched_toml_write(
+        &self,
+        candidates: &[CandidateMapping],
+        expire_ids: &[String],
+    ) -> anyhow::Result<()> {
         let content = tokio::fs::read_to_string(&self.events_toml_path).await?;
-        let updated = append_candidate_to_toml(&content, candidate)?;
-        self.atomic_write(&updated).await
-    }
+        let mut doc: DocumentMut = content.parse()
+            .map_err(|e| anyhow::anyhow!("TOML parse error: {}", e))?;
 
-    /// Mark a mapping as expired in events.toml with atomic write.
-    async fn mark_expired(&self, event_id: &str) -> anyhow::Result<()> {
-        let content = tokio::fs::read_to_string(&self.events_toml_path).await?;
-        let updated = mark_expired_in_toml(&content, event_id)?;
-        self.atomic_write(&updated).await
+        if !candidates.is_empty() {
+            append_candidates_to_doc(&mut doc, candidates)?;
+        }
+        if !expire_ids.is_empty() {
+            mark_expired_batch_in_doc(&mut doc, expire_ids)?;
+        }
+
+        self.atomic_write(&doc.to_string()).await
     }
 
     /// Atomic write: write to .tmp then rename (per research pitfall 4).
     async fn atomic_write(&self, content: &str) -> anyhow::Result<()> {
         let tmp_path = self.events_toml_path.with_extension("toml.tmp");
         tokio::fs::write(&tmp_path, content).await?;
+
+        // Windows: rename over existing file can fail; remove first
+        #[cfg(target_os = "windows")]
+        {
+            let _ = tokio::fs::remove_file(&self.events_toml_path).await;
+        }
+
         tokio::fs::rename(&tmp_path, &self.events_toml_path).await?;
         Ok(())
     }
 
-    /// Handle Deribit expiry roll: find new instrument with same asset+strike+direction
-    /// but later expiry and create a fresh candidate (approved = false).
-    async fn handle_deribit_roll(
+    /// Find a Deribit roll target: same asset+strike+direction but later expiry.
+    /// Returns the roll candidate if found, or None.
+    fn find_deribit_roll(
         &self,
         expired_mapping: &crate::config::EventMapping,
-        expired_deribit: &crate::config::DeribitMapping,
+        _expired_deribit: &crate::config::DeribitMapping,
         discovered: &[DiscoveredInstrument],
-        toml_modified: &mut bool,
-    ) {
-        let expired_expiry = match NaiveDate::parse_from_str(&expired_mapping.expiry, "%Y-%m-%d") {
-            Ok(d) => d,
-            Err(_) => return,
-        };
+    ) -> Option<CandidateMapping> {
+        let expired_expiry = NaiveDate::parse_from_str(&expired_mapping.expiry, "%Y-%m-%d").ok()?;
         let expired_strike_str = &expired_mapping.strike;
 
         // Find Deribit instruments with same asset, strike, direction but later expiry
@@ -600,8 +682,8 @@ impl ContractLifecycleManager {
                 inst.expiry
             );
 
-            let candidate = CandidateMapping {
-                id: new_id.clone(),
+            return Some(CandidateMapping {
+                id: new_id,
                 asset: inst.asset.to_uppercase(),
                 strike: inst.strike.to_string(),
                 direction: inst.direction.clone(),
@@ -611,29 +693,10 @@ impl ContractLifecycleManager {
                     polymarket: None,
                     kalshi: None,
                 },
-            };
-
-            match self.append_candidate(&candidate).await {
-                Ok(()) => {
-                    tracing::info!(
-                        old_event = %expired_mapping.id,
-                        old_instrument = %expired_deribit.instrument,
-                        new_event = %new_id,
-                        new_instrument = %inst.instrument_id,
-                        "Deribit expiry roll: created new candidate (approved=false)"
-                    );
-                    *toml_modified = true;
-                }
-                Err(e) => {
-                    tracing::error!(
-                        event_id = %new_id,
-                        error = %e,
-                        "failed to append roll candidate"
-                    );
-                }
-            }
-            break; // Only roll to the nearest future expiry
+            });
         }
+
+        None
     }
 
     /// Refresh the runtime registry from the updated events.toml on disk.
