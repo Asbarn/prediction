@@ -7,7 +7,7 @@
 //! expired instruments, handles Deribit expiry rolls, and applies near-expiry
 //! warnings with risk score inflation.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use chrono::{NaiveDate, NaiveTime, TimeZone, Utc};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
+use toml_edit::DocumentMut;
 
 use crate::config::{
     Credentials, DiscoveryConfig, EventsConfig, ExpiryThreshold, LifecycleStatus,
@@ -26,9 +27,67 @@ use crate::events::discovery::{
 };
 use crate::events::registry::EventRegistry;
 use crate::events::risk::{check_expiry_warning, inflate_risk_score, compute_risk_for_mapping, BasisRiskCache, CachedRiskInfo};
-use crate::events::toml_writer::{append_candidate_to_toml, mark_expired_in_toml, CandidateMapping, CandidateVenues};
+use crate::events::toml_writer::{append_candidate_to_toml, mark_expired_in_toml, append_candidates_to_doc, mark_expired_batch_in_doc, CandidateMapping, CandidateVenues};
 use crate::feed::kalshi::auth::load_kalshi_private_key;
+use crate::feed::reliability::VenueRateLimiter;
 use crate::types::Venue;
+
+/// Tracks how many consecutive polls each instrument has been absent,
+/// preventing false expirations from a single missing API response.
+struct AbsenceTracker {
+    counts: HashMap<(Venue, String), u32>,
+    threshold: u32,
+}
+
+impl AbsenceTracker {
+    fn new(threshold: u32) -> Self {
+        Self { counts: HashMap::new(), threshold }
+    }
+
+    /// Record an instrument as present. Removes any absence count.
+    fn record_present(&mut self, venue: Venue, instrument_id: &str) {
+        self.counts.remove(&(venue, instrument_id.to_string()));
+    }
+
+    /// Record an instrument as absent. Returns true if threshold reached.
+    fn record_absent(&mut self, venue: Venue, instrument_id: &str) -> bool {
+        let count = self.counts
+            .entry((venue, instrument_id.to_string()))
+            .or_insert(0);
+        *count += 1;
+        *count >= self.threshold
+    }
+
+    /// Remove tracking entry for definitively expired instrument (prevent memory leak).
+    fn remove(&mut self, venue: Venue, instrument_id: &str) {
+        self.counts.remove(&(venue, instrument_id.to_string()));
+    }
+}
+
+/// Tracks previous poll instrument counts per venue for partial-response detection.
+struct PreviousPollCounts {
+    counts: HashMap<Venue, usize>,
+}
+
+impl PreviousPollCounts {
+    fn new() -> Self { Self { counts: HashMap::new() } }
+
+    /// Returns true if the current count is a >threshold% drop from previous.
+    /// Returns false on first poll (no previous data) or if previous was 0.
+    fn is_suspect(&self, venue: Venue, current_count: usize, threshold: f64) -> bool {
+        if let Some(&prev) = self.counts.get(&venue) {
+            if prev > 0 {
+                let drop_fraction = 1.0 - (current_count as f64 / prev as f64);
+                return drop_fraction > threshold;
+            }
+        }
+        false
+    }
+
+    fn update(&mut self, venue: Venue, count: usize) {
+        self.counts.insert(venue, count);
+    }
+}
 
 /// Background task that manages contract lifecycle: discovery, expiry,
 /// rolls, and near-expiry warnings.
@@ -48,6 +107,9 @@ pub struct ContractLifecycleManager {
     credentials: Credentials,
     cancel: CancellationToken,
     basis_risk_cache: BasisRiskCache,
+    venue_rate_limiters: HashMap<Venue, VenueRateLimiter>,
+    absence_tracker: AbsenceTracker,
+    previous_poll_counts: PreviousPollCounts,
 }
 
 impl ContractLifecycleManager {
@@ -66,7 +128,10 @@ impl ContractLifecycleManager {
         credentials: Credentials,
         cancel: CancellationToken,
         basis_risk_cache: BasisRiskCache,
+        venue_rate_limiters: HashMap<Venue, VenueRateLimiter>,
     ) -> Self {
+        let absence_tracker = AbsenceTracker::new(discovery_config.consecutive_absence_threshold);
+        let previous_poll_counts = PreviousPollCounts::new();
         Self {
             registry,
             http_client: reqwest::Client::new(),
@@ -78,6 +143,9 @@ impl ContractLifecycleManager {
             credentials,
             cancel,
             basis_risk_cache,
+            venue_rate_limiters,
+            absence_tracker,
+            previous_poll_counts,
         }
     }
 

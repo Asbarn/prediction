@@ -16,6 +16,7 @@ use serde::Deserialize;
 use crate::config::Direction;
 use crate::events::registry::EventRegistry;
 use crate::events::toml_writer::{CandidateMapping, CandidateVenues};
+use crate::feed::reliability::VenueRateLimiter;
 use crate::types::Venue;
 
 // ---------------------------------------------------------------------------
@@ -96,10 +97,14 @@ pub async fn discover_deribit(
     client: &reqwest::Client,
     base_url: &str,
     currencies: &[String],
+    rate_limiter: Option<&VenueRateLimiter>,
 ) -> anyhow::Result<Vec<DiscoveredInstrument>> {
     let mut all = Vec::new();
 
     for currency in currencies {
+        if let Some(limiter) = rate_limiter {
+            limiter.wait().await;
+        }
         let url = format!("{}/api/v2/public/get_instruments", base_url);
         let resp = client
             .get(&url)
@@ -187,6 +192,7 @@ pub async fn discover_kalshi(
     api_key_id: &str,
     private_key: &rsa::RsaPrivateKey,
     series_tickers: &[String],
+    rate_limiter: Option<&VenueRateLimiter>,
 ) -> anyhow::Result<Vec<DiscoveredInstrument>> {
     use crate::feed::kalshi::auth::sign_kalshi_request;
 
@@ -196,6 +202,9 @@ pub async fn discover_kalshi(
         let mut cursor: Option<String> = None;
 
         loop {
+            if let Some(limiter) = rate_limiter {
+                limiter.wait().await;
+            }
             let timestamp_ms = Utc::now().timestamp_millis();
             let path = "/trade-api/v2/markets";
             let signature = sign_kalshi_request(private_key, timestamp_ms, "GET", path)?;
