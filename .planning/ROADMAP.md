@@ -102,12 +102,12 @@ Plans:
   3. Time-to-convergence (duration from signal generation to price convergence) is measured and reported for each settled position
   4. Threshold effectiveness is visible: operator can compare settlement outcomes across ThresholdStatus categories (PassedBoth vs PassedStaticOnly vs Filtered) to decide whether to tighten or loosen thresholds
   5. All analysis metrics are available both as structured JSONL logs (for post-hoc analysis) and as Prometheus gauges (for live monitoring)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 17-01: TBD
-- [ ] 17-02: TBD
-- [ ] 17-03: TBD
+- [ ] 17-01-PLAN.md -- Core types, SignalAnalyzer accumulator, ThresholdStatus propagation, venue_pair_label, inter-leg gap and stale fill detection
+- [ ] 17-02-PLAN.md -- SignalAnalyzer integration into settlement pipeline, Prometheus gauges, enriched JSONL, daily summary, CheckpointState v3
+- [ ] 17-03-PLAN.md -- Filtered signal tracking channel, FilteredSignalTracker, threshold effectiveness correlation on settlement
 
 ## Progress
 
