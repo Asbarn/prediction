@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A production-grade cross-venue arbitrage signal generator in Rust that detects pricing discrepancies between crypto prediction markets (Polymarket, Kalshi) and options markets (Deribit). Compares prediction market binary contract prices against options-implied probabilities derived via Black-76 pricing with call spread replication, generates trading signals when spreads exceed cost-adjusted thresholds, and logs everything for analysis. Built as a single-binary service for a solo trader with 22,751 lines of Rust, 417+ tests, and full deterministic replay capability.
+A production-grade cross-venue arbitrage signal generator in Rust that detects pricing discrepancies between crypto prediction markets (Polymarket, Kalshi) and options markets (Deribit). Compares prediction market binary contract prices against options-implied probabilities derived via Black-76 pricing with call spread replication, generates trading signals when spreads exceed cost-adjusted thresholds, tracks settlement outcomes for signal validation, and computes statistical evidence of signal quality. Built as a single-binary service for a solo trader with 32,631 lines of Rust and full deterministic replay capability.
 
 ## Core Value
 
@@ -36,15 +36,16 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 - v1.0 Paper trade P&L tracking
 - v1.0 Contract lifecycle management with expiry rolls
 - v1.0 Per-venue heartbeat monitoring and reconnection supervisors
+- v1.1 Settlement outcome tracking from Deribit, Kalshi, and Polymarket with 4-tier polling
+- v1.1 Signal analysis tooling (hit rate, edge, false positive rate, time-to-convergence, threshold effectiveness)
+- v1.1 Failure alerting for degraded states (feed silence, partial coverage, signal gap, stage liveness)
+- v1.1 File-based state persistence with atomic checkpoints and JSONL replay recovery
 
 ### Active
 
-<!-- Current scope: v1.1 Paper Trading Validation -->
+<!-- Next scope: TBD via /gsd:new-milestone -->
 
-- [ ] Settlement outcome tracking from prediction markets and options expirations
-- [ ] Signal analysis tooling (hit rate, edge, false positive rate, time-to-convergence)
-- [ ] Failure alerting for degraded states (stale data, partial feeds, silent failures)
-- [ ] Minimal file-based state persistence for paper P&L and signal history
+(None — define via `/gsd:new-milestone`)
 
 ### Out of Scope
 
@@ -54,19 +55,21 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 - Risk limits engine and kill switch -- v2
 - Margin monitoring -- v2
 - Multi-asset support (ETH, SOL) -- after BTC binary events validated
-- State persistence / restart reconciliation -- v2
 - UI / dashboard -- solo trader monitors via logs and metrics
 - AI/ML signal prediction -- arbs are event-driven, not pattern-driven
 - Sub-millisecond latency -- arb windows are minutes-to-hours
 
 ## Context
 
-**Shipped v1.0 MVP** (2026-02-24) with 22,751 LOC Rust across 13 phases.
+**Shipped v1.1 Paper Trading Validation** (2026-02-26) with 32,631 LOC Rust across 17 phases (2 milestones).
 Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prometheus, statrs, tracing.
-417+ tests passing (unit, integration, pipeline, smoke, doc, schema golden).
-3 venues operational: Deribit (WebSocket), Polymarket (CLOB WebSocket), Kalshi (WebSocket).
+3 venues operational: Deribit (WebSocket + REST settlement), Polymarket (CLOB WebSocket + Gamma API), Kalshi (WebSocket + REST).
+Settlement tracking: 3 venue resolution checkers with 4-tier polling cadence, startup backfill, and auto-settlement.
+Signal analysis: hit rate, cost-adjusted edge, false positive rate, time-to-convergence, threshold effectiveness tracking.
 
-**Paper trading phase:** System is ready for extended paper trading to validate signal quality, measure spread distributions, and tune thresholds before risking capital. Risk premium calibration needs 2-4 weeks of parallel data collection.
+**System status:** Ready for extended unattended paper trading. Alerting monitors degraded states, checkpoints survive restarts, settlements are tracked automatically, and analysis tooling answers "are signals real?" with statistical evidence.
+
+**Next priority:** Run the system in paper trading mode for 2-4 weeks to collect settlement data. Then evaluate signal quality metrics to decide whether to proceed to execution (v2).
 
 **Known tech debt:** 13 non-blocking items carried from v1.0 (iv_spread metadata always 0.0, expired test instrument in config, empty Kalshi default market list, options book_depth_levels hardcoded). See MILESTONES.md for full list.
 
@@ -97,16 +100,12 @@ Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prome
 | Flat extrapolation for vol surface | Returns boundary IV rather than None for extreme strikes | v1.0 Validated -- graceful degradation |
 | Non-blocking try_send for secondary engines | Primary engine (SpreadEngine) blocking, others best-effort | v1.0 Validated -- no pipeline stalls |
 | BasisRiskCache with try_read | Never blocks engine hot path; zero premium on lock contention | v1.0 Validated -- no measurable latency impact |
-
-## Current Milestone: v1.1 Paper Trading Validation
-
-**Goal:** Prove signal quality is real and the system is operationally trustworthy enough for extended unattended paper trading.
-
-**Target features:**
-- Settlement outcome tracking from venues, compared against generated signals
-- Signal analysis tools: hit rate, edge measurement, false positive rate, time-to-convergence
-- Failure alerting beyond reconnection — detect stale data, partial feeds, silent degradation
-- Minimal file-based state persistence for paper P&L and signal history
+| Zero new crate dependencies for v1.1 | All features built on existing dependency tree | v1.1 Validated -- no supply chain growth |
+| Alerting first in v1.1 build order | Monitors running during rest of development | v1.1 Validated -- caught no issues during dev |
+| AtomicI64 for pipeline liveness timestamps | Lock-free reads in hot path vs Mutex<DateTime> | v1.1 Validated -- zero contention |
+| VenueChecker enum dispatch (not async-trait) | Zero new dependencies for venue settlement checking | v1.1 Validated -- clean pattern |
+| Checkpoint version as u32 (not semver) | Compact schema evolution with backward-compatible serde(default) | v1.1 Validated -- v1 through v4 forward-compatible |
+| Filtered signals via try_send (best-effort) | Avoid backpressure on SpreadEngine hot path | v1.1 Validated -- no pipeline stalls |
 
 ---
-*Last updated: 2026-02-24 after v1.1 milestone started*
+*Last updated: 2026-02-26 after v1.1 milestone*
