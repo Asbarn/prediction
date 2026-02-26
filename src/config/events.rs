@@ -218,6 +218,17 @@ pub struct DiscoveryConfig {
     /// Kalshi series tickers to monitor.
     #[serde(default = "default_kalshi_series")]
     pub kalshi_series_tickers: Vec<String>,
+    /// Number of consecutive polls where an instrument must be absent
+    /// before it is marked expired. Prevents false expirations from
+    /// partial API responses. Default 3.
+    #[serde(default = "default_consecutive_absence_threshold")]
+    pub consecutive_absence_threshold: u32,
+    /// Fractional drop threshold (0.0-1.0) that triggers suspect partial
+    /// response detection. If instrument count drops by more than this
+    /// fraction vs. the previous poll, expiry evaluation is skipped for
+    /// that venue. Default 0.2 (20%).
+    #[serde(default = "default_partial_response_threshold")]
+    pub partial_response_threshold: f64,
 }
 
 impl DiscoveryConfig {
@@ -240,6 +251,8 @@ impl Default for DiscoveryConfig {
             polymarket_poll_interval_secs: 600,
             deribit_currencies: vec!["BTC".to_string()],
             kalshi_series_tickers: vec!["KXBTC".to_string()],
+            consecutive_absence_threshold: default_consecutive_absence_threshold(),
+            partial_response_threshold: default_partial_response_threshold(),
         }
     }
 }
@@ -249,6 +262,8 @@ fn default_kalshi_poll() -> u64 { 600 }
 fn default_polymarket_poll() -> u64 { 600 }
 fn default_deribit_currencies() -> Vec<String> { vec!["BTC".to_string()] }
 fn default_kalshi_series() -> Vec<String> { vec!["KXBTC".to_string()] }
+fn default_consecutive_absence_threshold() -> u32 { 3 }
+fn default_partial_response_threshold() -> f64 { 0.2 }
 
 /// Expiry warning threshold configuration.
 ///
