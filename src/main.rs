@@ -261,6 +261,10 @@ async fn main() -> anyhow::Result<()> {
                     .clone()
                     .unwrap_or_default();
                 let lifecycle_cancel = shutdown_token.child_token();
+                // Clone the HashMap; each VenueRateLimiter is Arc-wrapped so this shares the underlying limiter
+                let venue_rate_limiters_for_lifecycle = pipeline_handles
+                    .venue_rate_limiters
+                    .clone();
                 let lifecycle_manager = ContractLifecycleManager::new(
                     event_registry.clone(),
                     cli.config_dir.join("events.toml"),
@@ -271,6 +275,7 @@ async fn main() -> anyhow::Result<()> {
                     config.credentials.clone(),
                     lifecycle_cancel,
                     basis_risk_cache.clone(),
+                    venue_rate_limiters_for_lifecycle,
                 );
                 tokio::spawn(lifecycle_manager.run());
                 tracing::info!("ContractLifecycleManager started");
