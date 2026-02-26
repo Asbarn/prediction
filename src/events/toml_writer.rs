@@ -34,28 +34,11 @@ pub struct CandidateVenues {
     pub kalshi: Option<String>,
 }
 
-/// Append a candidate mapping to events.toml content, preserving existing formatting.
+/// Build a TOML `Table` for a candidate mapping with all standard fields.
 ///
-/// Uses `toml_edit` to parse and modify the document in-place, keeping
-/// all existing comments, formatting, and manual edits intact. The new
-/// entry is appended to the `[[events]]` array with `approved = false`.
-///
-/// # Errors
-///
-/// Returns an error if the TOML content cannot be parsed or the `[[events]]`
-/// array cannot be accessed.
-pub fn append_candidate_to_toml(
-    existing_content: &str,
-    candidate: &CandidateMapping,
-) -> anyhow::Result<String> {
-    let mut doc: DocumentMut = existing_content
-        .parse()
-        .context("failed to parse existing events.toml content")?;
-
-    let events = doc["events"]
-        .as_array_of_tables_mut()
-        .ok_or_else(|| anyhow!("events.toml missing [[events]] array of tables"))?;
-
+/// Used by both the single-candidate `append_candidate_to_toml` and the
+/// batch `append_candidates_to_doc` to avoid duplicating field-population logic.
+fn build_candidate_table(candidate: &CandidateMapping) -> Table {
     let mut entry = Table::new();
     entry["id"] = value(&candidate.id);
     entry["asset"] = value(&candidate.asset);
@@ -89,9 +72,94 @@ pub fn append_candidate_to_toml(
     }
 
     entry["venues"] = toml_edit::Item::Table(venues);
+    entry
+}
+
+/// Append a candidate mapping to events.toml content, preserving existing formatting.
+///
+/// Uses `toml_edit` to parse and modify the document in-place, keeping
+/// all existing comments, formatting, and manual edits intact. The new
+/// entry is appended to the `[[events]]` array with `approved = false`.
+///
+/// # Errors
+///
+/// Returns an error if the TOML content cannot be parsed or the `[[events]]`
+/// array cannot be accessed.
+pub fn append_candidate_to_toml(
+    existing_content: &str,
+    candidate: &CandidateMapping,
+) -> anyhow::Result<String> {
+    let mut doc: DocumentMut = existing_content
+        .parse()
+        .context("failed to parse existing events.toml content")?;
+
+    let events = doc["events"]
+        .as_array_of_tables_mut()
+        .ok_or_else(|| anyhow!("events.toml missing [[events]] array of tables"))?;
+
+    let entry = build_candidate_table(candidate);
     events.push(entry);
 
     Ok(doc.to_string())
+}
+
+/// Append multiple candidate mappings to a `DocumentMut` in-place (no file I/O).
+///
+/// Operates directly on the provided document, building a TOML table for each
+/// candidate and pushing it to the `[[events]]` array. This enables batched
+/// writes: parse once, append N candidates, then serialize and write once.
+///
+/// # Errors
+///
+/// Returns an error if the `[[events]]` array of tables is missing from the document.
+pub fn append_candidates_to_doc(
+    doc: &mut DocumentMut,
+    candidates: &[CandidateMapping],
+) -> anyhow::Result<()> {
+    let events = doc["events"]
+        .as_array_of_tables_mut()
+        .ok_or_else(|| anyhow!("events.toml missing [[events]] array of tables"))?;
+
+    for candidate in candidates {
+        let entry = build_candidate_table(candidate);
+        events.push(entry);
+    }
+
+    Ok(())
+}
+
+/// Mark multiple events as expired in a `DocumentMut` in-place (no file I/O).
+///
+/// Iterates the `[[events]]` array and sets `status = "expired"` for each
+/// matching event ID. IDs are assumed unique, so the search breaks after
+/// finding each match. This enables batched writes: parse once, mark N
+/// events expired, then serialize and write once.
+///
+/// # Errors
+///
+/// Returns an error if the `[[events]]` array of tables is missing from the document.
+pub fn mark_expired_batch_in_doc(
+    doc: &mut DocumentMut,
+    event_ids: &[String],
+) -> anyhow::Result<()> {
+    let events = doc["events"]
+        .as_array_of_tables_mut()
+        .ok_or_else(|| anyhow!("events.toml missing [[events]] array of tables"))?;
+
+    for target_id in event_ids {
+        for i in 0..events.len() {
+            if let Some(table) = events.get_mut(i) {
+                if let Some(id) = table.get("id").and_then(|v| v.as_str()) {
+                    if id == target_id {
+                        table["status"] = value("expired");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Mark an event mapping as expired in events.toml content.
