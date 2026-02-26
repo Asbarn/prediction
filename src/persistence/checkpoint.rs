@@ -40,9 +40,10 @@ pub struct CheckpointState {
     #[serde(default)]
     pub settlement_tracking: HashMap<String, Vec<SettlementTrackingEntry>>,
     /// Signal analysis accumulator state for cross-restart persistence.
-    /// Keyed by AccumulatorKey (venue_pair + event_id + threshold_status).
+    /// Stored as a Vec of (key, bucket) pairs for JSON-compatible serialization
+    /// (JSON object keys must be strings, but AccumulatorKey is a struct).
     #[serde(default)]
-    pub analysis_accumulators: HashMap<AccumulatorKey, AccumulatorBucket>,
+    pub analysis_accumulators: Vec<(AccumulatorKey, AccumulatorBucket)>,
 }
 
 /// Settlement tracking entry persisted in checkpoint for cross-restart state preservation.
@@ -139,7 +140,7 @@ mod tests {
             daily_rollups,
             total_trades: 42,
             settlement_tracking: HashMap::new(),
-            analysis_accumulators: HashMap::new(),
+            analysis_accumulators: Vec::new(),
         };
 
         // Serialize to JSON
@@ -187,6 +188,29 @@ mod tests {
         assert_eq!(restored.version, 1);
         assert_eq!(restored.total_trades, 42);
         assert!(restored.settlement_tracking.is_empty());
+        assert!(restored.analysis_accumulators.is_empty());
+    }
+
+    #[test]
+    fn v2_checkpoint_backward_compatibility() {
+        // A v2 checkpoint (without analysis_accumulators) should deserialize
+        // with analysis_accumulators defaulting to an empty HashMap.
+        let v2_json = r#"{
+            "version": 2,
+            "checkpoint_timestamp_ms": 1700000005000,
+            "pending": {},
+            "open": [],
+            "daily_rollups": {},
+            "total_trades": 50,
+            "settlement_tracking": {}
+        }"#;
+
+        let restored: CheckpointState =
+            serde_json::from_str(v2_json).expect("v2 should deserialize");
+        assert_eq!(restored.version, 2);
+        assert_eq!(restored.total_trades, 50);
+        assert!(restored.settlement_tracking.is_empty());
+        assert!(restored.analysis_accumulators.is_empty());
     }
 
     #[test]
@@ -235,7 +259,7 @@ mod tests {
             daily_rollups: HashMap::new(),
             total_trades: 10,
             settlement_tracking,
-            analysis_accumulators: HashMap::new(),
+            analysis_accumulators: Vec::new(),
         };
 
         let json = serde_json::to_string_pretty(&state).expect("serialize");
@@ -288,5 +312,55 @@ mod tests {
             assert_eq!(restored.polling_tier, tier);
             assert_eq!(restored.last_checked_ms, Some(12345));
         }
+    }
+
+    #[test]
+    fn v3_checkpoint_roundtrip_with_analysis_accumulators() {
+        use crate::paper_trade::analyzer::{AccumulatorBucket, AccumulatorKey};
+        use crate::signal::types::ThresholdStatus;
+
+        let key = AccumulatorKey {
+            venue_pair: "kalshi_polymarket".to_string(),
+            event_id: "BTC-100K".to_string(),
+            threshold_status: ThresholdStatus::PassedBoth,
+        };
+        let bucket = AccumulatorBucket {
+            total_settled: 5,
+            gross_hits: 3,
+            net_hits: 2,
+            sum_gross_pnl: dec("150.5"),
+            sum_net_pnl: dec("120.3"),
+            sum_fees: dec("30.2"),
+            sum_slippage: dec("5.0"),
+            sum_convergence_secs: 42.5,
+            stale_fill_count: 1,
+        };
+
+        let state = CheckpointState {
+            version: CheckpointState::current_version(),
+            checkpoint_timestamp_ms: 1700000005000,
+            pending: HashMap::new(),
+            open: vec![],
+            daily_rollups: HashMap::new(),
+            total_trades: 15,
+            settlement_tracking: HashMap::new(),
+            analysis_accumulators: vec![(key.clone(), bucket)],
+        };
+
+        let json = serde_json::to_string_pretty(&state).expect("serialize");
+        let restored: CheckpointState =
+            serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(restored.version, 3);
+        assert_eq!(restored.analysis_accumulators.len(), 1);
+
+        let (restored_key, restored_bucket) = &restored.analysis_accumulators[0];
+        assert_eq!(restored_key, &key);
+        assert_eq!(restored_bucket.total_settled, 5);
+        assert_eq!(restored_bucket.gross_hits, 3);
+        assert_eq!(restored_bucket.net_hits, 2);
+        assert_eq!(restored_bucket.sum_gross_pnl, dec("150.5"));
+        assert_eq!(restored_bucket.sum_net_pnl, dec("120.3"));
+        assert_eq!(restored_bucket.stale_fill_count, 1);
     }
 }

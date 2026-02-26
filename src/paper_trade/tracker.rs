@@ -905,7 +905,7 @@ impl PaperTradeTracker {
             daily_rollups: self.aggregator.export_rollups(),
             total_trades: self.total_trades,
             settlement_tracking,
-            analysis_accumulators: self.analyzer.export_state(),
+            analysis_accumulators: self.analyzer.export_state().into_iter().collect(),
         }
     }
 
@@ -918,7 +918,7 @@ impl PaperTradeTracker {
         self.open = state.open;
         self.aggregator.import_rollups(state.daily_rollups);
         self.total_trades = state.total_trades;
-        self.analyzer.import_state(state.analysis_accumulators);
+        self.analyzer.import_state(state.analysis_accumulators.into_iter().collect());
     }
 
     /// Write a checkpoint of current state to disk using atomic write.
