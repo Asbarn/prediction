@@ -108,6 +108,7 @@ fn make_spread_result() -> SpreadResult {
             final_threshold: dec("0.027"),
             is_cold_start: false,
         }),
+        threshold_status: None,
     }
 }
 

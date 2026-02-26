@@ -60,3 +60,7 @@ checkpoint_interval_secs = 10
 # lazy_interval_secs = 7200
 # timeout_hours = 168
 # settlement_log_dir = "settlement_logs"
+
+# [analysis]
+# enabled = true
+# max_leg_fill_gap_ms = 2000

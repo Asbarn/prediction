@@ -12,7 +12,8 @@ pub use events::{
     SettlementMetadata, SourcePairWeights,
 };
 pub use system::{
-    LoggingConfig, PaperTradeConfig, PrometheusConfig, SignalConfig, StalenessConfig, SystemConfig,
+    AnalysisConfig, LoggingConfig, PaperTradeConfig, PrometheusConfig, SignalConfig,
+    StalenessConfig, SystemConfig,
 };
 pub use venues::{DeribitConfig, KalshiConfig, PolymarketConfig, VenuesConfig};
 

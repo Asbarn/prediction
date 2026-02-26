@@ -48,6 +48,10 @@ pub struct SystemConfig {
     /// Uses `#[serde(default)]` so existing config files without `[settlement]` still load.
     #[serde(default)]
     pub settlement: SettlementConfig,
+    /// Signal analysis configuration (Phase 17).
+    /// Uses `#[serde(default)]` so existing config files without `[analysis]` still load.
+    #[serde(default)]
+    pub analysis: AnalysisConfig,
 }
 
 /// State persistence configuration for checkpoint-based recovery.
@@ -171,6 +175,29 @@ impl Default for PaperTradeConfig {
             notional_per_trade: rust_decimal::Decimal::new(500, 0),
             log_mtm: true,
             log_dir: "paper_trades".to_string(),
+        }
+    }
+}
+
+/// Signal analysis configuration (Phase 17).
+///
+/// Controls whether signal analysis accumulation is active and defines
+/// the maximum acceptable inter-leg fill gap for stale fill detection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AnalysisConfig {
+    /// Whether signal analysis is enabled.
+    pub enabled: bool,
+    /// Maximum acceptable inter-leg fill gap in milliseconds.
+    /// Positions with inter_leg_gap_ms exceeding this are flagged as stale fills.
+    pub max_leg_fill_gap_ms: i64,
+}
+
+impl Default for AnalysisConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_leg_fill_gap_ms: 2000,
         }
     }
 }
