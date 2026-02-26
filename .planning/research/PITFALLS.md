@@ -1,160 +1,235 @@
 # Pitfalls Research
 
-**Domain:** Adding settlement outcome tracking, signal analysis, failure alerting, and file-based persistence to an existing async Rust trading system (v1.1)
-**Researched:** 2026-02-24
-**Confidence:** HIGH (integration pitfalls based on codebase analysis), MEDIUM (venue-specific settlement API behavior)
+**Domain:** Adding automated event discovery and cross-venue matching to an existing Rust cross-venue arbitrage signal generator (v1.2)
+**Researched:** 2026-02-26
+**Confidence:** HIGH (integration pitfalls based on codebase analysis and existing architecture), MEDIUM (venue API behavior under sustained polling)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Settlement Outcome Data Is Harder to Get Than Expected
+### Pitfall 1: False Positive Cross-Venue Matches Creating Bad Trading Signals
 
 **What goes wrong:**
-Developers assume each venue has a clean "get settlement result" API endpoint returning a simple yes/no outcome and settlement price. In reality:
+The discovery system matches instruments across venues that appear identical but are semantically different, producing a candidate with `approved = false` that the operator approves without catching the mismatch. Once approved, the spread engine computes spreads between instruments that do not share the same underlying event, generating nonsensical arbitrage signals. Because the system runs unattended for weeks, a single false match can produce hundreds of bad signals before anyone notices.
 
-- **Deribit** has `public/get_settlement_history_by_instrument` which returns settlement/delivery events, but options settlement uses a 30-minute TWAP of the Deribit Index (07:30-08:00 UTC) as the delivery price. The actual settlement result (ITM/OTM) must be computed by comparing this delivery price against the strike. The API may not return data immediately at 08:00 UTC -- there can be a processing delay.
+Specific false positive vectors in this system:
 
-- **Polymarket** has no dedicated "get resolution result" REST endpoint as of early 2025. Market resolution status must be inferred from the Gamma Markets API (`active: false`, `closed: true` fields) or by monitoring on-chain resolution events. The py-clob-client GitHub issue #117 confirms this gap. Price history for resolved markets is only available at 12+ hour granularity.
+1. **Expiry date mismatch by 1-3 days.** Deribit options expire on Fridays at 08:00 UTC. Kalshi crypto markets use `close_time` which may differ by hours or days from Deribit's settlement time. The current `MatchKey` uses `NaiveDate` from the expiry, so a Deribit option expiring Friday 2025-06-27 at 08:00 UTC and a Kalshi market closing Sunday 2025-06-29 at 23:59 UTC would produce different `NaiveDate` values and NOT false-match. However, if both resolve to the same `NaiveDate` but at different times, the system matches them despite having different settlement windows -- this IS a false positive because the underlying price can move significantly between the two settlement times.
 
-- **Kalshi** has a `GET /markets/{ticker}` endpoint that includes a `result` field ("yes"/"no"/null), plus a `GET /portfolio/settlements` endpoint for position-level settlement data. However, Kalshi's authentication (RSA-signed JWTs) adds complexity and their API semantics differ from the other venues.
+2. **Strike normalization divergence.** Deribit returns `strike` as `f64` (e.g., `100000.0`), Kalshi returns `floor_strike`/`cap_strike` as `f64`. Both are converted via `Decimal::from_f64_retain()`. For round strikes (50000, 100000), this is fine. For fractional strikes or very large values, floating-point representation differences could cause two "same" strikes to produce different `Decimal` values, either creating false negatives (missing a match) or, worse, matching an instrument at $99999.99999 with one at $100000.
 
-The three venues have fundamentally different resolution semantics, timing, and data availability patterns.
+3. **Direction mapping errors.** The system maps Deribit `call` to `Direction::Above` and Kalshi `floor_strike` to `Direction::Above`. If Kalshi changes its market structure or introduces new strike types, the direction mapping could silently produce wrong matches. The `extract_kalshi_asset` function strips "D" and "MAXY" suffixes -- if Kalshi adds new ticker patterns (e.g., "KXBTCW" for weekly), the parser may extract the wrong asset or silently skip valid instruments.
 
 **Why it happens:**
-Settlement tracking is often designed assuming a uniform API shape across venues. The happy path is coded first, edge cases are discovered in production.
+Exact four-field matching (asset + strike + expiry + direction) works well for the structured venues (Deribit and Kalshi) but relies on normalization being perfectly consistent across venues. The system has no confidence scoring -- a match is either exact or rejected. There is no human-in-the-loop verification beyond the `approved = false` flag, and operator fatigue means approval can become rubber-stamping.
 
 **How to avoid:**
-- Design the settlement tracker with a per-venue adapter trait that returns a normalized `SettlementOutcome { event_id, venue, outcome: Yes/No/Unknown/Disputed, settlement_price: Option<Decimal>, settled_at: DateTime, raw_data: Value }`. Each venue implements its own polling/detection logic.
-- For Deribit: poll `get_settlement_history_by_instrument` for each tracked instrument after the expiry time. Compute ITM/OTM from delivery_price vs strike. Do NOT assume the result is available immediately -- poll with exponential backoff starting from expiry + 5 minutes.
-- For Polymarket: poll the Gamma Markets API for the `closed` and `active` flags. As a fallback, check if the final price locks to exactly 0 or 1 (resolution). Consider on-chain event monitoring as a secondary signal.
-- For Kalshi: poll `GET /markets/{ticker}` and check the `result` field. Requires authenticated requests (RSA JWT signing already implemented in `feed::kalshi::auth`).
-- Implement a `SettlementStatus::Pending` state for outcomes not yet available, with configurable retry/timeout.
+- Add a **match confidence score** to `CandidateMapping` that encodes how precisely the fields align. Full exact match across all four fields = 1.0. Match with expiry within 3 days = 0.7. Match with strike within 0.01% = 0.9. Only auto-propose candidates above a configurable confidence threshold.
+- Add **settlement time comparison** to the matching logic. If the Deribit settlement time (08:00 UTC on expiry day) and the Kalshi close time differ by more than 24 hours, flag this explicitly in the proposed candidate's metadata so the operator can assess basis risk before approving.
+- Emit a structured log at WARN level for every proposed candidate, including the raw venue data that was matched (exact strike values, exact expiry timestamps, exact instrument IDs). Make it easy to visually verify the match without opening the TOML file.
+- Consider adding a **dry run** mode where the discovery system logs what it WOULD propose without writing to events.toml, allowing the operator to validate the matching logic before enabling writes.
+- Add a Prometheus metric `lifecycle_candidates_proposed_total` (already partially exists as `lifecycle_candidates_discovered`) and a companion `lifecycle_candidates_approved_total`. A divergence (many proposed, few approved) suggests matching quality issues.
 
 **Warning signs:**
-- Settlement tracker reports 0% of outcomes resolved after expected expiry times.
-- `Unknown` or `Pending` outcomes persist for days without transitioning.
-- Deribit options show as "unsettled" because the instrument ID changes after expiry (delisted from active instruments).
+- Spread engine suddenly produces spreads for a new event that are always extreme (>50% spread) or always near-zero -- suggests mismatched instruments.
+- `lifecycle_candidates_discovered` metric spikes without corresponding operator approvals.
+- Operator finds approved events where settlement outcomes diverge between venues (e.g., Deribit settles ITM but Kalshi settles OTM for the "same" event).
+- The `events.toml` file grows rapidly with unapproved candidates, suggesting the matcher is too aggressive.
 
 **Phase to address:**
-Phase 1 (Settlement Outcome Tracking) -- this is the foundational data source all downstream analysis depends on.
+Phase 1 (Venue Discovery) for the matching logic, Phase 2 (Cross-Venue Matching) for confidence scoring and validation.
 
 ---
 
-### Pitfall 2: Comparing Signals Against Outcomes With Wrong Timing Windows
+### Pitfall 2: Race Condition Between TOML Writing and File Watcher Reload
 
 **What goes wrong:**
-Signal analysis computes hit rate by asking "did the signal predict the outcome correctly?" but gets the timing relationship wrong. Common mistakes:
+The `ContractLifecycleManager` writes to `events.toml` via `atomic_write()` (write to `.tmp`, rename to `.toml`). Simultaneously, the `ConfigReloader` watches the config directory with `notify_debouncer_mini` (500ms debounce). Two separate race conditions exist:
 
-1. **Using the signal at entry time instead of at fill time.** The existing `PaperTradeTracker` correctly models adverse selection by filling at next-tick prices, but signal analysis might accidentally compare the signal's net_spread at signal_time against the final outcome, ignoring that the fill price was different.
+1. **Double-trigger on atomic write.** The atomic write creates `events.toml.tmp` then renames it to `events.toml`. The file watcher sees TWO filesystem events: the temp file creation (which it filters out since it doesn't end in `.toml` -- but `events.toml.tmp` has a double extension, and the filter checks `e.path.extension() == "toml"` which returns `"tmp"` NOT `"toml"`, so this is actually safe). BUT: on Windows, `ReadDirectoryChangesW` may emit a DELETE event for the old `events.toml` followed by a RENAME event. The debouncer collapses these into one reload, but the timing matters -- if the reload reads the file between the delete and the rename, it reads nothing (file doesn't exist) or reads stale data.
 
-2. **Comparing against the wrong settlement window.** A signal fired on Monday for an event expiring Friday may have been a "correct" signal at the time but the market moved by Friday. The analysis must distinguish: (a) was the signal directionally correct at settlement? (b) was there a profitable exit window before settlement? (c) was the entry-to-settlement P&L positive?
+2. **Concurrent writes within a single poll cycle.** `ContractLifecycleManager::poll_cycle()` can call `append_candidate()` multiple times in a loop (once per new candidate) and `mark_expired()` multiple times. Each call reads the TOML, modifies it, and writes it back. If two async tasks or even sequential calls within the same cycle interleave with the file watcher, the watcher can trigger a reload between writes, causing the `EventRegistry` to temporarily contain partial updates.
 
-3. **Survivorship bias in hit rate.** If the system generates 100 signals but only 60 get filled (40 remain Pending and expire), reporting hit rate on the 60 filled trades overstates accuracy. The 40 unfilled signals were likely in fast-moving markets where the opportunity evaporated -- exactly the hard cases.
+3. **Config reload vs. lifecycle manager's own registry refresh.** After modifying the TOML, the lifecycle manager calls `self.refresh_registry()` which reads the file and updates the `Arc<RwLock<EventRegistry>>`. But the `ConfigReloader`'s watch handler in `main.rs` also updates the same `Arc<RwLock<EventRegistry>>` when it detects the file change. Both paths acquire a write lock. If the file watcher fires between the lifecycle manager's TOML write and its `refresh_registry()` call, the registry gets refreshed twice -- harmless but wasteful. If the file watcher fires DURING `refresh_registry()`, the write lock serializes them correctly. But if the lifecycle manager writes two candidates and the watcher fires between them, the registry temporarily has only the first candidate.
 
 **Why it happens:**
-Signal analysis is implemented as a post-hoc computation over trade logs without carefully tracing the full lifecycle: signal_time -> fill_time -> mtm_updates -> settlement_time. Each stage has different prices.
+The system has two independent mechanisms updating the same state: (a) the lifecycle manager directly writes TOML and refreshes the registry, (b) the file watcher detects TOML changes and refreshes the registry. Neither knows about the other. This is a classic "two sources of truth" problem where the file is the shared medium but there is no coordination protocol.
 
 **How to avoid:**
-- Define hit rate as: `filled_and_profitable_at_settlement / total_filled`. Report separately: `fill_rate = filled / total_signals` and `signal_accuracy = correct_direction_at_settlement / total_settled`.
-- Track time-to-convergence: how long after signal generation does the spread move in the predicted direction? This requires correlating `SpreadResult.timestamp_ms` with subsequent MTM updates from `MtmSnapshot` entries.
-- Never compute hit rate on unsettled trades. Use `PositionStatus::Settled` as the gate. Report separately how many trades are still `Open` (not yet settled).
-- Include adverse selection in the P&L computation: `realized_pnl = settlement_pnl - adverse_selection_cost`.
+- **Option A (recommended): Lifecycle manager skips file watcher.** Have the lifecycle manager refresh the registry directly after all TOML modifications in a poll cycle are complete (it already does this). Ignore the redundant file watcher reload -- it is harmless because `EventRegistry::refresh()` is idempotent. Add a log message distinguishing "registry refreshed by lifecycle manager" from "registry refreshed by file watcher" so the operator can verify both paths.
+- **Option B: Lifecycle manager inhibits file watcher.** Use a shared `AtomicBool` flag: lifecycle manager sets it before writing TOML, clears it after `refresh_registry()`. The file watcher checks the flag and skips reload if set. This is more complex and prone to bugs if the lifecycle manager panics between set and clear.
+- **Batch TOML writes within a poll cycle.** Instead of calling `append_candidate()` per candidate (which does a read-modify-write per candidate), collect all modifications and apply them in a single TOML write at the end of the cycle. This reduces the window for races and is also more efficient.
+- On Windows, add an explicit delay or retry in `atomic_write()` to handle the case where `rename()` fails because the file watcher has an open handle on the target file. Use `tokio::fs::remove_file()` before `tokio::fs::rename()` as a Windows-specific workaround.
 
 **Warning signs:**
-- Hit rate looks suspiciously high (>70%) -- likely measuring something other than true settlement P&L.
-- Time-to-convergence is negative or undefined for many trades -- signals may be stale by the time they fill.
-- Large gap between "directionally correct" and "profitable after costs" rates.
+- `tracing::error!("config reload failed, keeping previous")` appears in logs shortly after discovery appends.
+- `EventRegistry` shows fewer mappings than `events.toml` contains (partial reload).
+- Two "registry refreshed" log messages appear within 1 second of each other (double refresh from lifecycle manager + file watcher).
+- On Windows: "Access denied" or "file in use" errors during atomic rename.
 
 **Phase to address:**
-Phase 2 (Signal Analysis Tooling) -- must be designed correctly from the start since retroactive correction requires re-processing all historical data.
+Phase 1 (Venue Discovery) for the initial write implementation, Phase 3 (Lifecycle Integration) for the full coordination between lifecycle manager and config reload.
 
 ---
 
-### Pitfall 3: File Persistence That Corrupts State on Crash or Power Loss
+### Pitfall 3: API Rate Limiting Exhaustion During Discovery Polling
 
 **What goes wrong:**
-The system adds file-based persistence for paper P&L and signal history by serializing state to a JSON file. On crash, the file contains a partial write: truncated JSON that fails to parse on restart, losing all accumulated state. Or worse: the file is empty (opened for write, OS crash before flush).
+Discovery polling hits venue API rate limits, causing either HTTP 429 responses (requests dropped) or, worse, temporary IP bans. This is particularly dangerous because:
 
-This is especially dangerous because the system currently operates entirely in-memory (`PaperTradeTracker.pending: HashMap`, `PaperTradeTracker.open: Vec<PaperPosition>`, `DailyAggregator.daily_pnl: HashMap`). The transition from "pure in-memory" to "persisted" is where corruption bugs hide.
+1. **Deribit `public/get_instruments`** returns ALL active options for a currency. For BTC, this can be 1000+ instruments across multiple expiries and strikes. The endpoint has a sustained rate of ~1 request/second for public endpoints. If the discovery poll interval is 300 seconds (5 minutes), a single request per currency per cycle is fine. But if the system polls multiple currencies (BTC, ETH, SOL) or retries on failure, it can exceed limits.
+
+2. **Kalshi markets endpoint** paginates with `limit=200` and requires multiple requests to fetch all open markets in a series. Each request requires RSA-PSS signed authentication. The Basic tier allows 20 reads/second, but the discovery polling shares the rate limit budget with the WebSocket feed's REST fallback and the settlement checker. If all three are active simultaneously, combined request rates can exceed the tier limit.
+
+3. **Polymarket Gamma API** paginates with `limit=100` and the discovery code loops with incrementing `offset` until a short page is returned. Rate limits are enforced by Cloudflare at ~300 requests per 10 seconds for the `/books` endpoint, but the `/markets` endpoint used for discovery may have different limits. Under sustained polling, Cloudflare may throttle or block the IP entirely.
+
+4. **Shared HTTP client.** The lifecycle manager creates its own `reqwest::Client`, but the settlement monitor and feed supervisors use separate clients. If all three are polling the same venue API simultaneously, the combined request rate from the same IP can trigger rate limits even though each individual component stays within its budget.
 
 **Why it happens:**
-Standard `File::create()` + `serde_json::to_writer()` is not atomic. On any OS, a crash between open and complete write leaves a corrupted file. Even with `BufWriter::flush()`, the OS may not have synced to disk. On Windows specifically, `rename()` is not atomic if the target already exists (unlike POSIX).
+Discovery is implemented as a polling loop with fixed intervals, without awareness of the rate limit budgets consumed by other system components (settlement polling, feed REST fallback). The rate limiting is enforced per-IP at the venue level, not per-component at the application level.
 
 **How to avoid:**
-- Use the write-to-temp-then-rename pattern that `ContractLifecycleManager` already uses for events.toml (see `atomic_write()` in `events/lifecycle.rs` line ~487). Replicate this exact pattern for P&L state files.
-- On Windows, use `tokio::fs::remove_file()` then `tokio::fs::rename()` since Windows `rename()` fails if the target exists. Or use the `tempfile` crate which handles cross-platform atomicity.
-- Use JSONL (append-only) for the signal history log rather than overwriting a single JSON file. The existing `TradeLogger` in `paper_trade/tracker.rs` already does this correctly -- extend it rather than replacing it.
-- For the aggregate P&L state (daily rollups, open positions), serialize as a single JSON checkpoint file written atomically at regular intervals (e.g., every 60 seconds and on shutdown).
-- On startup, if the primary state file is corrupted: fall back to the temp file (which is the in-flight write), then fall back to replaying from the JSONL trade log to reconstruct state.
+- **Use the existing `VenueRateLimiter` infrastructure** from the feed pipeline. The lifecycle manager should share the same `VenueRateLimiter` instances that the feed supervisors and settlement monitor use, not create independent rate budgets. Pass `venue_rate_limiters` from `PipelineHandles` to the `ContractLifecycleManager`.
+- **Add backoff on HTTP 429/503 responses.** If a discovery poll returns a rate limit error, exponentially back off that venue's next poll. Do NOT retry immediately.
+- **Cache discovery results.** If Deribit's instrument list hasn't changed (same set of active instruments), skip the cross-venue matching step. Use a hash of instrument IDs to detect changes cheaply.
+- **Stagger venue polls.** The current design polls all venues in the same `poll_cycle()` call. Stagger them across the cycle interval: poll Deribit at t=0, Kalshi at t=interval/3, Polymarket at t=2*interval/3. This spreads the API load and reduces the chance of simultaneous rate limit exhaustion.
+- **Log rate limit responses explicitly.** Track `lifecycle_discovery_rate_limited_total` as a counter so the operator can see if rate limits are being hit.
 
 **Warning signs:**
-- State file is empty (0 bytes) after a restart.
-- `serde_json::from_str()` fails with "unexpected EOF" on startup.
-- Paper P&L shows zero after a restart despite days of accumulated data.
-- The `.tmp` file exists alongside the primary file (indicates incomplete write).
+- `lifecycle_discovery_polls` counter increments but discovered instrument counts are 0 (requests are being rejected).
+- HTTP 429 or 503 errors in venue discovery logs.
+- WebSocket feed reconnections or settlement polling failures coinciding with discovery poll times (shared rate limit exhaustion).
+- Polymarket discovery returns empty results (Cloudflare silently returning empty pages when throttled).
 
 **Phase to address:**
-Phase 4 (File-Based Persistence) -- but the design must be settled during Phase 1 since settlement outcomes also need persistence.
+Phase 1 (Venue Discovery) for rate limiter integration, all phases for ongoing monitoring.
 
 ---
 
-### Pitfall 4: Alerting That Monitors the Wrong Thing (Detecting Noise, Missing Silence)
+### Pitfall 4: Stale Discovery Data Creating Phantom Matches or Missing Expirations
 
 **What goes wrong:**
-Failure alerting is added to detect degraded states, but it monitors symptoms (e.g., reconnection events, error rates) instead of the absence of expected events. The most dangerous failures are **silent**: a venue feed connects successfully but stops sending data, the pricing engine computes probabilities but a config change means no events map anymore, or the spread engine runs but the BasisRiskCache is stale because the lifecycle manager silently stopped polling.
+Venue APIs return data that is stale, cached, or inconsistent, and the discovery system treats it as ground truth. This manifests in two ways:
 
-The existing system has `VenueHealth` (feed/health.rs) tracking connection state and `last_message_at`, plus metrics for staleness rejections. But these are binary -- they detect "is the feed up?" not "is the system producing useful output end-to-end?"
+1. **Phantom instruments.** A venue API returns an instrument that has actually expired or been delisted but the API cache hasn't cleared. The discovery system proposes a match for an instrument that no longer trades, which if approved would result in a dead feed subscription producing no data. The spread engine would show permanent staleness for this event.
+
+2. **Missing instruments.** A venue API's cache doesn't yet include a newly listed instrument. The discovery system fails to find a cross-venue match because one venue's data is ahead of the other. On the next poll cycle, the instrument appears and is matched -- but there is a discovery latency of one full poll interval (5-10 minutes) that could miss a trading opportunity.
+
+3. **Expiry detection false positives.** The lifecycle manager marks mappings as expired when a Deribit instrument no longer appears in the `get_instruments` response. But if the Deribit API response is cached or the request fails partially (network timeout after partial response), the instrument appears missing and gets incorrectly marked as expired. This is especially dangerous because `mark_expired_in_toml()` is irreversible within the same poll cycle -- once marked expired, the instrument is gone until the operator manually fixes the TOML.
+
+The current code in `lifecycle.rs` lines 328-335 checks: "if we discovered Deribit instruments AND this mapping's Deribit instrument is not in the discovered set, mark it expired." This logic is correct in principle but fragile: if the Deribit API returns a partial result (e.g., 500 of 1000 instruments due to a timeout), the other 500 instruments get incorrectly marked as expired.
 
 **Why it happens:**
-Alerting is usually built bottom-up: instrument each component, alert on errors. The systemic failures that actually cost money are the ones where no individual component errors but the end-to-end pipeline stops producing correct output. This requires top-down monitoring: "when was the last valid signal?" "when was the last spread computation?" "are all expected event pairs producing spreads?"
+Discovery polling is inherently point-in-time. The system has no way to distinguish "this instrument does not exist" from "this API call failed to include this instrument." The absence of data is treated as evidence of absence.
 
 **How to avoid:**
-- Implement **liveness checks** at each pipeline stage, not just connectivity checks:
-  - Feed layer: `last_message_at` (already exists in VenueHealth) + **message rate check** (messages/minute should be within expected range)
-  - Spread engine: `last_spread_computed_at` per event_id + **computation rate check**
-  - Signal engine: `last_signal_emitted_at` or `last_signal_evaluated_at`
-  - Paper trade: `last_position_update_at`
-- Alert on **absence**, not just **presence** of errors:
-  - "No spread computed for event X in 10 minutes" is more valuable than "5 staleness rejections"
-  - "Paper trade tracker received 0 snapshots in 5 minutes" catches the silent pipe disconnect
-- Use the **dead man's switch** pattern: each component must positively assert it is alive within a configurable interval. If it doesn't, the monitor fires.
-- Start simple: a single periodic task (every 60 seconds) that checks timestamps across all pipeline stages and emits a structured log/metric if any stage is stale. Do NOT build a complex event-driven alerting framework.
+- **Require N consecutive absences before marking expired.** Do not mark an instrument as expired on a single poll failure. Track a "missing count" per instrument and only transition to expired after 3+ consecutive polls where the instrument is absent AND the poll itself was successful (full instrument list received).
+- **Validate API response completeness.** For Deribit, track the total number of instruments returned per currency. If the count drops by more than 20% from the previous poll, treat the response as suspect and skip expiry detection for that cycle. Log a warning.
+- **Add a `raw_expiry_timestamp` comparison.** Before marking an instrument as expired via absence-from-API, check if its `expiry` date has actually passed. If the expiry is in the future, the instrument should NOT be expired -- flag this as an API anomaly rather than a genuine expiry.
+- **Make expiry marking reversible.** Instead of immediately writing `status = "expired"` to TOML, write `status = "expiry_detected"` (a new intermediate state). Only transition to `expired` after the operator confirms OR after the expiry date has passed. This adds a safety buffer.
+- **Cache the previous poll's instrument set** and diff against the current poll. Log the diff (added/removed instruments) so the operator can verify that expirations are genuine.
 
 **Warning signs:**
-- All venue feeds show "healthy" but no signals are being generated (config drift, stale registry).
-- Alerts fire constantly for expected transient issues (reconnections) creating alert fatigue.
-- A venue silently disconnects and nobody notices for hours because VenueHealth still shows the last successful connection.
+- A mapping with a future expiry date is marked as expired in events.toml.
+- Discovery logs show wildly varying instrument counts between polls (e.g., 800 then 200 then 900).
+- A mapping is marked expired and immediately re-proposed as a new candidate in the same or next poll cycle.
+- Deribit roll logic fires for instruments that haven't actually expired yet.
 
 **Phase to address:**
-Phase 3 (Failure Alerting) -- but the liveness timestamp infrastructure should be added to each engine as those engines are touched in Phases 1-2.
+Phase 1 (Venue Discovery) for response validation, Phase 2 (Cross-Venue Matching) for absence-count tracking, Phase 3 (Lifecycle Integration) for the intermediate expiry state.
 
 ---
 
-### Pitfall 5: Blocking the Tokio Runtime With Synchronous File I/O
+### Pitfall 5: Polymarket Discovery Gap -- Unstructured Questions Prevent Auto-Matching
 
 **What goes wrong:**
-Adding file-based persistence introduces synchronous filesystem calls (`std::fs::write`, `serde_json::to_writer`) into async task contexts. This blocks a tokio worker thread, stalling all other tasks on that thread. In a system with ~10 concurrent async tasks (3 venue feeds, fan-out, spread engine, pricing engine, signal engine, paper tracker, lifecycle manager, health server), blocking even one worker thread for 10ms can cause cascading latency spikes and channel backpressure.
+The current system (correctly) defers Polymarket auto-matching because Polymarket market questions are free-form text (e.g., "Will Bitcoin be above $100,000 on June 27, 2025?") without structured `strike`, `expiry`, or `direction` fields. The discovery code fetches Polymarket markets for deactivation monitoring only. But this creates a permanent gap: new Polymarket markets for BTC price events can only be matched to Deribit/Kalshi by manual operator curation.
 
-The existing `TradeLogger` in `paper_trade/tracker.rs` already does synchronous file I/O (`std::fs`, `std::io::Write`) inside the async `PaperTradeTracker::run()` method. This has been acceptable because writes are infrequent and fast, but adding heavier persistence (checkpoint files, state recovery reads) amplifies the problem.
+This means the system's cross-venue coverage is always Deribit+Kalshi only for auto-discovered events. Polymarket mappings require the operator to:
+1. Notice that a new Deribit+Kalshi match was proposed.
+2. Manually search Polymarket for the corresponding market.
+3. Find the correct `condition_id` and `token_id`.
+4. Edit events.toml to add the Polymarket venue.
+5. Set `approved = true`.
+
+This is exactly the manual process the v1.2 milestone is supposed to eliminate. Without Polymarket in the auto-match loop, the system achieves only partial automation.
 
 **Why it happens:**
-Rust's type system does not distinguish "blocking" from "non-blocking" at the async boundary. A developer adds `std::fs::write()` inside an `async fn` and the compiler is happy. The performance impact only shows under load. Tokio's documentation explicitly warns against this but it is easy to forget.
+Polymarket's market creation is permissionless and uses free-form questions. There is no structured field extraction available from the Gamma API. Building a text parser for "Will BTC be above $X on DATE?" questions is error-prone and requires handling many question formats, languages, and edge cases.
 
 **How to avoid:**
-- For writes: use `tokio::task::spawn_blocking()` for any file I/O that might exceed 1ms. This moves the work to a dedicated blocking thread pool. OR use `tokio::fs` which wraps operations in `spawn_blocking` internally.
-- For the checkpoint pattern: serialize to a `Vec<u8>` in the async context (CPU work, fast), then pass the bytes to `spawn_blocking` for the actual file write + rename.
-- For reads on startup: perform all file reads before entering the main `tokio::select!` loop, or use `spawn_blocking`.
-- Do NOT wrap the existing `TradeLogger` in `spawn_blocking` per-write -- the overhead of thread handoff is worse than the occasional 0.1ms write. Instead, keep the existing `BufWriter` with periodic flush, but move the periodic flush to `spawn_blocking`.
-- Monitor: add a `tokio::runtime::metrics` check for worker thread blocking time if using the `tokio_unstable` feature flag. At minimum, log if any checkpoint write exceeds 5ms.
+- **Accept the limitation for v1.2** but design the architecture to accommodate future Polymarket matching. The `CandidateVenues` struct already has an `Option<(String, String)>` for Polymarket -- auto-discovered Deribit+Kalshi candidates leave this as `None` and the operator can fill it in.
+- **Implement a semi-automated Polymarket lookup.** When a Deribit+Kalshi candidate is proposed, also query the Polymarket Gamma API with keyword filters (e.g., `tag=crypto`, searching for the asset and approximate strike in question text). Log any plausible Polymarket markets alongside the proposed candidate so the operator has a shortlist to choose from.
+- **Build a simple regex extractor for common BTC price questions.** Patterns like "Will Bitcoin be above/below $X" or "BTC above $X by DATE" cover a large fraction of crypto binary markets. Use this as a HINT, not an auto-match -- flag it as `polymarket_suggestion` in the log with LOW confidence.
+- **Track coverage metrics.** Add `lifecycle_events_coverage{venues="2"}` and `lifecycle_events_coverage{venues="3"}` gauges so the operator can see how many active events have full 3-venue coverage vs. partial.
 
 **Warning signs:**
-- Spread computation latency increases from <1ms to 10-50ms sporadically (correlates with checkpoint writes).
-- Channel buffer utilization spikes (visible via `metrics::gauge!("paper_trades_open")` and similar).
-- `try_send` failures increase on the secondary engine channels (pricing, signal fan-out) because fan-out is stalled waiting for a blocked spread engine channel.
+- All auto-discovered candidates have `polymarket = None` (expected in v1.2 but worth tracking).
+- Operator spends significant time manually finding Polymarket markets for proposed candidates.
+- Some events run with only 2-venue spread computation, reducing arbitrage detection quality.
 
 **Phase to address:**
-Phase 4 (File-Based Persistence) -- but must be considered in Phase 1 if settlement outcomes are persisted.
+Phase 2 (Cross-Venue Matching) for the keyword search hint, deferred to v1.3 or later for robust NLP extraction.
+
+---
+
+### Pitfall 6: Feed Subscription Not Updated After New Events Approved
+
+**What goes wrong:**
+When the operator approves a new event mapping by setting `approved = true` in events.toml, the `ConfigReloader` detects the change and refreshes the `EventRegistry`. However, the WebSocket feed subscriptions for each venue are established at startup and not dynamically updated. The `DeribitClient` is created with a fixed `instruments: Vec<String>`, the `PolymarketClient` subscribes to fixed `assets`, and the `KalshiSupervisor` subscribes to fixed `market_tickers`.
+
+This means: a new event is discovered, proposed, approved, and the registry is updated -- but the venue feeds never subscribe to the new instruments. The spread engine sees the event in the registry but never receives market data for it, so no spreads are computed. The system silently appears to work but misses all opportunities for newly approved events.
+
+**Why it happens:**
+The v1.0/v1.1 system was designed for static configuration. Feed subscriptions are set once at startup. The hot-reload mechanism (file watcher + `watch::Receiver<AppConfig>`) was built for tuning parameters (thresholds, fees) not for structural changes like adding new instruments. The `main.rs` comment on line 279 ("config hot-reload: refresh EventRegistry on TOML changes") creates the impression that new events are fully integrated, but the EventRegistry refresh only affects the spread engine's event lookup -- not the underlying feed subscriptions.
+
+**How to avoid:**
+- **Design a subscription management layer** that bridges the EventRegistry and the venue feed supervisors. When the registry changes (new active+approved mapping added), the subscription manager sends subscribe messages to the relevant venue WebSocket connections.
+- For **Deribit**: send `public/subscribe` for the new instrument's order book channel via the existing WebSocket connection. Deribit supports dynamic subscription without reconnection.
+- For **Polymarket**: the CLOB WebSocket supports subscribing to new markets by sending a subscribe message with the new token_id. No reconnection needed.
+- For **Kalshi**: the WebSocket supports subscribing to new market tickers via the `subscribe` command.
+- **Use the `watch::Receiver<AppConfig>` pattern** already in main.rs. Add a subscriber that compares the old and new event sets, computes the diff, and sends subscribe/unsubscribe messages to each venue's supervisor via a command channel.
+- **As a simpler interim solution:** trigger a graceful WebSocket reconnection when new events are approved. The supervisor reconnects and subscribes to the updated instrument list from the registry. This is less efficient but leverages existing reconnection infrastructure.
+- **Add a diagnostic check:** the spread engine should emit a metric or log when it encounters an active+approved event for which it has never received a MarketSnapshot. This catches the "approved but not subscribed" gap.
+
+**Warning signs:**
+- New events appear in the EventRegistry (`EventRegistry.active_count()` increases) but spread logs show no computations for those events.
+- `staleness_rejection` alerts fire for newly approved events (no data received, so all snapshots are stale from the "default old" timestamp).
+- Operator approves events and expects signals but nothing happens -- system appears broken when it is actually just not subscribed.
+
+**Phase to address:**
+Phase 4 (Live Subscription Management) -- this is likely the most architecturally complex phase and must be designed before Phase 1 begins, even if implementation comes later.
+
+---
+
+### Pitfall 7: TOML File Growing Unbounded With Expired Events
+
+**What goes wrong:**
+Every discovery cycle can append new candidates and mark old events as expired, but nothing ever removes entries from events.toml. Over weeks of unattended operation:
+- The TOML file grows with hundreds of expired event entries.
+- TOML parsing becomes slower (the `toml_edit` crate must process the entire document for each modification).
+- The `EventRegistry` builds indexes over all entries including expired ones, increasing memory usage and lookup time.
+- Human readability of events.toml degrades -- the operator must scroll past hundreds of expired/rejected entries to find active ones.
+
+At 50 events per week (across all strikes and expiries for BTC), the file would contain ~2600 entries after a year of operation.
+
+**Why it happens:**
+"Append is easy, removal is hard." Removing TOML array entries while preserving formatting and comments requires careful `toml_edit` manipulation. The system was designed for "add new, mark expired" without a garbage collection strategy.
+
+**How to avoid:**
+- **Add a periodic archive/prune step.** Every N days (configurable, default 7), move all `status = "expired"` events that expired more than 7 days ago to an `events_archive.toml` file. Keep only active, expiring, and recently-expired events in the main file.
+- **Or: use a separate file for auto-discovered candidates.** Write proposals to `events_candidates.toml` instead of the main `events.toml`. When the operator approves a candidate, the system moves it to `events.toml`. This keeps the main config file clean and human-curated.
+- **Set an upper bound on TOML file size.** If the file exceeds a configurable limit (e.g., 100 entries), log a warning prompting the operator to archive.
+- **In the registry, do not index expired events.** The current `build_indexes()` iterates all mappings. Add a filter to skip expired entries from the instrument/event indexes (but keep them in the `mappings` vec for reference).
+
+**Warning signs:**
+- `events.toml` file size grows by more than 1KB per day.
+- TOML parse time (measurable via tracing spans around `toml::from_str`) exceeds 10ms.
+- `EventRegistry.mapping_count()` is significantly larger than `EventRegistry.active_count()`.
+
+**Phase to address:**
+Phase 3 (Lifecycle Integration) for the pruning/archival strategy.
 
 ---
 
@@ -164,26 +239,26 @@ Shortcuts that seem reasonable but create long-term problems.
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Store all state in a single JSON file | Simple implementation, single read/write | Grows unbounded, slow to parse at scale, all-or-nothing corruption risk | Never for growing data (signals, trades). OK for small fixed-size config-like state |
-| Use `Utc::now()` for settlement time comparison | Simple, no extra data needed | Breaks deterministic replay; settlement logic cannot be tested with historical data | Only in live-mode code paths; replay must use event timestamps |
-| Skip fsync after atomic write | Faster writes | State loss on power failure (OS crash, not process crash) | Acceptable for paper trading (data is recoverable from logs). Unacceptable for real trading |
-| Hardcode venue polling intervals | Quick implementation | Different venues have different rate limits and data freshness. Deribit settlement data is available faster than Polymarket resolution | Never -- use per-venue config (already established pattern in `DiscoveryConfig`) |
-| Alert via log messages only | No external dependencies | Logs must be actively monitored; silent failures go unnoticed if nobody watches | Acceptable for v1.1 solo trader. Must evolve to push notifications before v2 |
-| Compute signal analysis at query time over raw logs | No pre-computation needed | O(n) over all historical trades per query; becomes unusable after weeks of data | Only for initial implementation. Must add incremental rollup within 2-4 weeks |
+| Read-modify-write TOML per candidate instead of batching | Simpler code, each write is self-contained | N TOML parses and file writes per poll cycle instead of 1. Risk of inconsistent intermediate states if file watcher fires mid-batch | Only during initial development. Must batch before running unattended |
+| Fixed temporary filename for atomic write (`events.toml.tmp`) | Simple, predictable | If two concurrent writers use the same tmp path, one overwrites the other. Currently only lifecycle manager writes, but adding a CLI tool or manual edit workflow could cause conflicts | Acceptable while only lifecycle manager writes. Must use unique tmp names if adding concurrent writers |
+| Polymarket excluded from auto-matching entirely | Avoids NLP complexity, reduces false positive risk | Permanently limits 3-venue coverage to operator-curated Polymarket matches. Reduces the value proposition of automated discovery | Acceptable for v1.2. Must revisit for v1.3 |
+| Expiry detection based on single poll absence | Quick to implement, catches obvious expirations | False positives when API returns partial data. Can incorrectly expire active instruments | Never for production. Must require N consecutive absences or expiry date validation |
+| Lifecycle manager creates its own `reqwest::Client` | No dependency on pipeline handles | Separate rate limit budget from feed and settlement components. Combined per-IP rate can exceed venue limits | Only if venue rate limits are generous. Must share `VenueRateLimiter` for production |
+| No deduplication check before TOML append | Simpler write logic | If registry refresh races with append, the same candidate could be appended twice in different poll cycles | Never. Must check both registry and file content before appending |
 
 ## Integration Gotchas
 
-Common mistakes when connecting new features to the existing system.
+Common mistakes when connecting discovery to the existing system.
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Settlement tracker + EventRegistry | Querying settlement for instruments that have already been rolled (expired in registry, replaced by new expiry) | Track settlement by **original instrument ID at signal time**, not current registry state. Store instrument_id in `PaperPosition` (already done: `event_id` is stored, but need the specific venue instrument IDs too) |
-| Signal analysis + SpreadEngine | Reading from the spread JSONL log which contains ALL computations (both above and below threshold) and counting them as "signals" | Only analyze trades that entered `PaperPosition` with `PositionStatus::Open` or `Settled`. The spread log is for debugging, not analysis |
-| File persistence + PaperTradeTracker | Adding persistence inside the `tokio::select!` loop, making every tick slower | Checkpoint on a timer (every 60s) or on day boundary, not on every snapshot/signal |
-| Failure alerting + VenueHealth | Duplicating the existing `VenueHealth` state tracking instead of extending it | Add new fields/methods to `VenueHealth` (e.g., `last_spread_at`, `computation_rate`) rather than building a parallel monitoring system |
-| Settlement tracker + BasisRiskCache | Attempting to read settlement data from the risk cache, which only stores risk scores not settlement outcomes | Settlement outcomes are new data -- they need their own storage. The risk cache provides context (what was the expected risk) but not outcomes |
-| Signal analysis + existing DailyAggregator | Trying to add hit rate/edge metrics to DailyAggregator, which tracks P&L not signal accuracy | Create a separate `SignalAnalyzer` that consumes settled positions and computes signal-quality metrics. DailyAggregator stays focused on P&L |
-| File persistence + graceful shutdown | Writing state on `cancel.cancelled()` but the state is already partially consumed -- channels are closed, final trades not included | Flush state BEFORE dropping channel receivers. The existing shutdown order in `PaperTradeTracker::run()` does this correctly (emits daily summary, flushes logger). Persistence must happen in the same shutdown block |
+| Discovery + EventRegistry | Refreshing registry from file on every write instead of building a diff | Batch all TOML writes per poll cycle, then refresh registry once. Use `refresh()` which rebuilds indexes from scratch (already implemented correctly) |
+| Discovery + ConfigReloader | Assuming ConfigReloader handles discovery changes | ConfigReloader handles parameter tuning (thresholds, fees). Structural changes (new events, new instruments) need subscription management that ConfigReloader does not provide |
+| Discovery + Feed Subscriptions | Assuming EventRegistry refresh automatically subscribes venue feeds | EventRegistry is a lookup table only. Feed subscriptions are established at startup via `DeribitClient::new(instruments)`. New events need explicit subscription commands to running WebSocket connections |
+| TOML Writer + File Watcher | Using `notify_debouncer_mini` with 500ms debounce and assuming a single reload per write | Atomic rename produces multiple filesystem events (delete + rename on Windows). Debouncer may collapse them correctly OR may fire between the delete and rename, causing a reload failure |
+| Lifecycle Manager + Settlement Monitor | Both reading EventRegistry via `Arc<RwLock<>>` concurrently with lifecycle manager writing | RwLock correctly allows concurrent reads. But settlement monitor caches event IDs to track -- if lifecycle manager expires an event, settlement monitor may still poll it. Must handle gracefully |
+| Discovery + BasisRiskCache | Newly discovered (unapproved) events have no settlement metadata, so no basis risk score | The cache only populates for `active_approved()` events. Unapproved candidates correctly excluded. But when a candidate is approved, the cache is only updated on the next lifecycle poll cycle -- there may be a gap where the spread engine computes spreads without risk adjustment |
+| Expiry Detection + Deribit Rolls | Marking an instrument expired AND creating a roll candidate in the same cycle | The current code does this correctly (roll handling is inside the expiry detection block). But if the roll candidate shares a strike/expiry with an existing mapping, `filter_new_candidates` may skip it as a duplicate. Verify the event_id generation (asset-strike-expiry) produces unique IDs for the roll target |
 
 ## Performance Traps
 
@@ -191,34 +266,35 @@ Patterns that work at small scale but fail as usage grows.
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Unbounded `Vec<PaperPosition>` in `self.open` | Memory grows linearly with trade count; iteration for MTM update slows linearly | Cap open positions or evict stale ones; use `HashMap<event_id, Vec<Position>>` for O(1) lookup by event | After ~1000 open positions (unlikely in paper trading, but possible if settlement tracker never settles them) |
-| Unbounded `mtm_history: Vec<MtmSnapshot>` per position | Each snapshot adds ~48 bytes per open position per tick. 3 venues at 1 snapshot/sec = ~150 entries/min/position | Cap MTM history length (keep last N or downsample to 1/minute) | After 24 hours: ~8640 entries * 48 bytes * N positions |
-| Full state serialization on every checkpoint | Checkpoint time grows linearly with accumulated state | Use incremental checkpointing: only write changed positions since last checkpoint. Or use append-only JSONL for incremental writes + periodic full checkpoint | After ~10,000 historical trades in the state file |
-| `EventRegistry.read().await` in forward_snapshots hot path | Already present in pipeline.rs line ~343. RwLock contention increases if settlement tracker also reads the registry frequently | Settlement tracker should cache the mappings it needs rather than reading the registry on every poll. The existing `BasisRiskCache` pattern is the model to follow | Only if settlement polling is frequent (>1/sec), which it should not be |
+| Full TOML reparse on every modification | Parse time grows linearly with file size. With 500 events, parsing takes ~50ms | Batch modifications per poll cycle. Consider keeping a parsed `DocumentMut` in memory and only serializing to file | After ~200 events in events.toml |
+| Deribit `get_instruments` returns ALL options | For BTC alone, 1000+ instruments per request. Response is ~500KB-1MB of JSON | Cache the response and diff against previous. Only run matching on new instruments | Always present for BTC. Worse if adding ETH/SOL currencies |
+| Polymarket pagination fetches ALL active markets | Gamma API has thousands of active markets across all categories. Discovery fetches all of them just to monitor deactivation | Add category/tag filters to the Polymarket query. Only fetch crypto-related markets (`category=crypto` if available, or `tag_id` filter) | Immediately -- Polymarket has 1000+ active markets, most irrelevant to crypto binary events |
+| `EventRegistry::build_indexes()` iterates all mappings including expired | Index build time grows linearly with total entries (active + expired) | Skip expired entries when building instrument/event indexes. Keep a separate `all_mappings` vec for reference | After ~500 total mappings (active + expired + rejected) |
+| `find_cross_venue_candidates()` is O(n) over all discovered instruments | HashMap grouping is fast but still allocates for every instrument | Pre-filter instruments by asset before grouping. For BTC-only, filter out non-BTC instruments before calling `find_cross_venue_candidates` | After adding multi-asset support (ETH, SOL) which multiplies the instrument count |
 
 ## Security Mistakes
 
-Domain-specific security issues relevant to this system.
+Domain-specific security issues relevant to automated discovery.
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Storing Kalshi RSA private key in the persistence state file | Key exposure if state file is leaked or committed to git | Never include credentials in persisted state. The existing `Credentials` struct loads from env vars -- maintain this separation |
-| Logging settlement API responses with auth tokens | Token exposure in JSONL logs and tracing output | Redact auth headers before logging. The existing Kalshi auth already handles JWT generation per-request, but settlement polling must strip tokens from error messages |
-| Persisting paper trade state with real instrument IDs to a shared location | Reveals trading strategy and targeted instruments | Keep state files in a gitignored directory. The existing `recordings/` pattern is already gitignored |
-| Settlement outcome polling without rate limiting | API ban from Deribit (20 req/s limit) or Kalshi | Reuse the existing `VenueRateLimiter` infrastructure for settlement API calls. Poll at most once per minute per expired instrument |
+| Discovery appends Kalshi tickers to events.toml which is committed to git | Reveals trading strategy (which strikes and expiries the system targets) | Ensure events.toml is in .gitignore. The current `.gitignore` does NOT explicitly list events.toml -- verify this |
+| Lifecycle manager logs full Kalshi API credentials in error messages | Credential leakage in log files shipped to monitoring | Redact `KALSHI-ACCESS-KEY` and `KALSHI-ACCESS-SIGNATURE` from error messages. Only log the first 4 characters of the key ID |
+| Proposed candidates with `approved = false` can be flipped by anyone with file access | Unauthorized event activation could subscribe feeds to unvetted instruments | Not a security concern for solo trader. Would need access controls if multi-user |
+| Discovery polling reveals interest in specific markets to venue APIs | Venues could use this information for targeted pricing or market making | Minimal concern: Deribit `get_instruments` is a generic request (all options, not specific strikes). Kalshi `GET /markets` with `series_ticker` filter reveals interest in that series but not specific strikes |
 
 ## "Looks Done But Isn't" Checklist
 
 Things that appear complete but are missing critical pieces.
 
-- [ ] **Settlement tracking:** Often missing the "disputed/ambiguous" outcome state -- verify the tracker handles cases where Polymarket and the actual outcome disagree (UMA dispute process)
-- [ ] **Settlement tracking:** Often missing instruments that expired while the system was offline -- verify the tracker discovers and backfills missed settlements on startup
-- [ ] **Signal analysis:** Often missing the denominator -- verify hit rate reports total filled trades, not just settled ones, and explicitly reports how many are still pending settlement
-- [ ] **Signal analysis:** Often missing cost-adjusted P&L -- verify the edge calculation includes adverse selection, fees, and carry, not just raw spread at settlement
-- [ ] **Failure alerting:** Often missing the "everything looks fine but output is wrong" case -- verify at least one end-to-end check (e.g., "time since last threshold-passing signal evaluation" not just "time since last feed message")
-- [ ] **File persistence:** Often missing the "startup recovery" path -- verify the system loads persisted state on restart AND validates its consistency (e.g., no duplicate trade IDs, no positions with status transitions that skip states)
-- [ ] **File persistence:** Often missing the "state migration" story -- verify that adding new fields to `PaperPosition` or `DailyRollup` still parses old state files (use `#[serde(default)]` on all new fields)
-- [ ] **File persistence:** Often missing Windows-specific atomic rename -- verify `rename()` works when target file exists on Windows (it does not by default; need `remove_file` first or use `tempfile` crate)
+- [ ] **Discovery polling:** Often missing retry/backoff on HTTP errors -- verify that a failed Deribit/Kalshi/Polymarket poll does NOT prevent subsequent polls in the same cycle (the current `match` with `tracing::warn!` is correct but verify the error is not propagated to abort the poll cycle)
+- [ ] **Cross-venue matching:** Often missing deduplication -- verify that the same candidate cannot be appended to events.toml twice if two consecutive poll cycles discover the same instruments before the registry refreshes
+- [ ] **TOML writing:** Often missing Windows-specific atomic rename handling -- verify `tokio::fs::rename()` works when the target file exists on Windows (it may fail with "Access denied" if another process has the file open)
+- [ ] **Expiry detection:** Often missing the "API returned partial data" case -- verify that a short Deribit response (timeout, partial read) does not trigger false expirations for instruments not in the partial response
+- [ ] **Deribit roll handling:** Often missing the "multiple roll targets" case -- verify behavior when multiple future expiries exist for the same strike (should roll to nearest future, not arbitrary)
+- [ ] **Registry refresh:** Often missing the "parse failure recovery" case -- verify that if the updated events.toml is malformed (e.g., mid-write read), the system keeps the previous registry state (the current `Err(e) => tracing::error!` pattern is correct)
+- [ ] **Feed subscription gap:** Often missing entirely -- verify that newly approved events actually receive market data, not just registry presence. Add a diagnostic metric for "approved events with no recent snapshots"
+- [ ] **Polymarket deactivation:** Often missing the "reactivation" case -- verify that a Polymarket market marked as deactivated then reactivated is handled (currently only logs deactivation, doesn't write to TOML)
 
 ## Recovery Strategies
 
@@ -226,12 +302,13 @@ When pitfalls occur despite prevention, how to recover.
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Corrupted state file on crash | LOW | Replay from JSONL trade logs to reconstruct positions and P&L. The trade log (already written by `TradeLogger`) is append-only and much more resilient than a checkpoint file. This is why the JSONL log is the source of truth, not the checkpoint |
-| Wrong settlement outcomes recorded | MEDIUM | Add a "recompute settlement" CLI command that re-polls venue APIs and overwrites previous outcomes. Settlement outcomes should be overridable manually (TOML or JSON override file) for disputed cases |
-| Blocking I/O stalls pipeline | LOW | Move to `spawn_blocking` or `tokio::fs`. No data loss, just performance degradation during the fix |
-| Alert fatigue from noisy alerts | LOW | Add progressive throttling: first occurrence logs at WARN, subsequent repeats within a cooldown window log at DEBUG. Only re-escalate to WARN when the condition clears and recurs |
-| Missing settlements for offline period | MEDIUM | On startup, scan all `PaperPosition` with `PositionStatus::Open` and check if their event's expiry has passed. If so, queue them for settlement outcome resolution. This requires persisting the `expiry` date in each position |
-| Signal analysis shows misleading hit rate | LOW | Always report alongside: fill rate, adverse selection distribution, and a "theoretical vs actual" comparison. If hit rate and fill rate diverge significantly, the analysis methodology is suspect |
+| False positive match approved and generating bad signals | MEDIUM | Identify the bad event in events.toml, set `approved = false` or `status = "expired"`. SIGHUP or restart. Review and discard any paper trades generated for that event. Add the false match pattern to a blocklist |
+| Race condition corrupts events.toml | LOW | The `.tmp` file or the last-known-good config from `ConfigReloader` serves as backup. If both are corrupted, reconstruct from git history or manual recreation. The registry keeps the last successfully parsed config in memory |
+| Rate limiting causes missed discoveries | LOW | Reduce poll frequency, share rate limiters. Missed discoveries are caught on the next successful poll. No data loss, just latency |
+| False expiry marks active instrument as expired | MEDIUM | Edit events.toml: change `status = "expired"` back to `status = "active"`. If a roll candidate was created, remove it to avoid duplicates. Restart or trigger config reload |
+| TOML file grows too large | LOW | Archive expired entries to `events_archive.toml`. Or delete all `status = "expired"` entries manually. Registry refreshes automatically on file change |
+| Feed not subscribed to new approved events | LOW | Restart the system. On restart, all active+approved events from the registry are used to build the initial subscription list. Alternatively, implement dynamic subscription (the real fix) |
+| Polymarket market changes format/structure | MEDIUM | Polymarket discovery is deactivation-monitoring only. If the Gamma API changes, discovery fails gracefully (the response parsing returns empty). Update the `PolymarketMarketInfo` struct and response parsing |
 
 ## Pitfall-to-Phase Mapping
 
@@ -239,32 +316,29 @@ How roadmap phases should address these pitfalls.
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Settlement data harder than expected (Pitfall 1) | Phase 1: Settlement Tracking | Unit test each venue adapter with mocked API responses. Integration test with recorded real settlement data from at least one expired instrument per venue |
-| Wrong timing windows for analysis (Pitfall 2) | Phase 2: Signal Analysis | Test with a known synthetic trade: signal at t=0, fill at t=1 with known adverse selection, settlement at t=100 with known outcome. Verify all metrics match hand-calculated values |
-| File corruption on crash (Pitfall 3) | Phase 4: File Persistence | Kill-test: run system, `kill -9` mid-operation, restart, verify state recovery. Run this on both Linux and Windows |
-| Alerting monitors wrong thing (Pitfall 4) | Phase 3: Failure Alerting | Simulate silent failure: disconnect a venue at the network level (not via cancel token), verify alert fires within configured timeout. Simulate config drift: remove all event mappings, verify alert fires for "no spread computations" |
-| Blocking tokio runtime (Pitfall 5) | Phase 4: File Persistence | Add timing instrumentation to checkpoint writes. Verify 99th percentile checkpoint time is under 5ms. Run concurrent load test with all 3 venues during checkpoint |
-| Unbounded MTM history growth | Phase 4: File Persistence | After 24 hours of paper trading, verify memory usage is stable (not linearly growing). Cap MTM history or downsample |
-| Settlement outcome for rolled instruments | Phase 1: Settlement Tracking | Test scenario: instrument expires, lifecycle manager rolls it, settlement tracker still resolves the expired instrument's outcome |
-| Startup state recovery | Phase 4: File Persistence | Test scenario: accumulate 50 trades, kill process, restart, verify all 50 trades are present with correct P&L |
+| False positive matches (Pitfall 1) | Phase 2: Cross-Venue Matching | Create synthetic test data with near-miss matches (strike off by 1 cent, expiry off by 1 day). Verify they are NOT matched. Create exact matches and verify they ARE matched. Test with real Deribit+Kalshi instrument lists |
+| TOML write race condition (Pitfall 2) | Phase 1: Venue Discovery (initial), Phase 3: Lifecycle Integration (full) | Run lifecycle manager with fast poll interval (10s) alongside config watcher. Verify events.toml is never corrupted. Count registry refreshes and verify they match expected count (1 per poll cycle + 0-1 from file watcher) |
+| API rate limiting (Pitfall 3) | Phase 1: Venue Discovery | Integrate `VenueRateLimiter`. Run discovery polling for 1 hour against real APIs. Monitor for any HTTP 429 responses. Verify WebSocket feed stability is unaffected by concurrent discovery polling |
+| Stale discovery data (Pitfall 4) | Phase 2: Cross-Venue Matching + Phase 3: Lifecycle Integration | Simulate partial Deribit API response (mock returning 50% of instruments). Verify no false expirations. Simulate instrument appearing/disappearing across consecutive polls. Verify the absence-count mechanism works |
+| Polymarket discovery gap (Pitfall 5) | Phase 2: Cross-Venue Matching (design), deferred implementation | Track `lifecycle_events_coverage` metric. After 2 weeks of operation, review how many events have 3-venue vs 2-venue coverage. Assess operator effort for manual Polymarket curation |
+| Feed subscription gap (Pitfall 6) | Phase 4: Live Subscription Management | Approve a new event in events.toml while system is running. Verify that within 60 seconds, the spread engine produces computations for that event. Verify WebSocket subscriptions include the new instruments |
+| TOML file growth (Pitfall 7) | Phase 3: Lifecycle Integration | Run system for simulated 30 days (fast-forward poll cycles). Verify events.toml stays under a size threshold. Verify TOML parse time remains under 10ms |
+| Expiry detection false positive (Pitfall 4) | Phase 3: Lifecycle Integration | Mock a Deribit API failure mid-cycle. Verify no active instruments are incorrectly marked as expired. Verify recovery on next successful poll |
 
 ## Sources
 
-- Deribit API settlement documentation: https://support.deribit.com/hc/en-us/articles/29734325712413-Settlement
-- Deribit settlement price TWAP methodology: https://docs.deribit.com/
-- Polymarket resolution process: https://docs.polymarket.com/polymarket-learn/markets/how-are-markets-resolved
-- Polymarket CLOB API gap for resolved markets: https://github.com/Polymarket/py-clob-client/issues/117
-- Polymarket price history limitation for resolved markets: https://github.com/Polymarket/py-clob-client/issues/216
-- Kalshi settlement API: https://docs.kalshi.com/fix/market-settlement
-- Kalshi market result endpoint: https://docs.kalshi.com/api-reference/market/get-market
-- Kalshi portfolio settlements: https://docs.kalshi.com/api-reference/portfolio/get-settlements
-- Tokio async filesystem operations: https://docs.rs/tokio/latest/tokio/fs/index.html
-- Silent failure detection patterns: https://www.vincentlakatos.com/blog/building-a-monitoring-system-that-catches-silent-failures/
-- Prediction market settlement disputes: https://defirate.com/prediction-markets/how-contracts-settle/
-- UMA dispute resolution for prediction markets: https://blog.uma.xyz/articles/what-is-a-prediction-market-dispute
-- Atomic file write pattern in Rust: https://users.rust-lang.org/t/mvdb-atomic-easy-to-use-file-backed-storage-using-serde/12219
-- Codebase analysis: existing `atomic_write()` in `events/lifecycle.rs`, `TradeLogger` in `paper_trade/tracker.rs`, `VenueHealth` in `feed/health.rs`, pipeline fan-out in `main.rs`
+- Deribit public/get_instruments endpoint: https://docs.deribit.com/api-reference/market-data/public-get_instruments
+- Deribit rate limits (credit-based system, ~1 req/s sustained for public): https://support.deribit.com/hc/en-us/articles/25944617523357-Rate-Limits
+- Deribit market data collection best practices: https://support.deribit.com/hc/en-us/articles/29592500256669-Market-Data-Collection-Best-Practices
+- Kalshi rate limit tiers (Basic: 20 read/s, Advanced: 30, Premier: 100, Prime: 400): https://docs.kalshi.com/getting_started/rate_limits
+- Polymarket Gamma API structure: https://docs.polymarket.com/developers/gamma-markets-api/gamma-structure
+- Polymarket rate limits (Cloudflare-enforced, ~300 req/10s for /books): Scribd mirror of Polymarket docs
+- notify-rs file watcher debounce behavior and atomic rename interaction: https://github.com/notify-rs/notify/issues/382
+- Atomic rename race with fixed tmp filename: https://github.com/google-gemini/gemini-cli/issues/18504
+- File watcher EINVAL on temporary file during atomic write: https://github.com/anthropics/claude-code/issues/15832
+- Cross-venue arbitrage desync and exchange outage attacks: https://www.researchgate.net/publication/396142626_Cross-Venue_Manipulation_Arbitrage_Desyncs_and_Exchange_Outage_Attacks
+- Codebase analysis: `events/discovery.rs` (4-field matching), `events/toml_writer.rs` (TOML append), `events/lifecycle.rs` (poll cycle, expiry detection, roll handling), `config/reload.rs` (file watcher), `main.rs` (startup wiring, subscription setup)
 
 ---
-*Pitfalls research for: v1.1 Paper Trading Validation milestone*
-*Researched: 2026-02-24*
+*Pitfalls research for: v1.2 Automated Event Management milestone*
+*Researched: 2026-02-26*

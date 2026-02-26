@@ -1,323 +1,307 @@
-# Stack Research: v1.1 Paper Trading Validation
+# Stack Research: v1.2 Automated Event Management
 
-**Domain:** Settlement outcome tracking, signal analysis, failure alerting, file-based state persistence
-**Researched:** 2026-02-24
+**Domain:** Venue market discovery, cross-venue event matching, TOML proposal writing
+**Researched:** 2026-02-26
 **Confidence:** HIGH
 
 ## Scope
 
-This document covers ONLY the stack additions needed for v1.1. The existing v1.0 stack (tokio, rust_decimal, serde/serde_json, axum, metrics/prometheus, statrs, tracing, chrono, reqwest, etc.) is validated and unchanged. See v1.0 STACK.md for those decisions.
+This document covers ONLY the stack additions needed for v1.2 Automated Event Management. The existing v1.0/v1.1 stack is validated and unchanged. See prior STACK.md versions for those decisions.
 
-## Existing Stack (DO NOT Re-add)
+## Existing Stack Already Covering v1.2 Needs
 
-These are already in `Cargo.toml` and validated by v1.0. Listed here to prevent duplicate research:
+Most v1.2 capabilities are **already covered** by the existing dependency tree. Critical finding: discovery.rs and toml_writer.rs already exist with working implementations.
 
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| tokio | 1.x (full) | Async runtime |
-| serde + serde_json | 1.0 | Serialization |
-| toml | 0.8 | Config parsing |
-| rust_decimal | 1.40 | Decimal arithmetic |
-| statrs | 0.18 | Statistical distributions |
-| chrono | 0.4 | Date/time |
-| tracing / tracing-subscriber / tracing-appender | 0.1 / 0.3 / 0.2 | Structured logging |
-| metrics + metrics-exporter-prometheus | 0.24 / 0.18 | Prometheus metrics |
-| axum | 0.8 | HTTP endpoint |
-| reqwest | 0.12 | HTTP client |
-| uuid | 1.x (v7) | Time-ordered IDs |
-| thiserror / anyhow | 2.0 / 1.0 | Error handling |
-| clap | 4.5 | CLI |
-| backoff | 0.4 | Reconnection backoff |
+| Technology | Version (resolved) | v1.2 Usage | Already Used By |
+|------------|-------------------|------------|-----------------|
+| reqwest | 0.12 | Venue discovery API polling | Settlement checkers, Gamma API |
+| serde + serde_json | 1.0 | Deserialize API responses | Everywhere |
+| toml | 0.8.23 | Config deserialization | SystemConfig, EventsConfig |
+| toml_edit | 0.22.27 | Format-preserving TOML writes | `events::toml_writer` (already implemented) |
+| governor | 0.8.1 | Rate limiting discovery polls | `feed::reliability::rate_limiter` |
+| chrono | 0.4 | Expiry dates, timestamps | Throughout |
+| rust_decimal | 1.40 | Strike price comparison | Pricing pipeline |
+| tokio | 1.x (full) | Async polling loops, channels | Runtime |
+| tracing | 0.1 | Log new proposals | Everywhere |
+| rsa + sha2 + base64 | 0.9 / 0.10 / 0.22 | Kalshi RSA-PSS auth for discovery | Kalshi feed auth |
 
 ## New Dependencies Required
 
-### Verdict: ZERO new crate dependencies needed
+### One new direct dependency: `strsim`
 
-After thorough analysis of all four v1.1 features against the existing dependency tree, **no new crates are required**. Every capability can be built with what is already in `Cargo.toml`. This is the correct approach for a solo-trader system that prizes reliability and minimal attack surface over feature velocity.
+| Technology | Version | Purpose | Why This One |
+|------------|---------|---------|-------------|
+| strsim | 0.11 | String similarity metrics for fuzzy event name matching | Already in dependency tree transitively via clap; provides Jaro-Winkler and normalized Levenshtein -- the two algorithms needed for event title comparison |
 
-Here is why, feature by feature:
+**Why `strsim` and not alternatives:**
 
----
+| Crate | What It Does | Why Not (or Why Yes) |
+|-------|-------------|---------------------|
+| **strsim 0.11** | String similarity metrics (Jaro-Winkler, Levenshtein, Sorensen-Dice) | **USE THIS.** Already transitively compiled (via clap). Provides normalized 0.0-1.0 similarity scores. Zero additional binary size cost. |
+| nucleo | Interactive fuzzy finder (fzf-like) | Wrong tool. Designed for user-facing search-as-you-type, not batch comparison of event titles. |
+| fuzzy-matcher | Smith-Waterman based fuzzy matching | Wrong tool. Designed for ranking search results, not pairwise similarity scoring between known strings. |
+| rapidfuzz | Python-first fuzzy matching with Rust bindings | Heavier than needed. strsim covers our use case in a fraction of the API surface. |
+| regex | Pattern matching | Over-engineered for "are these two event titles about the same thing?" questions. |
 
-### 1. Settlement Outcome Tracking
+### Why strsim Is the Right Choice
 
-**Need:** Poll venue APIs for settlement results, compare against signal predictions.
+The cross-venue matching problem is: given `"Will BTC be above $100K on June 27?"` (Polymarket) and `"BTC-27JUN25-100000-C"` (Deribit), determine if they describe the same event.
 
-**Already have:**
-- `reqwest 0.12` -- HTTP client for REST API polling (Deribit `public/get_last_settlements_by_currency`, Kalshi `GET /markets/{ticker}` with `result` field, Polymarket CLOB API market status)
-- `serde + serde_json` -- Deserialize settlement responses
-- `chrono` -- Parse settlement timestamps, schedule polling
-- `tokio::time::interval` -- Periodic polling loop (no cron crate needed; settlements are polled every N minutes, not at cron-expression times)
-- `tracing` -- Log settlement match/mismatch events
+For **Deribit and Kalshi**, matching is already exact (per discovery.rs): both venues expose structured fields (asset, strike, expiry, direction) that can be compared directly. The existing `MatchKey` four-field exact match handles this.
 
-**How it works:**
-- A `SettlementTracker` task runs a `tokio::time::interval` loop (e.g., every 5 minutes)
-- Polls each venue's public settlement API via `reqwest`
-- Deserializes responses into typed structs with `serde`
-- Matches settlement outcomes against stored signal predictions by event_id
-- Logs results to JSONL using the existing `BufWriter<File>` + daily rotation pattern (already proven in `SignalLogger` and `TradeLogger`)
+Fuzzy matching is needed specifically for:
+1. **Polymarket question text parsing** -- extracting structured fields from free-form text like "Will Bitcoin be above $100,000 on June 27, 2025?" and matching against known event patterns
+2. **Confidence scoring** -- computing a similarity score between a normalized Polymarket question and a canonical event description to set a confidence threshold for auto-proposals
+3. **Future multi-asset expansion** -- when event naming conventions vary across venues
 
-**Venue API details (HIGH confidence -- from official documentation):**
-- Deribit: `public/get_last_settlements_by_currency` (public, no auth needed, 20 req/s rate limit applies)
-- Kalshi: `GET /markets/{ticker}` returns `result` field ("yes"/"no") when settled; `GET /portfolio/settlements` returns settlement history
-- Polymarket: Market status via CLOB API `GET /markets/{condition_id}` shows resolution state
+The relevant `strsim` functions:
+- `jaro_winkler(a, b) -> f64` -- Returns 0.0-1.0 similarity, boosting common prefixes. Best for event titles that start with the same asset name.
+- `normalized_levenshtein(a, b) -> f64` -- Returns 0.0-1.0 similarity based on edit distance. Good for catching rewordings.
+- `sorensen_dice(a, b) -> f64` -- Bigram-based similarity. Useful as a tiebreaker.
 
-**Why no new crates:**
-- `tokio::time::interval` is simpler and more reliable than `tokio-cron-scheduler` for fixed-interval polling. Settlement outcomes do not require cron expressions -- they need "check every 5 minutes."
-- `reqwest` already handles all HTTP needs. No specialized settlement client exists or is needed.
+**Confidence:** HIGH. `strsim 0.11.1` is already compiled as a transitive dependency of `clap_builder 4.5.60 -> strsim 0.11.1`. Adding it as a direct dependency reuses the same compiled artifact with zero additional build cost.
 
----
+### What NOT to Add
 
-### 2. Signal Analysis Tooling
-
-**Need:** Compute hit rate, edge measurement, false positive rate, time-to-convergence from historical signal + settlement data.
-
-**Already have:**
-- `statrs 0.18` -- Statistical distributions (already used for Black-76 pricing). Provides normal distribution for confidence intervals, but signal analysis metrics (hit rate, false positive rate) are simple ratio calculations that need no statistical library.
-- `rust_decimal` -- Exact arithmetic for P&L calculations
-- `serde + serde_json` -- Read historical JSONL signal logs, write analysis output
-- `std::fs` / `std::io::BufReader` -- Read JSONL files line by line
-- `chrono` -- Time-to-convergence calculations (signal timestamp vs settlement timestamp)
-
-**Key metrics and how they are computed (no new libraries):**
-
-| Metric | Formula | Dependencies |
-|--------|---------|--------------|
-| Hit rate | `correct_signals / total_settled_signals` | `rust_decimal` division |
-| False positive rate | `signals_that_lost / total_signals` | `rust_decimal` division |
-| Average edge | `mean(realized_pnl per signal)` | `rust_decimal` sum/count |
-| Edge decay | `signal_edge_at_t0 - edge_at_settlement` | `rust_decimal` subtraction |
-| Time-to-convergence | `settlement_ts - signal_ts` | `chrono::Duration` |
-| Sharpe proxy | `mean(daily_pnl) / stddev(daily_pnl)` | `statrs` or hand-rolled f64 math |
-| Win/loss distribution | histogram of realized P&L buckets | Simple Vec sorting |
-
-**Why no new crates:**
-- Signal analysis is arithmetic on JSONL data. The calculations are ratios, means, and standard deviations -- all trivially implemented in ~50 lines of Rust.
-- `statrs` is already available for anything requiring distribution functions. There is no "signal analysis" crate in the Rust ecosystem that would add value over custom code for this specific domain.
-- The analysis can run as a CLI subcommand (via existing `clap`) that reads JSONL files and outputs a summary, or as an in-process task that computes rolling metrics.
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| Any NLP/ML crate (rust-bert, tokenizers, etc.) | Massive overkill. Event matching is pattern extraction + string similarity, not natural language understanding. | `strsim` + regex patterns + structured field comparison |
+| fuzzy-matcher | Interactive search tool, not batch similarity scorer | `strsim` |
+| nucleo / nucleo-matcher | fzf-like fuzzy finder for UIs, wrong problem domain | `strsim` |
+| skim | Terminal fuzzy finder, not a library for programmatic matching | `strsim` |
+| levenshtein (standalone crate) | Only provides Levenshtein. strsim provides Levenshtein + 7 other algorithms in one crate that is already compiled. | `strsim` |
+| Any database (SQLite, sled) | Discovery state is tiny (list of known instruments, last poll time). Fits in memory + existing checkpoint pattern. | In-memory HashSet + JSON checkpoint |
+| reqwest-middleware | Rate limiting is already handled by `governor`. Adding middleware layers is unnecessary abstraction. | `governor::RateLimiter` (existing) |
+| tower-http rate limiting | Already have `governor` for per-venue rate limiting. tower-http is for server-side middleware. | `governor::RateLimiter` (existing) |
 
 ---
 
-### 3. Failure Alerting
+## Venue Discovery API Details
 
-**Need:** Detect degraded states (stale data, partial feeds, silent failures) and notify the operator.
+### Deribit: `public/get_instruments`
 
-**Already have:**
-- `VenueHealth` (per-venue atomic health trackers) -- Already tracks connected/disconnected, last_message_at, last_error
-- `metrics` -- Already emits `feed_available` gauge per venue, `arb_staleness_rejections` counter
-- `tracing` -- Already logs all degraded state transitions
-- `reqwest 0.12` -- HTTP client for webhook POST notifications
-- `tokio::time::interval` -- Periodic health sweep
-- `axum 0.8` -- Already serves `/health` endpoint
+**Already implemented in:** `src/events/discovery.rs::discover_deribit()`
 
-**Alert delivery strategy:**
+| Property | Value |
+|----------|-------|
+| Endpoint | `GET /api/v2/public/get_instruments?currency={}&kind=option` |
+| Auth | None (public endpoint) |
+| Pagination | None -- returns all instruments for currency/kind in one response |
+| Rate limit | 1 req/s sustained (official docs). Current config polls every 300s, well under limit. |
+| Response size | ~200-500 instruments per currency for options. Single response, no pagination needed. |
+| Filtering | By currency (required), kind (optional), expired flag |
 
-The system should emit alerts via **webhook POST** (to Slack, Discord, Telegram bot, or any HTTP endpoint). This is the standard approach for solo-trader alerting because:
-1. The operator already has `reqwest` in the dependency tree
-2. Webhooks work with every notification platform (Slack incoming webhooks, Discord webhooks, Telegram Bot API, PagerDuty, etc.)
-3. No SMTP configuration complexity (no `lettre` crate needed)
-4. A single `async fn send_alert(url: &str, message: &str)` using `reqwest::Client::post(url).json(&payload).send().await` is ~10 lines
+**No changes needed.** The existing implementation is correct and complete.
 
-**Alert conditions (built on existing infrastructure):**
+### Kalshi: `GET /trade-api/v2/markets`
 
-| Condition | Detection Source | Already Exists? |
-|-----------|-----------------|-----------------|
-| Feed disconnect | `VenueHealth::is_available()` | YES |
-| Stale data (no messages for N seconds) | `VenueHealth::last_message_at()` + duration check | YES (needs sweep loop) |
-| All feeds down | All `VenueHealth` instances unavailable | YES (needs aggregation) |
-| Silent failure (engine running but no signals for N minutes) | `metrics::counter!("arb_computations_total")` stall detection | Partial (counter exists, needs staleness check) |
-| High staleness rejection rate | `metrics::counter!("arb_staleness_rejections")` rate | Partial (counter exists, needs rate windowing) |
-| Paper trade position stuck | Position in `Pending` status for > N minutes | Needs implementation |
+**Already implemented in:** `src/events/discovery.rs::discover_kalshi()`
 
-**Why no `lettre` or `event-notification` crate:**
-- Email alerting adds SMTP configuration complexity (server, port, credentials, TLS) with no benefit over webhooks for a solo trader
-- `event-notification` is an unnecessary abstraction layer when `reqwest.post(webhook_url).json(&body).send()` does the job in one line
-- Webhook URL is a single TOML config parameter -- vastly simpler than email configuration
+| Property | Value |
+|----------|-------|
+| Endpoint | `GET /trade-api/v2/markets?series_ticker={}&status=open&limit=200` |
+| Auth | RSA-PSS signed headers (reuses existing `sign_kalshi_request`) |
+| Pagination | Cursor-based. Response includes `cursor` field; pass as query param for next page. Empty/null cursor = last page. |
+| Rate limit | Not explicitly documented for this endpoint. Current config polls every 600s. |
+| Filtering | By series_ticker, status, event_ticker. Supports up to limit=1000. |
+| Response size | Paginated, default limit=100, max 1000. KXBTC series typically has 20-50 open markets. |
 
-**Why no `tokio-cron-scheduler`:**
-- The health sweep is a simple `tokio::time::interval(Duration::from_secs(30))` loop
-- Cron expressions add complexity without benefit for fixed-interval checks
-- The existing codebase already uses `tokio::time::interval` for periodic tasks in `CrossAssetEngine` and `PaperTradeTracker`
+**No changes needed.** Cursor-based pagination is already correctly implemented in the loop.
+
+### Polymarket: `GET /markets` (Gamma API)
+
+**Already implemented in:** `src/events/discovery.rs::discover_polymarket()`
+
+| Property | Value |
+|----------|-------|
+| Endpoint | `GET {gamma_api_url}/markets?active=true&limit=100&offset={}` |
+| Auth | None required |
+| Pagination | Offset-based. Increment offset by limit until response count < limit. |
+| Rate limit | Not officially documented. Current config polls every 600s. |
+| Filtering | By active, closed, tag_id, slug, order |
+| Response size | Polymarket has thousands of markets. Crypto subset is smaller but still needs pagination. |
+
+**No changes needed.** Offset-based pagination is already correctly implemented.
+
+**Note:** The existing implementation correctly marks Polymarket as "deactivation monitoring only in v1" -- structured field extraction from free-form questions is the v1.2 addition that needs `strsim`.
 
 ---
 
-### 4. File-Based State Persistence
+## Rate Limiting Strategy for Discovery Polling
 
-**Need:** Persist paper P&L and signal history across restarts. Load state on startup, save periodically.
+The existing `governor` crate is sufficient. No new rate limiting infrastructure needed.
 
-**Already have:**
-- `serde + serde_json` -- Serialize/deserialize state structs
-- `std::fs` + `std::io::BufWriter` -- File I/O (already used in `SignalLogger`, `TradeLogger`, `JsonlWriter`)
-- `tokio::fs` -- Async file I/O (already used in `JsonlWriter`)
-- `chrono` -- Timestamps for state snapshots
+### Current Rate Limiting Architecture
 
-**Persistence strategy: Atomic JSON snapshot files**
-
-The correct approach for this system is periodic atomic writes of small JSON state files, NOT a database, NOT append-only logs for state (those are for event logs, which already exist).
-
-**How atomic writes work without new crates:**
-
-```rust
-// Write to temp file, then rename (atomic on all filesystems)
-use std::fs;
-use std::io::Write;
-
-fn save_state(path: &str, state: &impl serde::Serialize) -> anyhow::Result<()> {
-    let tmp_path = format!("{}.tmp", path);
-    let data = serde_json::to_string_pretty(state)?;
-    fs::write(&tmp_path, data.as_bytes())?;
-    fs::rename(&tmp_path, path)?; // atomic on same filesystem
-    Ok(())
-}
+```
+VenueRateLimiter (governor::RateLimiter<NotKeyed, InMemoryState, DefaultClock>)
+  |-- Per-venue instance with configurable req/s quota
+  |-- .wait().await blocks until rate allows
+  |-- Already used in: WebSocket message sending, settlement checking
 ```
 
-This is the exact pattern used by every production system for small state files (< 1MB). `std::fs::rename` is atomic on all major filesystems when source and destination are on the same mount point. No `tempfile`, `atomicwrites`, or `atomic-write-file` crate needed.
+### Discovery Polling Approach
 
-**State files to persist:**
+Discovery runs on long intervals (300-600 seconds per venue), far below any rate limit. The rate limiter is a safety net, not the primary throttle.
 
-| File | Contents | Size Estimate | Write Frequency |
-|------|----------|---------------|-----------------|
-| `state/paper_positions.json` | Open + pending paper trade positions | < 50KB | Every position change or every 60s |
-| `state/daily_aggregates.json` | Daily P&L rollups | < 10KB | Every trade settlement or daily |
-| `state/signal_outcomes.json` | Signal-to-settlement outcome map | < 100KB (rolling 30 days) | Every settlement match |
-| `state/alert_state.json` | Alert cooldown timestamps, last alert sent | < 1KB | Every alert |
+| Venue | Poll interval (config) | API rate limit | Safety margin |
+|-------|----------------------|----------------|---------------|
+| Deribit | 300s (5 min) | 1 req/s sustained | 300x headroom |
+| Kalshi | 600s (10 min) | Conservative (undocumented) | Safe at 10-min intervals |
+| Polymarket | 600s (10 min) | Undocumented | Safe at 10-min intervals |
 
-**Why no database (SQLite, sled, RocksDB):**
-- Total state is < 200KB. A database adds 1-2MB of binary size and operational complexity for zero benefit.
-- The system already uses JSONL files for event logs. State files are a natural extension.
-- `serde_json` round-trips perfectly with `rust_decimal` (using `#[serde(with = "rust_decimal::serde::str")]` as already done throughout the codebase).
-- Restart is rare (days/weeks). Loading 200KB of JSON on startup takes < 1ms.
-
-**Why no `tempfile` crate:**
-- `tempfile` provides cross-platform temp file creation with automatic cleanup. For atomic state writes, we need `write-then-rename` on a known path -- `std::fs::write` + `std::fs::rename` is simpler and has no cleanup semantics to manage.
-- The codebase is already deployed on Linux (per PROJECT.md: "Single-binary Linux service"). `rename()` is atomic on Linux ext4/xfs/btrfs.
-
-**Why no `fs4` / `fs2` (file locking):**
-- Single-process system. There is no concurrent writer. File locking protects against multiple processes writing the same file -- irrelevant here.
-- If the operator accidentally runs two instances, the WebSocket connections themselves will conflict (venues rate-limit by IP/key), making file locking moot.
+**Recommendation:** Reuse the existing `VenueRateLimiter` pattern. Create one rate limiter per venue for discovery operations, sharing the same `governor` infrastructure. The `tokio::time::interval` loop already provides coarse-grained throttling; the rate limiter prevents bursts during pagination (Kalshi may need 2-3 requests per poll cycle due to cursor pagination).
 
 ---
+
+## TOML Writing Strategy
+
+**Already implemented in:** `src/events/toml_writer.rs`
+
+The `toml_edit 0.22` crate is already integrated with working functions:
+- `append_candidate_to_toml()` -- Appends new `[[events]]` entry with `approved = false`
+- `mark_expired_in_toml()` -- Updates status field to "expired"
+
+Both functions parse the existing TOML content, modify the AST, and serialize back -- preserving all comments, formatting, and manual edits.
+
+**Why toml_edit and not toml for writing:**
+- `toml` (the serde-based crate) would serialize from structs, destroying comments, custom formatting, and field ordering
+- `toml_edit` operates on the document AST, preserving every byte that is not modified
+- This is critical because `events.toml` is human-curated (operator reviews and approves proposals)
+
+**No version upgrade needed.** `toml_edit 0.22.27` is current and compatible with `toml 0.8.23` (they share `toml_datetime 0.6.11`). While 0.23.x exists, upgrading would require also upgrading `toml` to maintain compatibility, which is unnecessary churn for zero functional benefit.
+
+---
+
+## Cargo.toml Changes
+
+**One line added:**
+
+```toml
+# Fuzzy string matching for cross-venue event name comparison
+strsim = "0.11"
+```
+
+That is the entirety of the Cargo.toml change for v1.2.
+
+Full context of what stays unchanged:
+
+```toml
+# EXISTING -- already covers v1.2 discovery needs
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }  # API polling
+serde = { version = "1.0", features = ["derive"] }                 # Response deserialization
+serde_json = "1.0"                                                  # JSON parsing
+toml = "0.8"                                                        # Config reading
+toml_edit = "0.22"                                                  # Format-preserving TOML writing
+governor = "0.8"                                                    # Rate limiting
+chrono = { version = "0.4", features = ["serde"] }                  # Dates and timestamps
+rust_decimal = { version = "1.40", features = ["maths", "serde-with-str"] }  # Strike comparison
+rsa = { version = "0.9", features = ["sha2"] }                     # Kalshi auth
+tokio = { version = "1", features = ["full"] }                     # Async runtime
+tracing = "0.1"                                                     # Logging
+
+# NEW -- one addition
+strsim = "0.11"                                                     # String similarity (Jaro-Winkler, Levenshtein)
+```
 
 ## Integration Points with Existing Architecture
 
-### New modules and where they connect:
+### What Already Exists (discovery.rs)
 
-```
-src/
-  settlement/          # NEW: Settlement outcome tracking
-    mod.rs             # SettlementTracker task
-    types.rs           # SettlementOutcome, OutcomeMatch
-    poller.rs          # Per-venue settlement polling via reqwest
-  analysis/            # NEW: Signal analysis tooling
-    mod.rs             # AnalysisEngine or CLI subcommand
-    metrics.rs         # Hit rate, edge, FPR calculations
-    report.rs          # Summary report generation
-  alerting/            # NEW: Failure alerting
-    mod.rs             # AlertManager task
-    conditions.rs      # Alert condition evaluators
-    webhook.rs         # reqwest-based webhook sender
-  persistence/         # NEW: File-based state persistence
-    mod.rs             # StateManager (load/save)
-    types.rs           # Persisted state structs
-```
+The `src/events/discovery.rs` module already contains:
+- `discover_deribit()` -- Polls Deribit instruments API, returns `Vec<DiscoveredInstrument>`
+- `discover_kalshi()` -- Polls Kalshi markets API with cursor pagination, returns `Vec<DiscoveredInstrument>`
+- `discover_polymarket()` -- Polls Polymarket Gamma API with offset pagination, returns `Vec<PolymarketMarketInfo>`
+- `find_cross_venue_candidates()` -- Groups instruments by exact `MatchKey` (asset + strike + expiry + direction)
+- `filter_new_candidates()` -- Filters out already-registered events
+- `flag_novel_instruments()` -- Identifies single-venue instruments for operator attention
 
-### Channel wiring (extends existing mpsc pattern):
+### What v1.2 Adds Using `strsim`
 
-| Source | Channel | Destination |
-|--------|---------|-------------|
-| `CrossAssetEngine` | `mpsc::Sender<ArbSignal>` | `SettlementTracker` (stores predictions for later comparison) |
-| `SettlementTracker` | `mpsc::Sender<OutcomeMatch>` | `AnalysisEngine` (computes hit rate etc.) |
-| `VenueHealth` (existing) | Read by | `AlertManager` (periodic sweep) |
-| `StateManager` | Called by | `PaperTradeTracker`, `SettlementTracker` (periodic save) |
+The missing piece is Polymarket-to-structured-field matching. Currently Polymarket is "deactivation monitoring only" because its data is free-form text. With `strsim`:
 
-### Config additions to `SystemConfig` (extends existing TOML):
+```rust
+use strsim::jaro_winkler;
 
-```toml
-[settlement]
-poll_interval_secs = 300        # 5 minutes
-lookback_days = 30              # How far back to check
-deribit_settlement_currency = "BTC"
+/// Compute confidence that a Polymarket question matches a known event.
+fn match_confidence(
+    polymarket_question: &str,
+    canonical_description: &str,
+) -> f64 {
+    let normalized_question = normalize_event_text(polymarket_question);
+    let normalized_canonical = normalize_event_text(canonical_description);
+    jaro_winkler(&normalized_question, &normalized_canonical)
+}
 
-[alerting]
-enabled = true
-webhook_url = ""                # Slack/Discord/Telegram webhook URL
-sweep_interval_secs = 30        # Health check frequency
-stale_feed_threshold_secs = 120 # Alert if no messages for 2 minutes
-alert_cooldown_secs = 300       # Don't re-alert same condition for 5 minutes
-
-[persistence]
-enabled = true
-state_dir = "state"             # Directory for state files
-save_interval_secs = 60         # Periodic save frequency
+fn normalize_event_text(text: &str) -> String {
+    text.to_lowercase()
+        .replace("bitcoin", "btc")
+        .replace("$", "")
+        .replace(",", "")
+        // ... further normalization
+}
 ```
 
-All new config sections use `#[serde(default)]` to maintain backward compatibility with existing config files, following the established pattern in `SystemConfig`.
+This enables:
+1. Given a Deribit+Kalshi candidate match (found via exact fields), search Polymarket for a market about the same event
+2. Score Polymarket questions against the canonical event description
+3. If score exceeds threshold (e.g., 0.85), include Polymarket in the proposed mapping
+
+### What toml_writer.rs Already Handles
+
+The TOML writing is fully implemented. The `append_candidate_to_toml()` function:
+- Parses existing `events.toml` preserving comments and formatting
+- Appends a new `[[events]]` entry with all venue-specific sub-tables
+- Sets `approved = false` and `discovered_at` timestamp
+- Returns the modified TOML as a string
+
+The orchestrator (discovery manager) will:
+1. Read current `events.toml` content
+2. Call `append_candidate_to_toml()` with the new candidate
+3. Write the result atomically (write-to-temp + rename, existing pattern)
+4. Emit a structured log for operator notification
+5. The existing `ConfigReloader` + SIGHUP mechanism picks up new approved entries
 
 ---
 
 ## Alternatives Considered
 
-| Recommended | Alternative | Why Not |
-|-------------|-------------|---------|
-| `std::fs::write` + `rename` for state | `tempfile` crate | Adds dependency for something `std::fs` does in 3 lines. `tempfile` is for temporary files with automatic cleanup -- not what we need. |
-| `std::fs::write` + `rename` for state | `atomic-write-file` crate | Same logic. Single-process, known paths, Linux target. The write-rename pattern is trivial. |
-| Webhook via `reqwest` | `lettre` (email) | SMTP config is 10x more complex than a webhook URL. Every notification platform supports webhooks. |
-| Webhook via `reqwest` | `event-notification` crate | Abstraction layer over what is a single `reqwest.post().json().send()` call. |
-| `tokio::time::interval` | `tokio-cron-scheduler` | Fixed intervals are simpler and sufficient. Cron expressions add complexity for zero benefit in this use case. |
-| No database | SQLite via `rusqlite` | Total state < 200KB. Database adds binary bloat, operational complexity, migration burden. |
-| No database | `sled` embedded DB | `sled` is effectively abandoned (no releases since 2022). Even if it weren't, same objection as SQLite. |
-| Hand-rolled signal metrics | `ta-statistics` crate | The metrics are simple ratios. Adding a time-series analysis crate for `wins / total` is over-engineering. |
-
-## What NOT to Use
-
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| `sled` | Abandoned since 2022, known data corruption issues | `serde_json` state files |
-| `bincode` | Abandoned, RUSTSEC-2025-0141, v3.0.0 does not compile | `serde_json` for state (human-readable, debuggable) |
-| `rusqlite` / SQLite | Massive overkill for < 200KB of state | `serde_json` state files |
-| `lettre` | SMTP complexity for a solo-trader system | Webhook via `reqwest` |
-| `tokio-cron-scheduler` | Unnecessary complexity over `tokio::time::interval` | `tokio::time::interval` |
-| Any ORM crate | No database, no ORM | Direct `serde_json` serialization |
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| String matching | strsim 0.11 | Hand-rolled Levenshtein | strsim is already compiled (via clap). Reimplementing Jaro-Winkler correctly is non-trivial and error-prone. |
+| String matching | strsim 0.11 | NLP/ML (rust-bert) | Enormous dependency (PyTorch runtime). Event matching is string comparison, not language understanding. |
+| TOML writing | toml_edit 0.22 (existing) | toml 0.8 serde serialization | Destroys comments and formatting in human-curated config files. |
+| TOML writing | toml_edit 0.22 (existing) | toml_edit 0.23 upgrade | Would require coordinated toml 0.9 upgrade. No functional benefit for our use case. |
+| Rate limiting | governor 0.8 (existing) | reqwest-middleware | Already have per-venue rate limiters. Adding middleware is unnecessary abstraction. |
+| Rate limiting | governor 0.8 (existing) | Manual tokio::time::sleep | governor provides GCRA token bucket. Manual sleep does not handle burst correctly. |
+| Discovery state | In-memory + JSON checkpoint | SQLite | Discovery state is a set of known instrument IDs. Fits in a HashSet. |
+| Pagination | Per-venue implementation (existing) | Generic paginator crate | No good Rust crate exists. Each venue has different pagination (none, cursor, offset). Three implementations already exist and work. |
 
 ## Version Compatibility
 
-No new dependencies means no new version compatibility concerns. The existing `Cargo.toml` lockfile remains unchanged for v1.1.
+| Crate | Pinned | Resolved | Rust Edition | Notes |
+|-------|--------|----------|-------------|-------|
+| strsim | 0.11 | 0.11.1 | 2015+ compatible | Already compiled as transitive dep of clap |
+| toml_edit | 0.22 | 0.22.27 | 2021+ | Paired with toml 0.8, do not upgrade independently |
+| toml | 0.8 | 0.8.23 | 2021+ | Paired with toml_edit 0.22 |
+| governor | 0.8 | 0.8.1 | 2021+ | Stable, actively maintained |
 
-Key constraint: Rust 2024 edition (1.85+) is already specified in `Cargo.toml`. All existing crates support this.
-
-## Cargo.toml Changes
-
-**None required.** The existing dependency set covers all v1.1 needs:
-
-```toml
-# EXISTING -- no changes needed for v1.1
-tokio = { version = "1", features = ["full"] }          # interval, fs, channels
-serde = { version = "1.0", features = ["derive"] }      # state serialization
-serde_json = "1.0"                                       # JSON state files
-chrono = { version = "0.4", features = ["serde"] }       # timestamps
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }  # webhook + settlement polling
-tracing = "0.1"                                          # logging
-metrics = "0.24"                                         # alert condition metrics
-axum = { version = "0.8", ... }                          # health endpoint
-rust_decimal = { version = "1.40", ... }                 # P&L arithmetic
-statrs = "0.18"                                          # statistical analysis
-clap = { version = "4.5", features = ["derive"] }        # analysis CLI subcommand
-uuid = { version = "1", features = ["v7", "serde"] }     # outcome match IDs
-thiserror = "2.0"                                        # error types
-anyhow = "1.0"                                           # error propagation
-```
+Key constraint: Rust 2024 edition (1.85+) is specified in `Cargo.toml`. All crates (existing and new) support this.
 
 ## Sources
 
-- [Deribit API Documentation](https://docs.deribit.com/) -- Settlement endpoint `public/get_last_settlements_by_currency` (HIGH confidence)
-- [Kalshi API Documentation](https://docs.kalshi.com/api-reference/portfolio/get-settlements) -- `GET /portfolio/settlements` endpoint (HIGH confidence)
-- [Polymarket Developer Docs](https://docs.polymarket.com/developers/resolution/UMA) -- UMA Oracle resolution mechanism (MEDIUM confidence -- settlement query API still evolving)
-- [tempfile crate](https://crates.io/crates/tempfile) -- v3.20.0, evaluated and rejected as unnecessary (HIGH confidence)
-- [atomic-write-file crate](https://crates.io/crates/atomic-write-file) -- Evaluated and rejected as unnecessary for single-process use (HIGH confidence)
-- [lettre crate](https://crates.io/crates/lettre) -- v0.10+, evaluated and rejected in favor of webhook approach (HIGH confidence)
-- [serde_json latest](https://crates.io/crates/serde_json) -- v1.0.149 confirmed active maintenance through 2026 (HIGH confidence)
-- Existing codebase analysis: `src/signal/logger.rs`, `src/paper_trade/tracker.rs`, `src/feed/recording/writer.rs`, `src/feed/health.rs`, `src/health/mod.rs` -- Established patterns for JSONL logging, daily rotation, health tracking, periodic tasks (HIGH confidence)
+- [strsim crate on crates.io](https://crates.io/crates/strsim) -- v0.11.1, provides Jaro-Winkler, Levenshtein, Sorensen-Dice and others (HIGH confidence)
+- [strsim-rs GitHub](https://github.com/rapidfuzz/strsim-rs) -- Maintained by rapidfuzz organization, last updated Nov 2025 (HIGH confidence)
+- [strsim 0.11.1 API docs](https://docs.rs/strsim/0.11.1/strsim/) -- Full function listing confirmed (HIGH confidence)
+- [Deribit API docs](https://docs.deribit.com/) -- `public/get_instruments` endpoint: no pagination, no auth, 1 req/s sustained limit (HIGH confidence)
+- [Kalshi API docs: Get Markets](https://docs.kalshi.com/api-reference/market/get-markets) -- Cursor-based pagination, limit 1-1000, series_ticker filtering (HIGH confidence)
+- [Kalshi API docs: Pagination](https://docs.kalshi.com/getting_started/pagination) -- Cursor mechanism: null cursor = last page (HIGH confidence)
+- [Polymarket Gamma API: Get Events](https://docs.polymarket.com/developers/gamma-markets-api/get-events) -- Offset-based pagination, active/closed filtering (HIGH confidence)
+- [toml_edit on crates.io](https://crates.io/crates/toml_edit) -- v0.23.7 latest, v0.22.27 in use, no breaking changes needed (MEDIUM confidence)
+- [governor on crates.io](https://crates.io/crates/governor) -- v0.8.x, GCRA-based rate limiting (HIGH confidence)
+- Existing codebase analysis: `src/events/discovery.rs`, `src/events/toml_writer.rs`, `src/feed/reliability/rate_limiter.rs` -- All three discovery functions, TOML writer, and rate limiter already implemented (HIGH confidence)
+- Cargo dependency tree: `cargo tree -p strsim -i` confirms strsim 0.11.1 is already compiled via clap_builder (HIGH confidence)
 
 ---
-*Stack research for: v1.1 Paper Trading Validation*
-*Researched: 2026-02-24*
+*Stack research for: v1.2 Automated Event Management*
+*Researched: 2026-02-26*

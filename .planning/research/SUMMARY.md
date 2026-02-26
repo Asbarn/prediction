@@ -1,190 +1,182 @@
 # Project Research Summary
 
-**Project:** v1.1 Paper Trading Validation
-**Domain:** Settlement outcome tracking, signal analysis, failure alerting, file-based state persistence — built atop an existing 22,751 LOC async Rust cross-venue prediction market arbitrage system
-**Researched:** 2026-02-24
+**Project:** v1.2 Automated Event Management
+**Domain:** Cross-venue prediction market arbitrage — automated event discovery, matching, and lifecycle management
+**Researched:** 2026-02-26
 **Confidence:** HIGH
 
 ## Executive Summary
 
-The v1.1 milestone adds four capabilities to an already-working paper trading system: settlement outcome tracking (so signal predictions can be verified against actual event resolutions), signal analysis tooling (hit rate, edge measurement, false positive rate, time-to-convergence), failure alerting (detecting silent degradation before it corrupts the validation data), and file-based state persistence (so multi-week paper trading sessions survive restarts). The central goal is answering a single question with statistical confidence: "Are the cross-venue arbitrage signals generating real alpha, or are they artifacts of threshold misconfiguration and structural basis?"
+The v1.2 milestone adds automated event discovery and lifecycle management to an existing production-grade Rust arbitrage signal generator. The critical finding from research is that the foundation is already substantially built: `discovery.rs` (981 lines), `lifecycle.rs` (593 lines), and `toml_writer.rs` (303 lines) already implement REST polling for all three venues, exact four-field cross-venue matching, TOML proposal writing, and registry refresh. The question is not "how to build discovery" but "what specific gaps remain." There are two primary gaps: (1) Polymarket structured field extraction — the API returns free-form question text with no machine-readable strike, direction, or asset fields, requiring regex-based parsing of `groupItemTitle`; and (2) feed subscription management — when an operator approves a mapping, the `EventRegistry` updates but the venue WebSocket supervisors never subscribe to the new instruments, so the approved event silently produces no market data.
 
-The recommended approach is additive extension with zero new dependencies. Every capability the four features require is already present in the existing dependency tree: `reqwest` handles settlement API polling and webhook alerting, `serde_json` handles state persistence, `tokio::time::interval` handles periodic tasks, and the existing JSONL logging infrastructure provides the event-log substrate for analysis. This is a deliberate architectural constraint — the system is a solo-operator single-binary Linux service and the < 200KB total state volume makes a database unjustifiable. The build order is critical: settlement outcome tracking is the hard dependency that must exist before any signal analysis is meaningful. Failure alerting and file persistence can be built in parallel as independent tracks.
+The recommended approach is to address the simpler, higher-value gaps first and defer the architecturally complex feed subscription work. Polymarket structured discovery and expiry date tolerance matching (venues use different expiry conventions — Deribit on Fridays, Kalshi end-of-month) together unlock three-venue automated candidate proposals with minimal code changes. Event retirement and cleanup prevent unbounded `events.toml` growth during extended unattended operation. These three workstreams are independent and low-risk. Live subscription management is the right final piece: it requires modifying all three venue WebSocket supervisors and adding a new `SubscriptionManager` component, but the architecture is clear — use `watch::channel<Vec<String>>` to push updated instrument lists to supervisors, triggering graceful reconnects that pick up new subscriptions. An acceptable interim is SIGHUP/restart-on-approval if implementation complexity needs to be deferred to v1.3.
 
-The key risks are: (1) settlement APIs are more heterogeneous than expected — Polymarket has no clean resolution endpoint and Deribit settlement prices must be compared against strikes to derive binary outcomes; (2) hit rate measurement is trivially wrong if timing windows, fill-vs-signal timing, and cost-adjusted P&L are not designed correctly from the start; (3) file persistence on Windows has non-atomic `rename()` semantics that differ from Linux POSIX behavior; and (4) alerting that monitors only connectivity misses the most dangerous class of failures — silent degradation where the system is connected but producing stale or missing output. All four risks have concrete mitigations already documented in the research.
-
----
+The dominant risks are false positive cross-venue matches (instruments that look equivalent but have different settlement semantics), race conditions between the TOML atomic writer and the file watcher on Windows, and expiry detection false positives (absence from a partial API response interpreted as instrument expiry). All three are mitigated by patterns already present or easily added: match confidence scoring with settlement time comparison, batched TOML writes per poll cycle, and requiring N consecutive absences before marking an instrument expired. The human approval gate (`approved = false` on all auto-discovered candidates) is a non-negotiable safety mechanism that must not be bypassed regardless of confidence scores.
 
 ## Key Findings
 
 ### Recommended Stack
 
-No new crate dependencies are required for v1.1. This is the highest-confidence finding from STACK.md, supported by feature-by-feature analysis. The existing dependency set (`tokio`, `reqwest`, `serde_json`, `chrono`, `rust_decimal`, `statrs`, `tracing`, `metrics`, `axum`, `clap`, `uuid`, `thiserror`, `anyhow`) covers every need. Crates that were evaluated and explicitly rejected include: `sled` (abandoned 2022, data corruption issues), `bincode` (RUSTSEC-2025-0141, v3 does not compile), `rusqlite` (massive overkill for <200KB state), `lettre` (SMTP complexity vs webhook simplicity), `tokio-cron-scheduler` (overkill over `tokio::time::interval`), `tempfile` (three lines of `std::fs` suffice for the atomic write pattern), and any ORM crate.
+The existing Rust dependency tree already covers virtually all v1.2 needs. The only new direct dependency is `strsim 0.11` for string similarity metrics (Jaro-Winkler, normalized Levenshtein) used in Polymarket question text matching. This crate is already compiled transitively via `clap_builder -> strsim 0.11.1`, so it adds zero binary size cost. All three venue discovery clients (`reqwest 0.12`), TOML writing (`toml_edit 0.22`), rate limiting (`governor 0.8`), async runtime (`tokio 1.x`), and structured logging (`tracing 0.1`) are already in place. The one-line Cargo.toml change is: `strsim = "0.11"`.
 
-**Core technologies for v1.1 work:**
-- `reqwest 0.12`: Settlement API polling (Deribit REST, Kalshi REST, Polymarket Gamma API) and webhook alerting — already in tree
-- `serde + serde_json`: State checkpoint serialization and JSONL signal/trade log reading — already in tree
-- `tokio::time::interval`: Periodic polling loops for settlement tracker, alert monitor, checkpoint writer — already in tree
-- `std::fs::write` + `std::fs::rename`: Atomic state file writes (write-to-tmp-then-rename, same pattern as existing `ContractLifecycleManager::atomic_write()`) — stdlib, no new crate
-- `statrs 0.18`: Available for Sharpe ratio computation; most signal metrics (hit rate, false positive rate) are simple ratios requiring no statistical library — already in tree
-- `clap 4.5`: Analysis CLI subcommand for running post-hoc reports — already in tree
+Full details in `.planning/research/STACK.md`.
+
+**Core technologies:**
+- `strsim 0.11`: Polymarket question similarity scoring — only new direct dependency; already compiled transitively
+- `reqwest 0.12`: REST polling for all three venue discovery APIs — unchanged, already implemented
+- `toml_edit 0.22`: Format-preserving TOML writes — preserves operator comments and formatting; already fully implemented
+- `governor 0.8`: Per-venue rate limiting for discovery polls — share existing `VenueRateLimiter` instances, do not create separate ones
+- `tokio::sync::watch`: Dynamic instrument list delivery to supervisors — key new usage pattern for SubscriptionManager
 
 ### Expected Features
 
 Full details in `.planning/research/FEATURES.md`.
 
-**Must have (table stakes — all four are required to answer "are signals real?"):**
-- Settlement outcome tracking per venue (Deribit delivery price vs strike, Kalshi `result` field, Polymarket Gamma API resolution) — without this, hit rate is impossible
-- Signal analysis core metrics: hit rate, average edge (cost-adjusted), false positive rate, time-to-convergence — the analytical payoff of the whole milestone
-- File-based state persistence with atomic writes and startup recovery — prevents losing weeks of paper trade data on restart
-- Failure alerting with liveness checks (feed silence, partial coverage, no-signal detection) — without this, operator cannot trust data integrity during the validation period
+**Must have (table stakes):**
+- Polymarket structured market discovery (TS-1) — current system is Deribit+Kalshi only for auto-matching; Polymarket requires regex parsing of `groupItemTitle` (e.g., "up 150,000" -> direction=Above, strike=150000)
+- Expiry date tolerance matching (TS-2) — exact date matching misses most real cross-venue matches; venues differ by 3-7 days (Deribit Friday vs Kalshi end-of-month)
+- Event retirement and cleanup (TS-3) — without pruning, `events.toml` grows to ~2600 entries per year; toml_edit parse time degrades linearly
+- Proposal workflow enhancement (TS-4) — structured WARN-level logs with all matched fields, Prometheus gauges for pending proposal count, approval validation on config reload
 
-**Should have (differentiators, build if time allows):**
-- Settlement prediction scheduling (pre-schedule API polls based on known expiry dates from `EventMapping`, avoiding unnecessary polling)
-- Threshold effectiveness analysis: compare `ThresholdStatus::PassedBoth` vs `PassedStaticOnly` vs `Filtered` against final settlement outcomes — directly answers "should I tighten/loosen thresholds?"
-- Pattern-specific performance breakdown by `SpreadPattern` and `ArbDirection`
-- Cross-venue settlement discrepancy detection (flags when Polymarket and Kalshi resolve the same underlying event differently)
+**Should have (competitive):**
+- Live subscription management (TS-5) — new approved events produce no market data without this; `SubscriptionManager` with `watch::channel` push to supervisors and graceful reconnect
+- Match confidence scoring (D-3) — combine expiry alignment confidence, venue count, and settlement time difference into 0.0-1.0 score; prevents operator fatigue and rubber-stamping
+- Discovery health monitoring (D-2) — per-venue failure counters; alert if a venue consistently fails discovery (distinct from feed health)
 
-**Defer to v2+ (anti-features for v1.1):**
-- Full database (SQLite/PostgreSQL) — unjustifiable for <200KB of state
-- Real-time dashboarding of signal analytics — statistics require settlement data that arrives hours/days later; real-time display of incomplete stats is misleading
-- Automated threshold adjustment — premature optimization on sparse data will oscillate; surface metrics clearly and let operator adjust TOML manually
-- Email/SMS/PagerDuty integration — emit to Prometheus and let Alertmanager handle routing if needed
-- Historical data backfill from venue APIs — separate data engineering task; v1.1 accumulates data going forward
+**Defer (v1.3+):**
+- Live subscription management is acceptable to defer if SIGHUP/restart-on-approval is operationally tolerable; the architecture is designed for it but implementation is highest-risk
+- Multi-asset discovery (ETH, SOL) — validate BTC automation first; keep `deribit_currencies = ["BTC"]`
+- Polymarket question pattern library (D-2) — start with hardcoded regex for BTC price markets; make configurable later
+- NLP/ML-based question parsing — never; regex covers the BTC binary market pattern space and NLP adds massive dependency weight
+- Automatic approval of high-confidence matches — never for a system managing real capital; the `approved = false` gate is a deliberate safety mechanism
 
 ### Architecture Approach
 
-The architecture is strictly additive: four new tokio tasks plugged into the existing pipeline as consumers of existing data, with no changes to the hot path (fan-out, SpreadEngine, PricingEngine, CrossAssetEngine). The existing patterns — tokio tasks with `CancellationToken`, bounded `mpsc` channels (1024), `tokio::select! biased`, JSONL daily-rotation logging with `BufWriter`, `Arc<RwLock<T>>` for shared state with `try_read` on hot paths, and `#[serde(default)]` config structs — are all reused verbatim. The architecture research is based on direct analysis of 22,751 LOC of existing source code, giving this section uniquely high confidence.
+The v1.2 architecture follows a sidecar-subscription pattern: a new `SubscriptionManager` background task reads from the same `watch::channel<AppConfig>` as the existing config subscriber, diffs the EventRegistry's active instrument sets per venue, and pushes updated `Vec<String>` lists to each venue supervisor via dedicated `watch::channel` senders. Supervisors detect `instruments_rx.changed()` inside their `tokio::select!` forwarding loops and trigger graceful reconnects. This approach avoids touching the hot path (Feeds -> SpreadEngine -> SignalEngine), preserves the `ContractLifecycleManager`/`EventRegistry`/`ConfigReloader` triad unchanged, and leverages the already-battle-tested supervisor reconnection infrastructure. The `events.toml` file remains the single source of truth — no in-memory-only state that would be lost on restart.
 
-**Four new modules, all additive:**
+Full details in `.planning/research/ARCHITECTURE.md`.
 
-1. `src/settlement/` (`SettlementTracker`) — Periodic tokio task; watches `EventRegistry` for expired events; polls per-venue REST APIs via `reqwest`; emits `SettlementOutcome` via mpsc channel to `SignalAnalyzer` and `PaperTradeTracker`; writes settlement JSONL. Build order: second (after alerting scaffold, before analysis).
-
-2. `src/analysis/` (`SignalAnalyzer`) — Hybrid online/batch accumulator; receives `ArbSignal` from a new fan-out tap on the existing arb_signal channel and `SettlementOutcome` from settlement tracker; computes hit rate, edge accuracy, false positive rate, time-to-convergence; writes analysis JSONL and Prometheus gauges. Build order: third (depends on settlement outcomes).
-
-3. `src/alert/` (`AlertMonitor`) — Periodic sweep (every 30s); reads `VenueHealth` atomics (non-blocking); checks feed silence, partial coverage, no-signal gap; emits `tracing::warn!`, Prometheus metrics, shares `Arc<RwLock<HashMap<AlertKey, ActiveAlert>>>` with health endpoint via `try_read`. Build order: first (no new dependencies).
-
-4. `src/persistence/` (`StatePersistence`) — Checkpoint-based (not WAL); periodic serialize of `PaperTradeTracker::snapshot()` and `SignalAnalyzer::snapshot()` to `state/checkpoint.json` via atomic write-then-rename; startup recovery loads checkpoint then replays JSONL events after checkpoint timestamp. Build order: fourth (needs stable snapshot APIs from other components).
-
-**Modifications to existing modules:**
-- `src/paper_trade/tracker.rs`: Add `snapshot()`/`restore()` methods; wire `SettlementOutcome` channel for position settlement
-- `src/paper_trade/aggregator.rs`: Add `Deserialize` derive to `DailyRollup` (currently only `Serialize`)
-- `src/health/mod.rs`: Add `alerts: Vec<AlertSummary>` field to `HealthResponse`
-- `src/config/system.rs`: Add `[settlement]`, `[alerting]`, `[persistence]` config sections with `#[serde(default)]`
+**Major components:**
+1. `events/subscription.rs` (NEW) — SubscriptionManager: watches config changes, diffs per-venue instrument sets, pushes updated lists via watch channels, emits subscription metrics
+2. `feed/*/supervisor.rs` (MODIFIED, minor) — accept `watch::Receiver<Vec<String>>`, add `instruments_rx.changed()` branch to select!, break inner loop on change to reconnect with updated list
+3. `feed/pipeline.rs` and `main.rs` (MODIFIED) — create watch channels, wire senders to SubscriptionManager and receivers to supervisors
+4. `events/discovery.rs` (MODIFIED) — add Polymarket crypto tag filtering, parse `groupItemTitle` for structured fields, change `PolymarketMarketInfo` return to `DiscoveredInstrument`
+5. `events/discovery.rs::find_cross_venue_candidates()` (MODIFIED) — change expiry matching from exact `NaiveDate` equality to tolerance-based window (configurable, default 7 days)
 
 ### Critical Pitfalls
 
 Full details in `.planning/research/PITFALLS.md`.
 
-1. **Settlement data is heterogeneous across venues** — Deribit requires delivery-price-vs-strike comparison (not a raw yes/no field); Polymarket has no dedicated resolution endpoint as of early 2025 (must infer from `closed: true` Gamma API flag, or lock to 0/1 price); Kalshi requires RSA JWT auth for the `result` field. Mitigation: per-venue adapter with normalized `SettlementOutcome` type; poll with exponential backoff starting expiry+5 min; implement `SettlementStatus::Pending` for outcomes not yet available; handle off-line-period backfill on startup by scanning open positions with expired events.
+1. **False positive cross-venue matches** — Instruments that appear equivalent but have different settlement semantics (different settlement times on same expiry date, floating-point strike normalization drift). Avoid by adding settlement time comparison to candidate proposals, emitting WARN-level structured logs with raw venue data for operator verification, and tracking proposal vs approval rates via Prometheus counters.
 
-2. **Hit rate measurement is trivially wrong without careful timing design** — must use fill price (not signal price), must compute cost-adjusted P&L (including adverse selection, fees, carry), must report fill rate and hit rate separately, must gate on `PositionStatus::Settled` not `PositionStatus::Open`. Survivorship bias: unfilled signals (typically in fast-moving markets) must be counted in the denominator. Mitigation: define all metrics precisely before implementation; test with a synthetic known-outcome trade.
+2. **Feed subscription gap on approval** — EventRegistry updates when `approved = true` is set but no venue WebSocket subscribes to the new instruments; approved events silently produce no market data. Avoid by implementing SubscriptionManager (Phase 4) or as an interim: add a diagnostic metric for "approved events with no recent snapshots" and document that restart picks up new subscriptions.
 
-3. **File persistence corruption on crash** — Standard `File::create()` + `serde_json::to_writer()` is not atomic; crash between open and flush leaves truncated JSON. Windows `rename()` fails if target exists (unlike POSIX). Mitigation: always use write-to-tmp-then-rename (already exists as `ContractLifecycleManager::atomic_write()`); on Windows, `remove_file` before `rename`; keep JSONL trade logs as source of truth for replay recovery.
+3. **TOML write/file-watcher race condition** — Lifecycle manager and ConfigReloader both update the EventRegistry independently; on Windows, atomic rename produces DELETE + RENAME events that the debouncer may fire between. Avoid by batching all TOML modifications per poll cycle into one write, then refreshing registry once; treat double-refresh as harmless (idempotent) but log both sources distinctly.
 
-4. **Alerting that monitors connectivity instead of output liveness** — The most dangerous failures are silent: feed connected but not streaming, config drift causing zero event mappings, all thresholds too tight producing no signals. Mitigation: add dead-man's-switch liveness timestamps per pipeline stage (`last_spread_computed_at`, `last_signal_evaluated_at`); alert on absence of expected events, not just presence of errors.
+4. **Stale API data causing false expirations** — Partial Deribit API responses (timeout mid-read) cause active instruments to appear absent and get marked expired. Avoid by requiring N consecutive absences (3+ polls) before expiry transition, validating response completeness (instrument count drop >20% = suspect), and checking that the expiry date has actually passed before writing `status = "expired"`.
 
-5. **Blocking tokio runtime with synchronous file I/O** — `std::fs::write()` inside an `async fn` blocks a tokio worker thread, stalling all other tasks sharing that thread. Mitigation: use `tokio::task::spawn_blocking()` or `tokio::fs` for checkpoint writes; serialize to `Vec<u8>` in async context, then hand bytes to `spawn_blocking` for the actual write+rename; never put file I/O in the message-processing path of the `tokio::select!` loop.
-
----
+5. **Polymarket discovery gap producing incomplete automation** — Without structured field extraction, all auto-discovered events are Deribit+Kalshi only. The regex approach on `groupItemTitle` covers the BTC binary market pattern space but is fragile to Polymarket format changes. Mitigate with logging of extraction failures and keeping BTC-only scope in v1.2.
 
 ## Implications for Roadmap
 
-Based on combined research, the natural phase structure is dependency-driven with two parallel tracks in Phase 1. All research files converge on the same build order.
+Based on research, suggested phase structure:
 
-### Phase 1A: Failure Alerting
-**Rationale:** No dependencies on any other new v1.1 component. Reads existing `VenueHealth` atomics. Delivers immediate operational value for unattended paper trading runs. Simplest of the four features. Should be built first so it is monitoring throughout the entire v1.1 build process.
-**Delivers:** `AlertMonitor` task, alert deduplication with cooldown, `tracing::warn!` + Prometheus alert metrics, health endpoint extension with active alert summary, webhook POST via `reqwest` for operator notifications.
-**Addresses:** TS-3 (Failure Alerting) from FEATURES.md
-**Avoids:** Pitfall 4 (monitor output liveness, not just connectivity) — specifically implement dead-man's-switch checks at each pipeline stage, not just `VenueHealth.is_available()`
-**Research flag:** Standard patterns — follows existing `ContractLifecycleManager` interval task pattern exactly. Skip `/gsd:research-phase`.
+### Phase 1: Venue Discovery Hardening
 
-### Phase 1B: File-Based State Persistence (parallel with 1A)
-**Rationale:** No dependencies on settlement tracking or signal analysis. Depends only on existing `PaperPosition` (already `Serialize + Deserialize`) and the `atomic_write()` pattern already in `ContractLifecycleManager`. Enables the multi-week paper trading sessions that v1.1 requires without data loss on restart.
-**Delivers:** `StatePersistence` module with checkpoint writer and startup recovery, `PaperTradeTracker::snapshot()`/`restore()` methods, `DailyRollup: Deserialize`, atomic JSON checkpoint files in `state/` directory, JSONL event replay for recovery after checkpoint timestamp.
-**Addresses:** TS-4 (File-Based Persistence) from FEATURES.md
-**Avoids:** Pitfall 3 (file corruption) and Pitfall 5 (blocking tokio runtime) — use `tokio::task::spawn_blocking` for checkpoint writes; design startup recovery path before any other code touches `PaperTradeTracker::new()`
-**Research flag:** Standard patterns — write-then-rename is established in codebase, `serde` is already complete. Windows-specific `rename()` behavior needs a kill-test verification. Skip `/gsd:research-phase` but include kill-test in acceptance criteria.
+**Rationale:** The discovery polling infrastructure exists but has production deficiencies: per-component rate limiters instead of shared ones, absence-based expiry detection without consecutive-absence guards, and no response completeness validation. These must be fixed before adding new complexity on top.
 
-### Phase 2: Settlement Outcome Tracking
-**Rationale:** The critical path item. Every downstream analysis feature (hit rate, edge measurement, threshold effectiveness) is mathematically impossible without knowing how events actually resolved. Must be built after alerting (so degradation is visible during integration) and persistence (so settlement outcomes are durable). This is also the most technically uncertain phase due to heterogeneous venue APIs.
-**Delivers:** `SettlementTracker` task with per-venue adapters (Deribit delivery price, Kalshi result field, Polymarket Gamma API), `SettlementOutcome` mpsc channel to downstream consumers, settlement outcomes JSONL, `PositionStatus::Settled` transitions on `PaperTradeTracker`, `SettlementStatus::Pending` for outcomes not yet available, backfill on startup for events that expired while system was offline.
-**Addresses:** TS-1 (Settlement Outcome Tracking) and differentiator D-1 (Settlement Timing Intelligence) from FEATURES.md
-**Avoids:** Pitfall 1 (venue API heterogeneity) — implement per-venue adapter trait, poll with exponential backoff from expiry+5min, handle Polymarket's lack of a clean resolution endpoint via `closed` flag + price-locks-to-0-or-1 fallback
-**Research flag:** NEEDS `/gsd:research-phase` during planning. Venue settlement APIs have gaps and ambiguities (especially Polymarket). Integration test with a real expired instrument from each venue before considering phase complete.
+**Delivers:** Stable, production-safe discovery polling across all three venues; shared rate limiters; response completeness validation; N-consecutive-absence expiry guard; batched TOML writes per poll cycle.
 
-### Phase 3: Signal Analysis Tooling
-**Rationale:** The analytical payoff of v1.1. Depends on Phase 2 (settlement outcomes must flow in before hit rate is meaningful). The online accumulation infrastructure (counters, grouping by event/direction/pattern) can be scaffolded early, but metrics only become meaningful once real settlement data arrives. This phase transforms raw data into the answer: "Are signals real?"
-**Delivers:** `SignalAnalyzer` task, `SignalAnalysisReport` with hit rate, cost-adjusted average edge, false positive rate, time-to-convergence, per-event breakdown, per-direction breakdown, `ArbSignal` fan-out tap from existing arb_signal channel, periodic structured log reports, Prometheus gauges for rolling metrics, threshold effectiveness analysis (correlate `ThresholdStatus` with settlement outcomes), pattern-specific performance by `SpreadPattern` and `ArbDirection`.
-**Addresses:** TS-2 (Signal Analysis Tooling) and differentiators D-2 (Advanced Signal Analytics) from FEATURES.md
-**Avoids:** Pitfall 2 (wrong timing windows) — define all metric denominators precisely: hit rate = `filled_and_profitable_at_settlement / total_filled`; report fill rate and signal accuracy separately; include adverse selection in P&L; gate all rate computations on `PositionStatus::Settled`
-**Research flag:** Standard patterns for metric accumulation. The analysis methodology (timing windows, cost-adjusted P&L) needs careful specification in the phase plan. Skip `/gsd:research-phase` but require precision spec for each metric formula before implementation begins.
+**Addresses:** TS-3 (unapproved candidate expiration), TS-4 (structured proposal logs)
+
+**Avoids:** Pitfall 3 (rate limit exhaustion from independent rate limiters), Pitfall 4 (false expirations from partial API responses), Pitfall 2 (TOML write race condition via batched writes)
+
+### Phase 2: Cross-Venue Matching Upgrade
+
+**Rationale:** Expiry tolerance matching (TS-2) is a surgical change to `find_cross_venue_candidates()` with high impact — without it, most real cross-venue matches are missed because venues use different expiry date conventions. Polymarket structured discovery (TS-1) is the hardest new work but the most valuable for full automation. These two belong together because both feed into the same candidate generation pipeline.
+
+**Delivers:** Three-venue automated candidate proposals; expiry tolerance window (configurable, default 7 days); Polymarket `groupItemTitle` regex parser; match confidence scoring; settlement time comparison in proposals; WARN-level structured proposal logs.
+
+**Uses:** `strsim 0.11` (Jaro-Winkler for Polymarket question confidence scoring); existing `discover_polymarket()` (add tag_id=21 filter, structured field extraction)
+
+**Implements:** Modified `MatchKey` comparison, new Polymarket parser, confidence composite score on `CandidateMapping`
+
+**Avoids:** Pitfall 1 (false positive matches via confidence scoring and settlement time logging), Pitfall 5 (Polymarket gap — partial mitigation via regex extractor)
+
+### Phase 3: Lifecycle Integration and Cleanup
+
+**Rationale:** Event retirement (TS-3) and full lifecycle coordination are independent of discovery features but critical for long-term operation. Without archival, `events.toml` grows unboundedly. This phase also adds the intermediate `expiry_detected` status, Prometheus coverage metrics, and approval validation on config reload.
+
+**Delivers:** Expired event archival (entries >7 days past expiry moved to `events_archive.toml`); unapproved candidate auto-expiration; `Retired` lifecycle status variant; EventRegistry index skip for expired entries; coverage gauges (`lifecycle_events_coverage{venues="2|3"}`); approval validation (verify instrument still active on venue before activating mapping).
+
+**Addresses:** TS-3 (full event retirement), TS-4 (Prometheus metrics for pending proposals)
+
+**Avoids:** Pitfall 7 (TOML file growth), Pitfall 4 (intermediate `expiry_detected` state as safety buffer before committing to `expired`)
+
+### Phase 4: Live Subscription Management
+
+**Rationale:** This is the highest-risk, highest-complexity phase and the final gap that enables true fire-and-forget operation. Without it, newly approved events require a restart to begin receiving market data. Deferring to last ensures the discovery and matching pipeline is validated before complicating the feed layer. If SIGHUP/restart-on-approval is operationally acceptable, this phase can be deferred to v1.3.
+
+**Delivers:** `events/subscription.rs` SubscriptionManager; `watch::Receiver<Vec<String>>` integration into all three venue supervisors; graceful reconnect on instrument list change; subscription activation/removal metrics; end-to-end flow: discover -> propose -> approve -> subscribe -> spreads.
+
+**Implements:** Architecture components: SubscriptionManager, supervisor watch channels, main.rs wiring
+
+**Avoids:** Pitfall 6 (feed subscription gap on approval), Anti-Pattern 1 (mpsc command approach — use reconnect instead)
 
 ### Phase Ordering Rationale
 
-- **Alerting first** because the build process itself benefits from monitoring. If settlement API integration breaks something subtle (e.g., an unexpected API error silently starves the settlement tracker channel), alerting will surface it during development.
-- **Persistence parallel to alerting** because they are fully independent and both are prerequisites for meaningful multi-week paper trading. Persistence needs `PaperTradeTracker` modifications that can be done before settlement integration.
-- **Settlement before analysis** because the dependency is absolute — signal analysis without settlement outcomes produces nonsense. There is no way to defer this ordering.
-- **Analysis last** because it requires both settlement data flowing AND stable interfaces from all three upstream components. It is also the highest-value deliverable, so arriving at it via a stable foundation is correct.
+- Phase 1 before Phase 2: Shared rate limiters and batched TOML writes must be in place before high-frequency candidate generation from three-venue matching; otherwise rate exhaustion and race conditions compound.
+- Phase 2 before Phase 3: Retirement and archival logic is simpler once the full discovery pipeline is working correctly; avoids building cleanup for a partially-correct system.
+- Phase 3 before Phase 4: Subscription management reads from a stable, validated EventRegistry; Phase 3 adds approval validation that catches bad mappings before they trigger subscriptions.
+- TS-5 (Live Subscription Management) is explicitly confirmed as deferrable: restart-on-approval has recovery cost LOW per the pitfalls research, and the architecture is designed to accommodate it naturally.
 
 ### Research Flags
 
-Phases needing deeper research during planning:
-- **Phase 2 (Settlement Outcome Tracking):** Venue API heterogeneity is documented but integration details need hands-on verification. Specifically: Polymarket resolution detection (no clean endpoint), Deribit settlement history instrument ID behavior post-expiry (instruments are delisted), Kalshi auth requirements for settlement data. Recommend integration test with one real expired instrument per venue before Phase 2 is considered complete.
+Phases likely needing deeper research during planning:
+- **Phase 2 (Polymarket parser):** Polymarket `groupItemTitle` format stability and edge cases. The API is permissionless — format can change without notice. Sample live API responses for current BTC price market structure before finalizing regex patterns.
+- **Phase 4 (Supervisor modifications):** Each venue WebSocket has different subscription semantics. Kalshi and Polymarket subscription message formats need verification against live API behavior before implementing. The reconnect approach sidesteps incremental subscription protocol differences but needs per-supervisor integration testing.
 
-Phases with standard patterns (skip `/gsd:research-phase`):
-- **Phase 1A (Failure Alerting):** Follows `ContractLifecycleManager` pattern exactly. VenueHealth atomics are already the right substrate. Only design decision is the dead-man's-switch liveness check implementation.
-- **Phase 1B (File-Based Persistence):** Atomic write pattern already exists in codebase. The kill-test verification is an acceptance criterion, not a research question.
-- **Phase 3 (Signal Analysis):** Signal quality metrics are standard quant domain knowledge. Implementation is arithmetic on JSONL data. The research gap is methodology specification (what exactly counts in each denominator), not technology.
-
----
+Phases with standard patterns (skip research-phase):
+- **Phase 1 (Discovery hardening):** All patterns are well-established in the existing codebase. Rate limiter sharing, batched writes, and consecutive-absence tracking are straightforward Rust async patterns.
+- **Phase 3 (Lifecycle cleanup):** Archival strategy and TOML manipulation via `toml_edit` follow the same patterns already proven in `toml_writer.rs`. No new technical territory.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Zero new dependencies; every claim verified against existing `Cargo.toml`. Rejected crates evaluated explicitly (sled, bincode, rusqlite, lettre). Rust 2024 edition (1.85+) already specified — no version concerns. |
-| Features | HIGH (table stakes) / MEDIUM (differentiators) | Table stakes features are directly grounded in existing code (PaperPosition, DailyRollup, VenueHealth are already the substrate). Differentiator value estimates are based on quant research literature with MEDIUM confidence. |
-| Architecture | HIGH | Based on direct source code analysis of 22,751 LOC, not inference. Every integration point is traced to specific files and line numbers. The "extend, don't restructure" principle is confirmed by codebase structure. |
-| Pitfalls | HIGH (integration, architecture) / MEDIUM (venue API behavior) | Integration pitfalls are based on direct codebase analysis (e.g., existing `atomic_write()` pattern, Windows rename semantics, tokio blocking behavior). Venue API pitfalls are based on official documentation plus GitHub issues — real but may evolve. |
+| Stack | HIGH | One new dependency (`strsim 0.11`); all others already in tree. Verified via Cargo dependency tree and crates.io. No version conflicts. |
+| Features | HIGH (table stakes) / MEDIUM (Polymarket matching) | Deribit/Kalshi API behavior well-documented. Polymarket `groupItemTitle` format confirmed via live API but not guaranteed stable — permissionless market creation means format varies. |
+| Architecture | HIGH | Based on direct codebase analysis of 32K+ LOC system. All component boundaries and data flows verified against actual source files. |
+| Pitfalls | HIGH (integration pitfalls) / MEDIUM (venue API behavior under sustained load) | Integration pitfalls derived from direct codebase analysis. API behavior pitfalls based on documentation and reported edge cases; sustained-load behavior is inferred. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Polymarket resolution detection:** No dedicated REST endpoint for querying market resolution results as of early 2025. The recommended approach (`closed: true` + price-lock-to-0-or-1 fallback) is an inference from documented behavior, not an officially documented resolution query pattern. Address during Phase 2 with a hands-on integration test against a known-resolved Polymarket market.
-
-- **Deribit post-expiry instrument behavior:** After an options instrument expires, it may be delisted from the active instrument list. The settlement tracker must query by instrument_id (stored at signal time) rather than looking up current instruments. This is documented as a pitfall but the exact API behavior needs verification during Phase 2 integration.
-
-- **Windows kill-test for atomic writes:** The system targets Linux as primary deployment, but development occurs on Windows (evident from file paths in codebase). The `std::fs::rename` POSIX atomicity guarantee does not apply on Windows when the target file exists. The `ContractLifecycleManager::atomic_write()` implementation should be inspected for Windows compatibility before Phase 1B acceptance.
-
-- **MTM history memory growth bound:** `MtmSnapshot` history accumulates in memory per open position at ~150 entries/min/position (3 venues, 1 snapshot/sec). Over 24 hours this is ~8,640 entries per position. The PITFALLS.md recommends capping or downsampling. The exact cap or downsample policy needs a decision during Phase 1B (when persistence design is locked in) since checkpoint size depends on it.
-
-- **Signal analysis methodology precision:** Hit rate, false positive rate, and time-to-convergence each have multiple valid definitions. The specific denominator choices (filled trades vs all signals, settled vs all filled) need to be locked in specification before Phase 3 implementation starts, since retroactive correction requires reprocessing all historical data.
-
----
+- **Polymarket `groupItemTitle` format coverage:** The regex approach is confirmed for BTC grouped price markets but the full range of question formats for edge cases is not exhaustively documented. During Phase 2 planning, sample live Polymarket crypto markets before finalizing regex patterns.
+- **Windows atomic rename behavior under file watcher:** The `notify_debouncer_mini` interaction with `ReadDirectoryChangesW` on Windows (DELETE + RENAME sequence) is documented as a known issue in the notify-rs tracker. Verify the 500ms debounce is sufficient or add an explicit retry in the atomic write path during Phase 1.
+- **Kalshi weekly ticker format:** `extract_kalshi_asset` strips known suffixes ("D", "MAXY"). If Kalshi introduces new ticker patterns, the parser may silently skip valid instruments. Monitor Kalshi changelog during implementation.
+- **SubscriptionManager ordering guarantee:** The config subscriber (which refreshes EventRegistry) and SubscriptionManager both listen to the same `watch::channel<AppConfig>`. Registry must be refreshed before SubscriptionManager reads it. The recommended 50ms yield or `tokio::sync::Notify` solution needs validation in Phase 4 integration testing.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Direct codebase analysis, `D:/Programming/Rust/prediction/src/` (22,751 LOC) — architecture patterns, integration points, existing data types
-- [Deribit Settlement Documentation](https://support.deribit.com/hc/en-us/articles/29734325712413-Settlement) — TWAP delivery price methodology, 08:00 UTC expiry
-- [Deribit API: get_delivery_prices](https://docs.deribit.com/) — public endpoint, no auth required
-- [Kalshi API: Get Market](https://docs.kalshi.com/api-reference/market/get-market) — `result` and `status` fields
-- [Kalshi API: Get Settlements](https://docs.kalshi.com/api-reference/portfolio/get-settlements) — portfolio settlement history
-- [Tokio async filesystem docs](https://docs.rs/tokio/latest/tokio/fs/index.html) — `spawn_blocking` for file I/O
+- Direct codebase analysis: `src/events/discovery.rs` (981 lines), `src/events/lifecycle.rs` (593 lines), `src/events/toml_writer.rs` (303 lines), `src/events/registry.rs` (386 lines), `src/feed/pipeline.rs` (474 lines), `src/feed/deribit/supervisor.rs` (182 lines), `src/config/reload.rs` (118 lines), `src/main.rs` (791 lines)
+- [strsim 0.11.1 API docs](https://docs.rs/strsim/0.11.1/strsim/) — confirmed Jaro-Winkler, normalized Levenshtein, Sorensen-Dice functions
+- [Deribit API docs](https://docs.deribit.com/) — `public/get_instruments`: no auth, no pagination, ~1 req/s sustained
+- [Kalshi API docs](https://docs.kalshi.com/api-reference/market/get-markets) — cursor-based pagination, RSA-PSS auth, Basic tier 20 reads/s
+- [Kalshi rate limits](https://docs.kalshi.com/getting_started/rate_limits) — tier structure confirmed
+- [Polymarket Gamma API](https://docs.polymarket.com/developers/gamma-markets-api/overview) — events/markets hierarchy, offset pagination
 
 ### Secondary (MEDIUM confidence)
-- [Polymarket: How Markets Resolve](https://docs.polymarket.com/polymarket-learn/markets/how-are-markets-resolved) — UMA Optimistic Oracle resolution process, 2-hour challenge window
-- [Polymarket Gamma API](https://docs.polymarket.com/developers/gamma-markets-api/gamma-structure) — `closed`, `active` fields for resolution inference
-- [Signal quality metrics — Macrosynergy](https://macrosynergy.com/research/how-to-measure-the-quality-of-a-trading-signal/) — hit rate, Sharpe, false positive rate definitions
-- [Silent failure detection](https://www.vincentlakatos.com/blog/building-a-monitoring-system-that-catches-silent-failures/) — dead-man's-switch monitoring patterns
-- [Alpha decay research — MicroAlphas](https://microalphas.com/signal-decay-patterns/) — 60% signal decay in first periods (context for time-to-convergence interpretation)
+- [Polymarket Gamma API live endpoint](https://gamma-api.polymarket.com/) — `tag_id=21` crypto filter tested, `groupItemTitle` format verified on live BTC price markets
+- [notify-rs issue #382](https://github.com/notify-rs/notify/issues/382) — atomic rename race with file watcher debounce, Windows-specific behavior documented
+- [Kalshi API Changelog](https://docs.kalshi.com/changelog) — `price_level_structure` moved Oct 2025, volume on series Jan 2026 — confirms active field changes
 
-### Tertiary (LOW confidence — needs validation)
-- [Polymarket py-clob-client GitHub issue #117](https://github.com/Polymarket/py-clob-client/issues/117) — confirms no dedicated resolution query endpoint as of 2025; API may have evolved
-- [Polymarket py-clob-client GitHub issue #216](https://github.com/Polymarket/py-clob-client/issues/216) — price history limitation for resolved markets; indirectly confirms resolution API gap
+### Tertiary (LOW confidence)
+- Sustained Polymarket Gamma API rate limits — Cloudflare-enforced, ~300 req/10s for `/books`; `/markets` endpoint limit is undocumented, inferred from general Cloudflare behavior
+- Venue API cache staleness windows — the 20%-instrument-count-drop heuristic for detecting partial responses is based on operational inference, not documented API behavior
 
 ---
-*Research completed: 2026-02-24*
+*Research completed: 2026-02-26*
 *Ready for roadmap: yes*
