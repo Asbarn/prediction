@@ -26,13 +26,13 @@ Requirements for Automated Event Management milestone. Each maps to roadmap phas
 - [ ] **LIFE-01**: System archives expired events older than configurable retention period (default 30 days) from events.toml to events_archive.toml
 - [ ] **LIFE-02**: System auto-cleans unapproved candidates past their expiry date
 - [ ] **LIFE-03**: System adds Retired status to LifecycleStatus for fully settled and archived events
-- [ ] **LIFE-04**: System requires N consecutive absence polls before marking an instrument as expired (prevents false expirations from partial API responses)
+- [x] **LIFE-04**: System requires N consecutive absence polls before marking an instrument as expired (prevents false expirations from partial API responses)
 
 ### Integration
 
 - [ ] **INTG-01**: Discovery manager runs as periodic background task within ContractLifecycleManager poll cycle
 - [ ] **INTG-02**: Polymarket discovery returns Vec<DiscoveredInstrument> (same type as Deribit/Kalshi) for unified cross-venue matching
-- [ ] **INTG-03**: All TOML writes use existing VenueRateLimiter and batch writes per poll cycle (not per-candidate)
+- [x] **INTG-03**: All TOML writes use existing VenueRateLimiter and batch writes per poll cycle (not per-candidate)
 
 ## v2 Requirements
 
@@ -97,10 +97,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LIFE-01 | Phase 21 | Pending |
 | LIFE-02 | Phase 21 | Pending |
 | LIFE-03 | Phase 21 | Pending |
-| LIFE-04 | Phase 18 | Pending |
+| LIFE-04 | Phase 18 | Complete |
 | INTG-01 | Phase 21 | Pending |
 | INTG-02 | Phase 19 | Pending |
-| INTG-03 | Phase 18 | Pending |
+| INTG-03 | Phase 18 | Complete |
 
 **Coverage:**
 - v1.2 requirements: 15 total

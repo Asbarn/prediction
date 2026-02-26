@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 ## Current Position
 
 Phase: 18 of 21 (Discovery Infrastructure Hardening) -- first phase of v1.2
-Plan: --
-Status: Ready to plan
-Last activity: 2026-02-26 -- Roadmap created for v1.2 (4 phases, 15 requirements)
+Plan: 01 of 02 complete
+Status: Executing
+Last activity: 2026-02-26 -- Completed 18-01 (Foundation Types)
 
-Progress: [                              ] 0% (v1.2: 0/0 plans)
+Progress: [###                           ] 10% (v1.2: 1/2 plans in phase 18)
 
 ## Performance Metrics
 
@@ -43,6 +43,8 @@ Recent decisions:
 - v1.2: Single new dependency: strsim = "0.11" (already compiled transitively via clap_builder)
 - v1.2: Batched TOML writes per poll cycle to avoid write/file-watcher race conditions
 - v1.2: N consecutive absence polls before marking instrument expired (prevents false expirations)
+- 18-01: Factored build_candidate_table helper to deduplicate table construction
+- 18-01: Batch functions take &mut DocumentMut returning Result<()> for "parse once, mutate N, write once" pattern
 
 ### Pending Todos
 
@@ -58,5 +60,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: v1.2 roadmap created (4 phases, 15 requirements mapped)
-Next action: Plan Phase 18 (Discovery Infrastructure Hardening)
+Stopped at: Completed 18-01-PLAN.md (Foundation Types)
+Next action: Execute 18-02-PLAN.md (Lifecycle Integration)
