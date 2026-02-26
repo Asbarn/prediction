@@ -8,6 +8,7 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use crate::signal::types::ThresholdStatus;
 use crate::types::{MarketSnapshot, Venue};
 #[cfg(test)]
 use crate::types::Probability;
@@ -60,6 +61,23 @@ impl SpreadPattern {
             SpreadPattern::SellPolyYesBuyKalshiYes => Venue::Kalshi,
             SpreadPattern::BuyPolyNoSellKalshiNo => Venue::Polymarket,
             SpreadPattern::SellPolyNoBuyKalshiNo => Venue::Kalshi,
+        }
+    }
+
+    /// Canonical label for the venue pair in this pattern (for metric keys).
+    ///
+    /// Returns a stable `&'static str` regardless of buy/sell direction, so
+    /// Kalshi-Polymarket and Polymarket-Kalshi both produce the same key.
+    pub fn venue_pair_label(&self) -> &'static str {
+        match (self.buy_venue(), self.sell_venue()) {
+            (Venue::Kalshi, Venue::Polymarket) | (Venue::Polymarket, Venue::Kalshi) => {
+                "kalshi_polymarket"
+            }
+            (Venue::Deribit, Venue::Polymarket) | (Venue::Polymarket, Venue::Deribit) => {
+                "deribit_polymarket"
+            }
+            (Venue::Deribit, Venue::Kalshi) | (Venue::Kalshi, Venue::Deribit) => "deribit_kalshi",
+            _ => "unknown",
         }
     }
 
@@ -234,6 +252,9 @@ pub struct SpreadResult {
     pub threshold: Option<Decimal>,
     /// Breakdown of threshold components for post-hoc analysis.
     pub threshold_components: Option<ThresholdComponents>,
+    /// Threshold evaluation status for this spread result.
+    #[serde(default)]
+    pub threshold_status: Option<ThresholdStatus>,
 }
 
 /// Breakdown of threshold components for observability.
@@ -516,6 +537,7 @@ mod tests {
                 final_threshold: dec("0.027"),
                 is_cold_start: false,
             }),
+            threshold_status: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -550,6 +572,7 @@ mod tests {
             kalshi_exchange_ts: None,
             threshold: None,
             threshold_components: None,
+            threshold_status: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();

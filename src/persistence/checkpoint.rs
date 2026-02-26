@@ -93,6 +93,7 @@ mod tests {
             kalshi_exchange_ts: None,
             threshold: None,
             threshold_components: None,
+            threshold_status: None,
         }
     }
 

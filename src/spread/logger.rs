@@ -139,6 +139,7 @@ mod tests {
             kalshi_exchange_ts: None,
             threshold: Some(dec("0.025")),
             threshold_components: None,
+            threshold_status: None,
         }
     }
 

@@ -35,7 +35,7 @@ pub enum ArbDirection {
 ///
 /// All signals are logged with this status field for Phase 9 threshold
 /// effectiveness analysis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ThresholdStatus {
     /// Signal passed both static and dynamic thresholds.
     PassedBoth,

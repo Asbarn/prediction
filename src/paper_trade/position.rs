@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::settlement::types::{
     DivergenceType, OutcomeKind, SettledLeg, SettlementDivergence,
 };
+use crate::signal::types::ThresholdStatus;
 use crate::spread::patterns::{SpreadPattern, SpreadResult};
 
 /// Position lifecycle status.
@@ -69,6 +70,21 @@ pub struct PaperPosition {
     /// Cross-venue divergence annotation (populated when all legs settle).
     #[serde(default)]
     pub divergence: Option<SettlementDivergence>,
+    /// Threshold evaluation status from the originating SpreadResult signal.
+    #[serde(default)]
+    pub threshold_status: Option<ThresholdStatus>,
+    /// Inter-leg fill gap in milliseconds (absolute difference between exchange timestamps).
+    #[serde(default)]
+    pub inter_leg_gap_ms: Option<i64>,
+    /// True if inter_leg_gap_ms exceeds max_leg_fill_gap_ms config threshold.
+    #[serde(default)]
+    pub stale_fill: bool,
+    /// Exchange timestamp from Polymarket snapshot (from SpreadResult).
+    #[serde(default)]
+    pub poly_exchange_ts: Option<i64>,
+    /// Exchange timestamp from Kalshi snapshot (from SpreadResult).
+    #[serde(default)]
+    pub kalshi_exchange_ts: Option<i64>,
 }
 
 /// A single mark-to-market snapshot during position lifetime.
@@ -90,6 +106,12 @@ impl PaperPosition {
         // Sequential ID based on timestamp + event
         let id = format!("pt-{}-{}", signal.timestamp_ms, &signal.event_id[..signal.event_id.len().min(8)]);
 
+        // Compute inter-leg gap from exchange timestamps when both are present
+        let inter_leg_gap_ms = match (signal.poly_exchange_ts, signal.kalshi_exchange_ts) {
+            (Some(poly_ts), Some(kalshi_ts)) => Some((poly_ts - kalshi_ts).abs()),
+            _ => None,
+        };
+
         Self {
             id,
             event_id: signal.event_id.clone(),
@@ -107,6 +129,21 @@ impl PaperPosition {
             settled_at_ms: None,
             settled_legs: Vec::new(),
             divergence: None,
+            threshold_status: signal.threshold_status,
+            inter_leg_gap_ms,
+            stale_fill: false,
+            poly_exchange_ts: signal.poly_exchange_ts,
+            kalshi_exchange_ts: signal.kalshi_exchange_ts,
+        }
+    }
+
+    /// Mark this position's fill as stale if inter-leg gap exceeds the threshold.
+    ///
+    /// Sets `stale_fill = true` when `inter_leg_gap_ms` is present and exceeds
+    /// `max_gap_ms`. Called after position creation when config is available.
+    pub fn mark_stale_fill(&mut self, max_gap_ms: i64) {
+        if self.inter_leg_gap_ms.map_or(false, |gap| gap > max_gap_ms) {
+            self.stale_fill = true;
         }
     }
 
@@ -328,6 +365,7 @@ mod tests {
             kalshi_exchange_ts: None,
             threshold: Some(dec("0.025")),
             threshold_components: None,
+            threshold_status: None,
         }
     }
 

@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use crate::alert::PipelineLiveness;
 use crate::events::registry::EventRegistry;
 use crate::events::risk::BasisRiskCache;
+use crate::signal::types::ThresholdStatus;
 use crate::spread::book_walker::{walk_the_book, WalkResult};
 use crate::spread::config::SpreadConfig;
 use crate::spread::cost_model::{carry_cost, kalshi_taker_fee, polymarket_fee};
@@ -259,6 +260,16 @@ impl SpreadEngine {
                 sell_walk.fill_ratio(),
             );
 
+            // Determine threshold status
+            let static_floor = components.static_floor;
+            let threshold_status = if net_spread > threshold_value {
+                ThresholdStatus::PassedBoth
+            } else if net_spread > static_floor {
+                ThresholdStatus::PassedStaticOnly
+            } else {
+                ThresholdStatus::Filtered
+            };
+
             // Build SpreadResult
             let result = SpreadResult {
                 event_id: event_id.clone(),
@@ -280,6 +291,7 @@ impl SpreadEngine {
                 kalshi_exchange_ts: kalshi.exchange_timestamp,
                 threshold: Some(threshold_value),
                 threshold_components: Some(components),
+                threshold_status: Some(threshold_status),
             };
 
             // JSONL logging -- every computation
@@ -293,7 +305,7 @@ impl SpreadEngine {
             metrics::counter!("spread_computations_total", "event" => event_id.clone())
                 .increment(1);
 
-            // Threshold check -- signal if net_spread > threshold
+            // Threshold check -- signal if net_spread > threshold (PassedBoth)
             if net_spread > threshold_value {
                 self.signal_count += 1;
                 metrics::counter!("spread_signals_total", "event" => event_id.clone(), "pattern" => pattern.label())

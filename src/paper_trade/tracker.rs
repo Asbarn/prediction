@@ -983,6 +983,11 @@ impl PaperTradeTracker {
                     settled_at_ms: None,
                     settled_legs: Vec::new(),
                     divergence: None,
+                    threshold_status: None,
+                    inter_leg_gap_ms: None,
+                    stale_fill: false,
+                    poly_exchange_ts: None,
+                    kalshi_exchange_ts: None,
                 };
                 self.pending
                     .entry(event_id.clone())
@@ -1107,6 +1112,7 @@ mod tests {
             kalshi_exchange_ts: None,
             threshold: None,
             threshold_components: None,
+            threshold_status: None,
         }
     }
 
