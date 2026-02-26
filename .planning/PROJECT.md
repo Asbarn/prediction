@@ -43,9 +43,14 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ### Active
 
-<!-- Next scope: TBD via /gsd:new-milestone -->
+<!-- Current scope: v1.2 Automated Event Management -->
 
-(None — define via `/gsd:new-milestone`)
+- [ ] Automated market discovery across Polymarket, Kalshi, and Deribit
+- [ ] Cross-venue event matching (fuzzy text + known patterns) with confidence scoring
+- [ ] Automatic proposal writing to events.toml with approved = false flag
+- [ ] Structured log emission when new mapping proposed
+- [ ] Expired/resolved event detection and retirement from active config
+- [ ] Live subscription management for newly approved mappings via config reload
 
 ### Out of Scope
 
@@ -107,5 +112,16 @@ Signal analysis: hit rate, cost-adjusted edge, false positive rate, time-to-conv
 | Checkpoint version as u32 (not semver) | Compact schema evolution with backward-compatible serde(default) | v1.1 Validated -- v1 through v4 forward-compatible |
 | Filtered signals via try_send (best-effort) | Avoid backpressure on SpreadEngine hot path | v1.1 Validated -- no pipeline stalls |
 
+## Current Milestone: v1.2 Automated Event Management
+
+**Goal:** Eliminate manual events.toml curation — system discovers markets, proposes cross-venue mappings, detects resolved events, and manages feed subscriptions, reducing operator intervention to reviewing and approving proposals.
+
+**Target features:**
+- Venue market discovery (polling Polymarket, Kalshi, Deribit APIs for new/changed markets)
+- Cross-venue event matching with fuzzy text comparison and confidence scoring
+- Automatic events.toml proposal writing (approved = false) with structured log notifications
+- Expired/resolved event retirement and cleanup
+- Live subscription management for newly approved mappings via existing SIGHUP config reload
+
 ---
-*Last updated: 2026-02-26 after v1.1 milestone*
+*Last updated: 2026-02-26 after v1.2 milestone started*

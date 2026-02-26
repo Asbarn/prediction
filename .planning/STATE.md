@@ -5,14 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Planning next milestone
+**Current focus:** v1.2 Automated Event Management -- Defining requirements
 
 ## Current Position
 
-Milestone v1.1 complete. No active milestone.
-Last activity: 2026-02-26 -- Completed v1.1 Paper Trading Validation milestone
+Phase: Not started (defining requirements)
+Plan: --
+Status: Defining requirements
+Last activity: 2026-02-26 -- Milestone v1.2 started
 
-Progress: [##############################] 100% (v1.0: 36/36 plans | v1.1: 11/11 plans)
+Progress: [                              ] 0% (v1.2: 0/0 plans)
 
 ## Performance Metrics
 
@@ -38,6 +40,11 @@ Progress: [##############################] 100% (v1.0: 36/36 plans | v1.1: 11/11
 Decisions are logged in PROJECT.md Key Decisions table.
 Full decision history preserved in .planning/milestones/v1.0-ROADMAP.md and .planning/milestones/v1.1-ROADMAP.md
 
+Recent decisions:
+- v1.2: Suggest + confirm approval model (discovery writes approved=false, operator flips to true, SIGHUP reloads)
+- v1.2: No new CLI subcommands for approval -- use existing events.toml + SIGHUP infrastructure
+- v1.2: Structured log line emitted on new mapping proposal for operator visibility
+
 ### Pending Todos
 
 None.
@@ -47,9 +54,10 @@ None.
 - Risk premium calibration needs 2-4 weeks of parallel data collection
 - Expired test instrument BTC-27JUN25-100000-C in events.toml
 - Kalshi market_tickers = [] in default config
+- Need to verify EventRegistry.refresh() handles new EventMapping entries (not just parameter changes)
 
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed v1.1 Paper Trading Validation milestone
-Next action: /gsd:new-milestone to define next milestone scope
+Stopped at: Defining v1.2 milestone requirements
+Next action: Define REQUIREMENTS.md, then create roadmap
