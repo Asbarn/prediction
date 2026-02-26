@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.2 Automated Event Management -- Defining requirements
+**Current focus:** v1.2 Automated Event Management -- Phase 18 (Discovery Infrastructure Hardening)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 18 of 21 (Discovery Infrastructure Hardening) -- first phase of v1.2
 Plan: --
-Status: Defining requirements
-Last activity: 2026-02-26 -- Milestone v1.2 started
+Status: Ready to plan
+Last activity: 2026-02-26 -- Roadmap created for v1.2 (4 phases, 15 requirements)
 
 Progress: [                              ] 0% (v1.2: 0/0 plans)
 
@@ -22,7 +22,6 @@ Progress: [                              ] 0% (v1.2: 0/0 plans)
 - Total plans completed: 36
 - Total phases: 13
 - Lines of Rust: 22,751
-- Tests: 417+
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1 Summary:**
@@ -30,20 +29,20 @@ Progress: [                              ] 0% (v1.2: 0/0 plans)
 - Phases: 4 (14-17)
 - LOC delta: +14,943 (32,631 total)
 - Timeline: 5 days (2026-02-21 to 2026-02-26)
-- Commits: 47
-- Requirements: 25/25 satisfied
 
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-Full decision history preserved in .planning/milestones/v1.0-ROADMAP.md and .planning/milestones/v1.1-ROADMAP.md
+Full decision history in .planning/milestones/v1.0-ROADMAP.md and .planning/milestones/v1.1-ROADMAP.md
 
 Recent decisions:
-- v1.2: Suggest + confirm approval model (discovery writes approved=false, operator flips to true, SIGHUP reloads)
-- v1.2: No new CLI subcommands for approval -- use existing events.toml + SIGHUP infrastructure
-- v1.2: Structured log line emitted on new mapping proposal for operator visibility
+- v1.2: Live subscription management deferred to v1.3 -- restart-on-approval is acceptable
+- v1.2: approved = false approval gate is non-negotiable safety mechanism
+- v1.2: Single new dependency: strsim = "0.11" (already compiled transitively via clap_builder)
+- v1.2: Batched TOML writes per poll cycle to avoid write/file-watcher race conditions
+- v1.2: N consecutive absence polls before marking instrument expired (prevents false expirations)
 
 ### Pending Todos
 
@@ -51,13 +50,13 @@ None.
 
 ### Blockers/Concerns
 
-- Risk premium calibration needs 2-4 weeks of parallel data collection
-- Expired test instrument BTC-27JUN25-100000-C in events.toml
-- Kalshi market_tickers = [] in default config
-- Need to verify EventRegistry.refresh() handles new EventMapping entries (not just parameter changes)
+- Polymarket groupItemTitle format is not guaranteed stable (permissionless market creation)
+- Windows atomic rename produces DELETE + RENAME events that may race with file watcher debouncer
+- Kalshi may introduce new ticker patterns that bypass extract_kalshi_asset parser
+- EventRegistry.refresh() behavior with new EventMapping entries needs verification
 
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Defining v1.2 milestone requirements
-Next action: Define REQUIREMENTS.md, then create roadmap
+Stopped at: v1.2 roadmap created (4 phases, 15 requirements mapped)
+Next action: Plan Phase 18 (Discovery Infrastructure Hardening)

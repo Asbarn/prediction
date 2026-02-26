@@ -86,27 +86,27 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DISC-01 | TBD | Pending |
-| DISC-02 | TBD | Pending |
-| DISC-03 | TBD | Pending |
-| DISC-04 | TBD | Pending |
-| PROP-01 | TBD | Pending |
-| PROP-02 | TBD | Pending |
-| PROP-03 | TBD | Pending |
-| PROP-04 | TBD | Pending |
-| LIFE-01 | TBD | Pending |
-| LIFE-02 | TBD | Pending |
-| LIFE-03 | TBD | Pending |
-| LIFE-04 | TBD | Pending |
-| INTG-01 | TBD | Pending |
-| INTG-02 | TBD | Pending |
-| INTG-03 | TBD | Pending |
+| DISC-01 | Phase 19 | Pending |
+| DISC-02 | Phase 18 | Pending |
+| DISC-03 | Phase 19 | Pending |
+| DISC-04 | Phase 19 | Pending |
+| PROP-01 | Phase 20 | Pending |
+| PROP-02 | Phase 20 | Pending |
+| PROP-03 | Phase 20 | Pending |
+| PROP-04 | Phase 20 | Pending |
+| LIFE-01 | Phase 21 | Pending |
+| LIFE-02 | Phase 21 | Pending |
+| LIFE-03 | Phase 21 | Pending |
+| LIFE-04 | Phase 18 | Pending |
+| INTG-01 | Phase 21 | Pending |
+| INTG-02 | Phase 19 | Pending |
+| INTG-03 | Phase 18 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 15 total
-- Mapped to phases: 0
-- Unmapped: 15
+- Mapped to phases: 15
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-26 after initial definition*
+*Last updated: 2026-02-26 after roadmap creation (v1.2 phases 18-21)*
