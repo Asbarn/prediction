@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::paper_trade::aggregator::DailyRollup;
-use crate::paper_trade::analyzer::{AccumulatorBucket, AccumulatorKey};
+use crate::paper_trade::analyzer::{AccumulatorBucket, AccumulatorKey, FilteredSignalEntry};
 use crate::paper_trade::position::PaperPosition;
 use crate::settlement::types::PollingTier;
 use crate::types::Venue;
@@ -44,6 +44,11 @@ pub struct CheckpointState {
     /// (JSON object keys must be strings, but AccumulatorKey is a struct).
     #[serde(default)]
     pub analysis_accumulators: Vec<(AccumulatorKey, AccumulatorBucket)>,
+    /// Filtered signal tracker state for threshold effectiveness analysis.
+    /// Keyed by event_id, contains filtered signal entries awaiting settlement correlation.
+    /// Persists across restarts so filtered signals are not lost before settlement.
+    #[serde(default)]
+    pub filtered_signals: HashMap<String, Vec<FilteredSignalEntry>>,
 }
 
 /// Settlement tracking entry persisted in checkpoint for cross-restart state preservation.
@@ -60,7 +65,7 @@ pub struct SettlementTrackingEntry {
 impl CheckpointState {
     /// Current schema version. Bump when the checkpoint format changes.
     pub fn current_version() -> u32 {
-        3
+        4
     }
 }
 
@@ -141,6 +146,7 @@ mod tests {
             total_trades: 42,
             settlement_tracking: HashMap::new(),
             analysis_accumulators: Vec::new(),
+            filtered_signals: HashMap::new(),
         };
 
         // Serialize to JSON
@@ -159,6 +165,7 @@ mod tests {
         assert_eq!(restored.open.len(), 1);
         assert_eq!(restored.open[0].event_id, "evt-002");
         assert_eq!(restored.daily_rollups.len(), 1);
+        assert!(restored.filtered_signals.is_empty());
 
         let rollup = &restored.daily_rollups["2026-01-15"];
         assert_eq!(rollup.trade_count, 5);
@@ -260,13 +267,14 @@ mod tests {
             total_trades: 10,
             settlement_tracking,
             analysis_accumulators: Vec::new(),
+            filtered_signals: HashMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&state).expect("serialize");
         let restored: CheckpointState =
             serde_json::from_str(&json).expect("deserialize");
 
-        assert_eq!(restored.version, 3);
+        assert_eq!(restored.version, 4);
         assert_eq!(restored.settlement_tracking.len(), 2);
 
         let btc_entries = &restored.settlement_tracking["BTC-100K"];
@@ -345,13 +353,14 @@ mod tests {
             total_trades: 15,
             settlement_tracking: HashMap::new(),
             analysis_accumulators: vec![(key.clone(), bucket)],
+            filtered_signals: HashMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&state).expect("serialize");
         let restored: CheckpointState =
             serde_json::from_str(&json).expect("deserialize");
 
-        assert_eq!(restored.version, 3);
+        assert_eq!(restored.version, 4);
         assert_eq!(restored.analysis_accumulators.len(), 1);
 
         let (restored_key, restored_bucket) = &restored.analysis_accumulators[0];
@@ -362,5 +371,83 @@ mod tests {
         assert_eq!(restored_bucket.sum_gross_pnl, dec("150.5"));
         assert_eq!(restored_bucket.sum_net_pnl, dec("120.3"));
         assert_eq!(restored_bucket.stale_fill_count, 1);
+    }
+
+    #[test]
+    fn v3_checkpoint_backward_compatibility() {
+        // A v3 checkpoint (without filtered_signals) should deserialize
+        // with filtered_signals defaulting to an empty HashMap.
+        let v3_json = r#"{
+            "version": 3,
+            "checkpoint_timestamp_ms": 1700000005000,
+            "pending": {},
+            "open": [],
+            "daily_rollups": {},
+            "total_trades": 60,
+            "settlement_tracking": {},
+            "analysis_accumulators": []
+        }"#;
+
+        let restored: CheckpointState =
+            serde_json::from_str(v3_json).expect("v3 should deserialize");
+        assert_eq!(restored.version, 3);
+        assert_eq!(restored.total_trades, 60);
+        assert!(restored.settlement_tracking.is_empty());
+        assert!(restored.analysis_accumulators.is_empty());
+        assert!(restored.filtered_signals.is_empty());
+    }
+
+    #[test]
+    fn v4_checkpoint_roundtrip_with_filtered_signals() {
+        use crate::paper_trade::analyzer::FilteredSignalEntry;
+        use crate::signal::types::ThresholdStatus;
+        use crate::spread::patterns::SpreadPattern;
+
+        let mut filtered_signals = HashMap::new();
+        filtered_signals.insert(
+            "evt-filter-1".to_string(),
+            vec![
+                FilteredSignalEntry {
+                    pattern: SpreadPattern::BuyPolyYesSellKalshiYes,
+                    threshold_status: ThresholdStatus::PassedStaticOnly,
+                    net_spread: dec("0.015"),
+                    timestamp_ms: 1700000000000,
+                },
+                FilteredSignalEntry {
+                    pattern: SpreadPattern::SellPolyYesBuyKalshiYes,
+                    threshold_status: ThresholdStatus::Filtered,
+                    net_spread: dec("0.008"),
+                    timestamp_ms: 1700000001000,
+                },
+            ],
+        );
+
+        let state = CheckpointState {
+            version: CheckpointState::current_version(),
+            checkpoint_timestamp_ms: 1700000005000,
+            pending: HashMap::new(),
+            open: vec![],
+            daily_rollups: HashMap::new(),
+            total_trades: 20,
+            settlement_tracking: HashMap::new(),
+            analysis_accumulators: Vec::new(),
+            filtered_signals,
+        };
+
+        let json = serde_json::to_string_pretty(&state).expect("serialize");
+        let restored: CheckpointState =
+            serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(restored.version, 4);
+        assert_eq!(restored.filtered_signals.len(), 1);
+
+        let entries = &restored.filtered_signals["evt-filter-1"];
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].pattern, SpreadPattern::BuyPolyYesSellKalshiYes);
+        assert_eq!(entries[0].threshold_status, ThresholdStatus::PassedStaticOnly);
+        assert_eq!(entries[0].net_spread, dec("0.015"));
+        assert_eq!(entries[1].pattern, SpreadPattern::SellPolyYesBuyKalshiYes);
+        assert_eq!(entries[1].threshold_status, ThresholdStatus::Filtered);
+        assert_eq!(entries[1].net_spread, dec("0.008"));
     }
 }

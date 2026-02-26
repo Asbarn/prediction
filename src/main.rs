@@ -380,6 +380,11 @@ async fn main() -> anyhow::Result<()> {
             // Signal channel: SpreadEngine -> PaperTradeTracker
             let (signal_tx, signal_rx) = mpsc::channel::<SpreadResult>(1024);
 
+            // Filtered signal channel: SpreadEngine -> PaperTradeTracker
+            // Carries non-PassedBoth signals for threshold effectiveness analysis.
+            let (filtered_signal_tx, filtered_signal_rx) =
+                mpsc::channel::<prediction::paper_trade::analyzer::FilteredSignalEvent>(512);
+
             // Snapshot forwarding channel: SpreadEngine -> PaperTradeTracker
             // Paper trade tracker needs snapshots to fill pending positions and update MTM.
             let (ptrade_snap_tx, ptrade_snap_rx) = mpsc::channel::<MarketSnapshot>(1024);
@@ -389,7 +394,8 @@ async fn main() -> anyhow::Result<()> {
             let spread_engine = SpreadEngine::new(spread_config)
                 .with_replay_mode(is_replay)
                 .with_basis_risk_cache(basis_risk_cache.clone())
-                .with_liveness(pipeline_liveness.clone());
+                .with_liveness(pipeline_liveness.clone())
+                .with_filtered_signal_tx(filtered_signal_tx);
             let spread_cancel = shutdown_token.child_token();
             tokio::spawn(spread_engine.run(
                 spread_snap_rx,
@@ -700,6 +706,7 @@ async fn main() -> anyhow::Result<()> {
                 signal_rx,
                 ptrade_snap_rx,
                 settlement_rx,
+                filtered_signal_rx,
                 ptrade_cancel,
             ));
 

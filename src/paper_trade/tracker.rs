@@ -33,7 +33,7 @@ use crate::spread::patterns::{SpreadPattern, SpreadResult};
 use crate::types::MarketSnapshot;
 
 use super::aggregator::DailyAggregator;
-use super::analyzer::SignalAnalyzer;
+use super::analyzer::{FilteredSignalEvent, SignalAnalyzer};
 use super::position::{PaperPosition, PositionStatus};
 
 /// Paper trade tracking engine.
@@ -334,12 +334,15 @@ impl PaperTradeTracker {
     /// 1. Cancellation token (highest priority)
     /// 2. Daily tick for rollup emission
     /// 3. Signal reception (create Pending positions)
-    /// 4. Snapshot reception (fill pending, update MTM)
+    /// 4. Settlement reception (settle positions)
+    /// 5. Filtered signal reception (threshold effectiveness tracking)
+    /// 6. Snapshot reception (fill pending, update MTM)
     pub async fn run(
         mut self,
         mut signal_rx: mpsc::Receiver<SpreadResult>,
         mut snapshot_rx: mpsc::Receiver<MarketSnapshot>,
         mut settlement_rx: mpsc::Receiver<SettlementOutcome>,
+        mut filtered_signal_rx: mpsc::Receiver<FilteredSignalEvent>,
         cancel: CancellationToken,
     ) {
         // Daily tick for rollup emission
@@ -417,6 +420,12 @@ impl PaperTradeTracker {
                             tracing::info!("signal channel closed, PaperTradeTracker stopping");
                             break;
                         }
+                    }
+                }
+
+                filtered = filtered_signal_rx.recv() => {
+                    if let Some(event) = filtered {
+                        self.analyzer.record_filtered_signal(event);
                     }
                 }
 
@@ -789,6 +798,21 @@ impl PaperTradeTracker {
             }
         }
 
+        // Correlate filtered signals with settlement outcome for threshold effectiveness
+        let correlations = self.analyzer.correlate_filtered_with_settlement(
+            &outcome.event_id,
+            &outcome.outcome,
+        );
+        if !correlations.is_empty() {
+            let hypothetical_hits = correlations.iter().filter(|c| c.hypothetical_hit).count();
+            tracing::info!(
+                event_id = %outcome.event_id,
+                filtered_signals = correlations.len(),
+                hypothetical_hits = hypothetical_hits,
+                "threshold effectiveness: filtered signal settlement correlation"
+            );
+        }
+
         // Emit Prometheus gauges with latest accumulator values after all settlements processed
         self.analyzer.emit_prometheus_gauges();
 
@@ -906,6 +930,7 @@ impl PaperTradeTracker {
             total_trades: self.total_trades,
             settlement_tracking,
             analysis_accumulators: self.analyzer.export_state().into_iter().collect(),
+            filtered_signals: self.analyzer.export_filtered_state(),
         }
     }
 
@@ -919,6 +944,7 @@ impl PaperTradeTracker {
         self.aggregator.import_rollups(state.daily_rollups);
         self.total_trades = state.total_trades;
         self.analyzer.import_state(state.analysis_accumulators.into_iter().collect());
+        self.analyzer.import_filtered_state(state.filtered_signals);
     }
 
     /// Write a checkpoint of current state to disk using atomic write.

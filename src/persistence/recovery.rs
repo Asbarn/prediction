@@ -126,6 +126,7 @@ mod tests {
             total_trades: 42,
             settlement_tracking: HashMap::new(),
             analysis_accumulators: Vec::new(),
+            filtered_signals: HashMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&state).unwrap();
