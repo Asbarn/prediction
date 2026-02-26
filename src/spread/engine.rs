@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use crate::alert::PipelineLiveness;
 use crate::events::registry::EventRegistry;
 use crate::events::risk::BasisRiskCache;
+use crate::paper_trade::analyzer::FilteredSignalEvent;
 use crate::signal::types::ThresholdStatus;
 use crate::spread::book_walker::{walk_the_book, WalkResult};
 use crate::spread::config::SpreadConfig;
@@ -51,6 +52,8 @@ pub struct SpreadEngine {
     basis_risk_cache: Option<BasisRiskCache>,
     /// Optional pipeline liveness tracker for AlertMonitor.
     liveness: Option<Arc<PipelineLiveness>>,
+    /// Optional channel for filtered signals (PassedStaticOnly/Filtered) to PaperTradeTracker.
+    filtered_signal_tx: Option<mpsc::Sender<FilteredSignalEvent>>,
 }
 
 impl SpreadEngine {
@@ -66,6 +69,7 @@ impl SpreadEngine {
             replay_mode: false,
             basis_risk_cache: None,
             liveness: None,
+            filtered_signal_tx: None,
         }
     }
 
@@ -88,6 +92,16 @@ impl SpreadEngine {
     /// Attach a PipelineLiveness tracker for AlertMonitor stage liveness.
     pub fn with_liveness(mut self, liveness: Arc<PipelineLiveness>) -> Self {
         self.liveness = Some(liveness);
+        self
+    }
+
+    /// Attach a filtered signal channel for threshold effectiveness analysis.
+    ///
+    /// Non-PassedBoth results with positive net spread are sent on this channel
+    /// (best-effort, non-blocking) to the PaperTradeTracker for later correlation
+    /// with settlement outcomes.
+    pub fn with_filtered_signal_tx(mut self, tx: mpsc::Sender<FilteredSignalEvent>) -> Self {
+        self.filtered_signal_tx = Some(tx);
         self
     }
 
@@ -313,6 +327,19 @@ impl SpreadEngine {
 
                 // Send to paper trade tracker (best effort)
                 let _ = signal_tx.try_send(result);
+            } else if net_spread > Decimal::ZERO {
+                // Positive spread that didn't pass threshold -- send as filtered signal
+                // for threshold effectiveness analysis (best-effort, non-blocking).
+                if let Some(ref filtered_tx) = self.filtered_signal_tx {
+                    let filtered_event = FilteredSignalEvent {
+                        event_id: event_id.clone(),
+                        pattern,
+                        threshold_status,
+                        net_spread,
+                        timestamp_ms: now_ms,
+                    };
+                    let _ = filtered_tx.try_send(filtered_event);
+                }
             }
         }
 

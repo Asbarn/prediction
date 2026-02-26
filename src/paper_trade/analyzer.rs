@@ -4,6 +4,11 @@
 //! track hit rates, edge, convergence, false positive rates, and stale fill counts
 //! across settled paper positions. SignalAnalyzer produces enriched
 //! AnalysisSettlementRecords for JSONL logging and emits Prometheus gauges.
+//!
+//! Also provides FilteredSignalTracker for threshold effectiveness analysis:
+//! tracks signals that did NOT pass the dynamic threshold (PassedStaticOnly or
+//! Filtered) and correlates them with settlement outcomes to determine if
+//! profitable signals were being filtered out.
 
 use std::collections::HashMap;
 
@@ -12,7 +17,9 @@ use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
 use crate::config::AnalysisConfig;
+use crate::settlement::types::OutcomeKind;
 use crate::signal::types::ThresholdStatus;
+use crate::spread::patterns::SpreadPattern;
 
 use super::position::PaperPosition;
 
@@ -117,6 +124,183 @@ pub struct LifetimeSummary {
 }
 
 // ---------------------------------------------------------------------------
+// FilteredSignalEvent
+// ---------------------------------------------------------------------------
+
+/// Lightweight event sent from SpreadEngine for non-PassedBoth results.
+///
+/// Carries just enough data to correlate with settlement outcomes later,
+/// without the full SpreadResult overhead.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilteredSignalEvent {
+    pub event_id: String,
+    pub pattern: SpreadPattern,
+    pub threshold_status: ThresholdStatus,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub net_spread: Decimal,
+    pub timestamp_ms: i64,
+}
+
+// ---------------------------------------------------------------------------
+// FilteredSignalEntry
+// ---------------------------------------------------------------------------
+
+/// Stored entry for a filtered signal (without event_id, which is the map key).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilteredSignalEntry {
+    pub pattern: SpreadPattern,
+    pub threshold_status: ThresholdStatus,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub net_spread: Decimal,
+    pub timestamp_ms: i64,
+}
+
+// ---------------------------------------------------------------------------
+// FilteredCorrelation
+// ---------------------------------------------------------------------------
+
+/// Result of correlating a filtered signal with a settlement outcome.
+///
+/// Answers: "If this filtered signal had been acted upon, would it have been
+/// profitable given the actual settlement outcome?"
+#[derive(Debug, Clone, Serialize)]
+pub struct FilteredCorrelation {
+    pub threshold_status: ThresholdStatus,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub net_spread: Decimal,
+    pub hypothetical_hit: bool,
+    pub timestamp_ms: i64,
+}
+
+// ---------------------------------------------------------------------------
+// FilteredSignalTracker
+// ---------------------------------------------------------------------------
+
+/// Tracks filtered (non-PassedBoth) signals for threshold effectiveness analysis.
+///
+/// Stores signals keyed by event_id so that when settlement arrives, we can
+/// correlate filtered signals with the actual outcome to determine if the
+/// threshold was too aggressive (filtering out winners).
+pub struct FilteredSignalTracker {
+    /// Filtered signals keyed by event_id, capped per event.
+    signals: HashMap<String, Vec<FilteredSignalEntry>>,
+    /// Max entries per event_id to prevent unbounded growth.
+    max_per_event: usize,
+    /// Running counters for filtered signal correlations.
+    filtered_total: u64,
+    filtered_hits: u64,
+}
+
+impl FilteredSignalTracker {
+    /// Create a new FilteredSignalTracker with the given per-event cap.
+    pub fn new(max_per_event: usize) -> Self {
+        Self {
+            signals: HashMap::new(),
+            max_per_event,
+            filtered_total: 0,
+            filtered_hits: 0,
+        }
+    }
+
+    /// Record a filtered signal event.
+    ///
+    /// If the event already has `max_per_event` entries, the oldest is removed.
+    pub fn record(&mut self, event: FilteredSignalEvent) {
+        let entries = self.signals.entry(event.event_id).or_default();
+        if entries.len() >= self.max_per_event {
+            entries.remove(0);
+        }
+        entries.push(FilteredSignalEntry {
+            pattern: event.pattern,
+            threshold_status: event.threshold_status,
+            net_spread: event.net_spread,
+            timestamp_ms: event.timestamp_ms,
+        });
+    }
+
+    /// Correlate filtered signals for an event with its settlement outcome.
+    ///
+    /// For each filtered signal, determines whether acting on it would have
+    /// been profitable given the actual outcome. Uses pattern direction to
+    /// determine hypothetical profitability:
+    /// - BuyPolyYesSellKalshiYes: profits if outcome is Yes (buy YES pays off)
+    /// - SellPolyYesBuyKalshiYes: profits if outcome is No (sell YES pays off)
+    /// - BuyPolyNoSellKalshiNo: profits if outcome is No (buy NO pays off)
+    /// - SellPolyNoBuyKalshiNo: profits if outcome is Yes (sell NO pays off)
+    pub fn correlate_with_settlement(
+        &mut self,
+        event_id: &str,
+        outcome: &OutcomeKind,
+    ) -> Vec<FilteredCorrelation> {
+        let entries = match self.signals.get(event_id) {
+            Some(e) => e,
+            None => return Vec::new(),
+        };
+
+        let mut correlations = Vec::with_capacity(entries.len());
+
+        for entry in entries {
+            let hypothetical_hit = match outcome {
+                OutcomeKind::Yes => matches!(
+                    entry.pattern,
+                    SpreadPattern::BuyPolyYesSellKalshiYes
+                        | SpreadPattern::SellPolyNoBuyKalshiNo
+                ),
+                OutcomeKind::No => matches!(
+                    entry.pattern,
+                    SpreadPattern::SellPolyYesBuyKalshiYes
+                        | SpreadPattern::BuyPolyNoSellKalshiNo
+                ),
+                OutcomeKind::Ambiguous { .. } => {
+                    // For ambiguous outcomes, use net_spread as proxy: positive = hit
+                    entry.net_spread > Decimal::ZERO
+                }
+                OutcomeKind::Timeout => false,
+            };
+
+            // Update running counters
+            self.filtered_total += 1;
+            if hypothetical_hit {
+                self.filtered_hits += 1;
+            }
+
+            correlations.push(FilteredCorrelation {
+                threshold_status: entry.threshold_status,
+                net_spread: entry.net_spread,
+                hypothetical_hit,
+                timestamp_ms: entry.timestamp_ms,
+            });
+        }
+
+        correlations
+    }
+
+    /// Remove all filtered signals for an event (cleanup after settlement).
+    pub fn remove_event(&mut self, event_id: &str) {
+        self.signals.remove(event_id);
+    }
+
+    /// Export the filtered signal state for checkpoint persistence.
+    pub fn export_state(&self) -> HashMap<String, Vec<FilteredSignalEntry>> {
+        self.signals.clone()
+    }
+
+    /// Import filtered signal state from a checkpoint.
+    pub fn import_state(&mut self, state: HashMap<String, Vec<FilteredSignalEntry>>) {
+        self.signals = state;
+    }
+
+    /// Get the hypothetical hit rate for filtered signals.
+    pub fn hypothetical_hit_rate(&self) -> f64 {
+        if self.filtered_total == 0 {
+            0.0
+        } else {
+            self.filtered_hits as f64 / self.filtered_total as f64
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // SignalAnalyzer
 // ---------------------------------------------------------------------------
 
@@ -124,9 +308,11 @@ pub struct LifetimeSummary {
 ///
 /// Maintains per-key accumulators that are updated on each settlement.
 /// Produces enriched records for JSONL, emits Prometheus gauges, and supports
-/// checkpoint export/import for state persistence.
+/// checkpoint export/import for state persistence. Also tracks filtered signals
+/// for threshold effectiveness analysis.
 pub struct SignalAnalyzer {
     accumulators: HashMap<AccumulatorKey, AccumulatorBucket>,
+    filtered_tracker: FilteredSignalTracker,
     config: AnalysisConfig,
 }
 
@@ -135,6 +321,7 @@ impl SignalAnalyzer {
     pub fn new(config: AnalysisConfig) -> Self {
         Self {
             accumulators: HashMap::new(),
+            filtered_tracker: FilteredSignalTracker::new(100),
             config,
         }
     }
@@ -322,6 +509,33 @@ impl SignalAnalyzer {
             )
             .set(bucket.stale_fill_count as f64);
         }
+
+        // Emit filtered signal hypothetical hit rate gauge
+        let filtered_hit_rate = self.filtered_tracker.hypothetical_hit_rate();
+        metrics::gauge!("signal_analysis_filtered_hypothetical_hit_rate")
+            .set(filtered_hit_rate);
+    }
+
+    /// Record a filtered signal event (delegates to FilteredSignalTracker).
+    pub fn record_filtered_signal(&mut self, event: FilteredSignalEvent) {
+        self.filtered_tracker.record(event);
+    }
+
+    /// Correlate filtered signals with a settlement outcome.
+    ///
+    /// Returns correlation results and updates threshold effectiveness
+    /// accumulators for the Filtered/PassedStaticOnly categories.
+    pub fn correlate_filtered_with_settlement(
+        &mut self,
+        event_id: &str,
+        outcome: &OutcomeKind,
+    ) -> Vec<FilteredCorrelation> {
+        let correlations = self.filtered_tracker.correlate_with_settlement(event_id, outcome);
+
+        // Clean up after correlation
+        self.filtered_tracker.remove_event(event_id);
+
+        correlations
     }
 
     /// Export accumulator state for checkpoint persistence.
@@ -329,9 +543,19 @@ impl SignalAnalyzer {
         self.accumulators.clone()
     }
 
+    /// Export filtered signal tracker state for checkpoint persistence.
+    pub fn export_filtered_state(&self) -> HashMap<String, Vec<FilteredSignalEntry>> {
+        self.filtered_tracker.export_state()
+    }
+
     /// Import accumulator state from a checkpoint, replacing current state.
     pub fn import_state(&mut self, state: HashMap<AccumulatorKey, AccumulatorBucket>) {
         self.accumulators = state;
+    }
+
+    /// Import filtered signal tracker state from a checkpoint.
+    pub fn import_filtered_state(&mut self, state: HashMap<String, Vec<FilteredSignalEntry>>) {
+        self.filtered_tracker.import_state(state);
     }
 
     /// Compute aggregate lifetime summary across all accumulator keys.
@@ -770,5 +994,213 @@ mod tests {
         assert!(!record.net_hit);
         assert_eq!(record.total_raw_pnl, "0");
         assert_eq!(record.total_net_pnl, "0");
+    }
+
+    // -- FilteredSignalTracker tests --
+
+    #[test]
+    fn filtered_tracker_record_and_cap() {
+        let mut tracker = FilteredSignalTracker::new(3);
+
+        // Record 4 entries for the same event -- oldest should be evicted
+        for i in 0..4 {
+            tracker.record(FilteredSignalEvent {
+                event_id: "evt-1".to_string(),
+                pattern: SpreadPattern::BuyPolyYesSellKalshiYes,
+                threshold_status: ThresholdStatus::Filtered,
+                net_spread: dec("0.01"),
+                timestamp_ms: 1700000000000 + i * 1000,
+            });
+        }
+
+        let entries = &tracker.signals["evt-1"];
+        assert_eq!(entries.len(), 3, "should cap at max_per_event=3");
+        // Oldest (timestamp 0) should have been evicted, earliest remaining is 1000
+        assert_eq!(entries[0].timestamp_ms, 1700000001000);
+    }
+
+    #[test]
+    fn filtered_tracker_correlate_yes_outcome() {
+        let mut tracker = FilteredSignalTracker::new(100);
+
+        // BuyPolyYesSellKalshiYes profits from Yes outcome
+        tracker.record(FilteredSignalEvent {
+            event_id: "evt-1".to_string(),
+            pattern: SpreadPattern::BuyPolyYesSellKalshiYes,
+            threshold_status: ThresholdStatus::PassedStaticOnly,
+            net_spread: dec("0.02"),
+            timestamp_ms: 1700000000000,
+        });
+
+        // SellPolyYesBuyKalshiYes does NOT profit from Yes
+        tracker.record(FilteredSignalEvent {
+            event_id: "evt-1".to_string(),
+            pattern: SpreadPattern::SellPolyYesBuyKalshiYes,
+            threshold_status: ThresholdStatus::Filtered,
+            net_spread: dec("0.01"),
+            timestamp_ms: 1700000001000,
+        });
+
+        let correlations = tracker.correlate_with_settlement("evt-1", &OutcomeKind::Yes);
+        assert_eq!(correlations.len(), 2);
+        assert!(correlations[0].hypothetical_hit); // BuyPolyYes profits from Yes
+        assert!(!correlations[1].hypothetical_hit); // SellPolyYes does not profit from Yes
+    }
+
+    #[test]
+    fn filtered_tracker_correlate_no_outcome() {
+        let mut tracker = FilteredSignalTracker::new(100);
+
+        // SellPolyYesBuyKalshiYes profits from No outcome
+        tracker.record(FilteredSignalEvent {
+            event_id: "evt-2".to_string(),
+            pattern: SpreadPattern::SellPolyYesBuyKalshiYes,
+            threshold_status: ThresholdStatus::Filtered,
+            net_spread: dec("0.015"),
+            timestamp_ms: 1700000000000,
+        });
+
+        // BuyPolyNoSellKalshiNo profits from No outcome
+        tracker.record(FilteredSignalEvent {
+            event_id: "evt-2".to_string(),
+            pattern: SpreadPattern::BuyPolyNoSellKalshiNo,
+            threshold_status: ThresholdStatus::PassedStaticOnly,
+            net_spread: dec("0.02"),
+            timestamp_ms: 1700000001000,
+        });
+
+        let correlations = tracker.correlate_with_settlement("evt-2", &OutcomeKind::No);
+        assert_eq!(correlations.len(), 2);
+        assert!(correlations[0].hypothetical_hit); // SellPolyYes profits from No
+        assert!(correlations[1].hypothetical_hit); // BuyPolyNo profits from No
+    }
+
+    #[test]
+    fn filtered_tracker_correlate_timeout_all_miss() {
+        let mut tracker = FilteredSignalTracker::new(100);
+
+        tracker.record(FilteredSignalEvent {
+            event_id: "evt-3".to_string(),
+            pattern: SpreadPattern::BuyPolyYesSellKalshiYes,
+            threshold_status: ThresholdStatus::Filtered,
+            net_spread: dec("0.02"),
+            timestamp_ms: 1700000000000,
+        });
+
+        let correlations = tracker.correlate_with_settlement("evt-3", &OutcomeKind::Timeout);
+        assert_eq!(correlations.len(), 1);
+        assert!(!correlations[0].hypothetical_hit); // Timeout = always miss
+    }
+
+    #[test]
+    fn filtered_tracker_remove_event_cleans_up() {
+        let mut tracker = FilteredSignalTracker::new(100);
+
+        tracker.record(FilteredSignalEvent {
+            event_id: "evt-1".to_string(),
+            pattern: SpreadPattern::BuyPolyYesSellKalshiYes,
+            threshold_status: ThresholdStatus::Filtered,
+            net_spread: dec("0.01"),
+            timestamp_ms: 1700000000000,
+        });
+
+        assert!(tracker.signals.contains_key("evt-1"));
+        tracker.remove_event("evt-1");
+        assert!(!tracker.signals.contains_key("evt-1"));
+    }
+
+    #[test]
+    fn filtered_tracker_export_import_roundtrip() {
+        let mut tracker = FilteredSignalTracker::new(100);
+
+        tracker.record(FilteredSignalEvent {
+            event_id: "evt-1".to_string(),
+            pattern: SpreadPattern::BuyPolyYesSellKalshiYes,
+            threshold_status: ThresholdStatus::Filtered,
+            net_spread: dec("0.01"),
+            timestamp_ms: 1700000000000,
+        });
+        tracker.record(FilteredSignalEvent {
+            event_id: "evt-2".to_string(),
+            pattern: SpreadPattern::SellPolyYesBuyKalshiYes,
+            threshold_status: ThresholdStatus::PassedStaticOnly,
+            net_spread: dec("0.02"),
+            timestamp_ms: 1700000001000,
+        });
+
+        let state = tracker.export_state();
+        assert_eq!(state.len(), 2);
+
+        let mut tracker2 = FilteredSignalTracker::new(100);
+        tracker2.import_state(state.clone());
+
+        let state2 = tracker2.export_state();
+        assert_eq!(state.len(), state2.len());
+        assert_eq!(
+            state["evt-1"][0].net_spread,
+            state2["evt-1"][0].net_spread
+        );
+        assert_eq!(
+            state["evt-2"][0].threshold_status,
+            state2["evt-2"][0].threshold_status
+        );
+    }
+
+    #[test]
+    fn filtered_tracker_correlate_nonexistent_event() {
+        let mut tracker = FilteredSignalTracker::new(100);
+
+        // Correlating with a non-existent event should return empty
+        let correlations =
+            tracker.correlate_with_settlement("does-not-exist", &OutcomeKind::Yes);
+        assert!(correlations.is_empty());
+    }
+
+    #[test]
+    fn analyzer_record_and_correlate_filtered_signal() {
+        let mut analyzer = SignalAnalyzer::new(default_config());
+
+        // Record a filtered signal through the analyzer
+        analyzer.record_filtered_signal(FilteredSignalEvent {
+            event_id: "evt-1".to_string(),
+            pattern: SpreadPattern::BuyPolyYesSellKalshiYes,
+            threshold_status: ThresholdStatus::PassedStaticOnly,
+            net_spread: dec("0.02"),
+            timestamp_ms: 1700000000000,
+        });
+
+        // Correlate through the analyzer
+        let correlations =
+            analyzer.correlate_filtered_with_settlement("evt-1", &OutcomeKind::Yes);
+        assert_eq!(correlations.len(), 1);
+        assert!(correlations[0].hypothetical_hit);
+
+        // After correlation, the event should be cleaned up
+        let correlations2 =
+            analyzer.correlate_filtered_with_settlement("evt-1", &OutcomeKind::Yes);
+        assert!(correlations2.is_empty());
+    }
+
+    #[test]
+    fn analyzer_export_import_filtered_state() {
+        let mut analyzer = SignalAnalyzer::new(default_config());
+
+        analyzer.record_filtered_signal(FilteredSignalEvent {
+            event_id: "evt-1".to_string(),
+            pattern: SpreadPattern::BuyPolyYesSellKalshiYes,
+            threshold_status: ThresholdStatus::Filtered,
+            net_spread: dec("0.015"),
+            timestamp_ms: 1700000000000,
+        });
+
+        let state = analyzer.export_filtered_state();
+        assert_eq!(state.len(), 1);
+
+        let mut analyzer2 = SignalAnalyzer::new(default_config());
+        analyzer2.import_filtered_state(state);
+
+        let state2 = analyzer2.export_filtered_state();
+        assert_eq!(state2.len(), 1);
+        assert_eq!(state2["evt-1"][0].net_spread, dec("0.015"));
     }
 }
