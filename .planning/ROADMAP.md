@@ -75,7 +75,10 @@ Plans:
   2. Polymarket discovery returns Vec<DiscoveredInstrument> (same type as Deribit/Kalshi), enabling unified cross-venue matching pipeline
   3. Cross-venue matching uses exact asset/strike/direction with configurable expiry tolerance window (default 7 days) -- Deribit Friday expiry and Kalshi end-of-month expiry for the same target period produce a match
   4. Each candidate proposal includes instruments from all matched venues with an expiry confidence score (HIGH/MEDIUM/LOW based on date difference between venues)
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 19-01-PLAN.md — Polymarket structured discovery, config extensions, ExpiryConfidence type
+- [ ] 19-02-PLAN.md — FuzzyMatchKey cross-venue matching with expiry tolerance, lifecycle integration
 
 ### Phase 20: Proposal Workflow and Operator Interface
 **Goal**: Discovered candidates are written to events.toml as unapproved proposals with full operator visibility via structured logs and Prometheus metrics, and approved mappings are validated for safety on config reload
@@ -107,6 +110,6 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 18. Discovery Infrastructure Hardening | 2/2 | Complete    | 2026-02-26 | - |
-| 19. Polymarket Discovery and Cross-Venue Matching | v1.2 | 0/TBD | Not started | - |
+| 19. Polymarket Discovery and Cross-Venue Matching | v1.2 | 0/2 | Planned | - |
 | 20. Proposal Workflow and Operator Interface | v1.2 | 0/TBD | Not started | - |
 | 21. Lifecycle Management and Integration | v1.2 | 0/TBD | Not started | - |
