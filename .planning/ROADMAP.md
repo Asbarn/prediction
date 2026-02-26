@@ -45,7 +45,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 **Milestone Goal:** Eliminate manual events.toml curation -- system discovers markets across all three venues, proposes cross-venue mappings with confidence scoring, detects resolved events, manages lifecycle cleanup, and runs as an integrated background task. Operator intervention reduced to reviewing and approving proposals.
 
-- [ ] **Phase 18: Discovery Infrastructure Hardening** - Production-safe venue polling with shared rate limiters, consecutive-absence guards, and batched TOML writes
+- [x] **Phase 18: Discovery Infrastructure Hardening** - Production-safe venue polling with shared rate limiters, consecutive-absence guards, and batched TOML writes (completed 2026-02-26)
 - [ ] **Phase 19: Polymarket Discovery and Cross-Venue Matching** - Three-venue structured discovery with expiry tolerance matching and confidence-scored candidate proposals
 - [ ] **Phase 20: Proposal Workflow and Operator Interface** - Atomic TOML proposal writing, structured logging, Prometheus metrics, and approval validation
 - [ ] **Phase 21: Lifecycle Management and Integration** - Event archival, unapproved candidate cleanup, Retired status, and background task wiring into ContractLifecycleManager
@@ -61,7 +61,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   2. An instrument absent from a single API response is NOT marked expired -- only N consecutive absences (configurable, default 3) trigger expiry transition
   3. All TOML modifications within a single poll cycle are batched into one atomic write (not one write per candidate)
   4. A partial API response (instrument count drop >20%) is logged as suspect and does not trigger expirations
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 18-01-PLAN.md — Config extensions and batch TOML mutation functions
 - [ ] 18-02-PLAN.md — Shared rate limiters, absence tracking, partial-response detection, and batched poll cycle
@@ -106,7 +106,7 @@ Plans:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 18. Discovery Infrastructure Hardening | 1/2 | In Progress|  | - |
+| 18. Discovery Infrastructure Hardening | 2/2 | Complete   | 2026-02-26 | - |
 | 19. Polymarket Discovery and Cross-Venue Matching | v1.2 | 0/TBD | Not started | - |
 | 20. Proposal Workflow and Operator Interface | v1.2 | 0/TBD | Not started | - |
 | 21. Lifecycle Management and Integration | v1.2 | 0/TBD | Not started | - |
