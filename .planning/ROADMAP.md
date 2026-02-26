@@ -61,7 +61,10 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   2. An instrument absent from a single API response is NOT marked expired -- only N consecutive absences (configurable, default 3) trigger expiry transition
   3. All TOML modifications within a single poll cycle are batched into one atomic write (not one write per candidate)
   4. A partial API response (instrument count drop >20%) is logged as suspect and does not trigger expirations
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 18-01-PLAN.md — Config extensions and batch TOML mutation functions
+- [ ] 18-02-PLAN.md — Shared rate limiters, absence tracking, partial-response detection, and batched poll cycle
 
 ### Phase 19: Polymarket Discovery and Cross-Venue Matching
 **Goal**: System discovers structured instrument data from all three venues and matches cross-venue instruments using asset/strike/direction with configurable expiry date tolerance, producing candidate proposals with confidence scoring
@@ -103,7 +106,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 18. Discovery Infrastructure Hardening | v1.2 | 0/TBD | Not started | - |
+| 18. Discovery Infrastructure Hardening | v1.2 | 0/2 | Planned | - |
 | 19. Polymarket Discovery and Cross-Venue Matching | v1.2 | 0/TBD | Not started | - |
 | 20. Proposal Workflow and Operator Interface | v1.2 | 0/TBD | Not started | - |
 | 21. Lifecycle Management and Integration | v1.2 | 0/TBD | Not started | - |
