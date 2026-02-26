@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-24)
 ## Current Position
 
 Phase: 17 of 17 (Signal Analysis Tooling)
-Plan: 2 of 3 complete
-Status: Executing Phase 17
-Last activity: 2026-02-26 -- Completed 17-02 (Pipeline Integration)
+Plan: 3 of 3 complete
+Status: Phase 17 Complete
+Last activity: 2026-02-26 -- Completed 17-03 (Filtered Signal Tracking)
 
-Progress: [############################..] 93% (v1.0: 36/36 plans | v1.1: 11/TBD plans)
+Progress: [##############################] 100% (v1.0: 36/36 plans | v1.1: 12/12 plans)
 
 ## Performance Metrics
 
@@ -26,7 +26,7 @@ Progress: [############################..] 93% (v1.0: 36/36 plans | v1.1: 11/TBD
 - Timeline: 4 days (2026-02-21 to 2026-02-24)
 
 **v1.1:**
-- Plans completed: 11
+- Plans completed: 12
 - Phases: 4 (14-17)
 
 | Phase | Plan | Duration | Tasks | Files |
@@ -41,6 +41,7 @@ Progress: [############################..] 93% (v1.0: 36/36 plans | v1.1: 11/TBD
 | 16-settlement-outcome-tracking | 04 | 2min | 1 | 1 |
 | 17-signal-analysis-tooling | 01 | 12min | 2 | 15 |
 | 17-signal-analysis-tooling | 02 | 11min | 2 | 5 |
+| 17-signal-analysis-tooling | 03 | 9min | 2 | 6 |
 
 ## Accumulated Context
 
@@ -86,6 +87,10 @@ Recent decisions:
 - 17-02: SettlementLogger::log_record made generic over impl Serialize for both record types
 - 17-02: Prometheus gauges emitted once after settlement batch (not per-position) for efficiency
 - 17-02: Stale fill detection applied at signal time matching SpreadResult exchange timestamps
+- 17-03: Pattern-based hypothetical hit: BuyPolyYes profits from Yes, SellPolyYes profits from No, etc.
+- 17-03: FilteredSignalTracker capped at 100 entries per event_id to prevent unbounded growth
+- 17-03: Filtered signals sent via try_send (best-effort) to avoid backpressure on SpreadEngine
+- 17-03: Checkpoint version bumped to 4 with backward-compatible serde(default) on filtered_signals
 
 ### Pending Todos
 
@@ -102,5 +107,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 17-02-PLAN.md (Pipeline Integration)
-Next action: Execute 17-03-PLAN.md
+Stopped at: Completed 17-03-PLAN.md (Filtered Signal Tracking)
+Next action: All v1.1 phases complete. Ready for production paper trading validation.
