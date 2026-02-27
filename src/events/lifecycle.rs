@@ -22,9 +22,10 @@ use crate::config::{
     RiskWeightsConfig, VenuesConfig,
 };
 use crate::events::discovery::{
-    discover_deribit, discover_kalshi, discover_polymarket, filter_new_candidates,
-    find_cross_venue_candidates, flag_novel_instruments, DiscoveredInstrument,
-    ExpiryConfidence,
+    discover_deribit, discover_kalshi, discover_polymarket,
+    discover_polymarket_structured, filter_new_candidates_fuzzy,
+    find_cross_venue_candidates_fuzzy, flag_novel_instruments,
+    generate_polymarket_slugs, DiscoveredInstrument, ExpiryConfidence,
 };
 use crate::events::registry::EventRegistry;
 use crate::events::risk::{check_expiry_warning, inflate_risk_score, compute_risk_for_mapping, BasisRiskCache, CachedRiskInfo};
@@ -332,13 +333,61 @@ impl ContractLifecycleManager {
             }
         }
 
-        // --- Polymarket (deactivation monitoring only) ---
+        // --- Polymarket (structured discovery + deactivation monitoring) ---
+        let mut polymarket_polled = false;
+        let mut polymarket_suspect = false;
         if last_polymarket_poll.elapsed()
             >= Duration::from_secs(self.discovery_config.polymarket_poll_interval_secs)
         {
             *last_polymarket_poll = Instant::now();
             metrics::counter!("lifecycle_discovery_polls", "venue" => "polymarket").increment(1);
 
+            // Structured discovery: poll event slugs for new instrument proposals
+            let slugs = generate_polymarket_slugs(&self.discovery_config.polymarket_event_slugs);
+            let polymarket_limiter = self.venue_rate_limiters.get(&Venue::Polymarket);
+            match discover_polymarket_structured(
+                &self.http_client,
+                &self.venues_config.polymarket.gamma_api_url,
+                &slugs,
+                polymarket_limiter,
+            )
+            .await
+            {
+                Ok(instruments) => {
+                    let count = instruments.len();
+                    tracing::info!(
+                        venue = "polymarket",
+                        count = count,
+                        "discovered Polymarket structured instruments"
+                    );
+                    if self.previous_poll_counts.is_suspect(
+                        Venue::Polymarket,
+                        count,
+                        self.discovery_config.partial_response_threshold,
+                    ) {
+                        tracing::warn!(
+                            venue = "polymarket",
+                            previous = ?self.previous_poll_counts.counts.get(&Venue::Polymarket),
+                            current = count,
+                            "suspect partial API response -- skipping expiry evaluation for Polymarket"
+                        );
+                        polymarket_suspect = true;
+                    } else {
+                        self.previous_poll_counts.update(Venue::Polymarket, count);
+                    }
+                    polymarket_polled = true;
+                    all_discovered.extend(instruments);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        venue = "polymarket",
+                        error = %e,
+                        "Polymarket structured discovery failed, continuing"
+                    );
+                }
+            }
+
+            // Deactivation monitoring: check existing Polymarket mappings for closure
             match discover_polymarket(
                 &self.http_client,
                 &self.venues_config.polymarket.gamma_api_url,
@@ -346,11 +395,6 @@ impl ContractLifecycleManager {
             .await
             {
                 Ok(markets) => {
-                    tracing::info!(
-                        venue = "polymarket",
-                        count = markets.len(),
-                        "discovered Polymarket markets"
-                    );
                     // Log deactivated markets for user notification
                     for market in &markets {
                         if !market.active || market.closed {
@@ -369,26 +413,43 @@ impl ContractLifecycleManager {
                     tracing::warn!(
                         venue = "polymarket",
                         error = %e,
-                        "Polymarket discovery failed, continuing"
+                        "Polymarket deactivation monitoring failed, continuing"
                     );
                 }
             }
         }
 
-        // 2. Find new cross-venue candidates (Deribit + Kalshi only)
+        // 2. Find new cross-venue candidates (all three venues via fuzzy matching)
         let registry = self.registry.read().await;
-        let candidates = find_cross_venue_candidates(&all_discovered);
-        let new_candidates = filter_new_candidates(&candidates, &registry);
+        let candidates = find_cross_venue_candidates_fuzzy(
+            &all_discovered,
+            self.discovery_config.expiry_tolerance_days,
+        );
+        let new_candidates = filter_new_candidates_fuzzy(&candidates, &registry);
         drop(registry);
 
         // Collect candidates for batched write (no per-item writes)
         let mut candidates_to_append: Vec<CandidateMapping> = new_candidates;
         for candidate in &candidates_to_append {
+            let venue_count = [
+                candidate.venues.deribit.is_some(),
+                candidate.venues.kalshi.is_some(),
+                candidate.venues.polymarket.is_some(),
+            ]
+            .iter()
+            .filter(|&&v| v)
+            .count();
             tracing::info!(
                 event_id = %candidate.id,
+                venues = venue_count,
+                confidence = %candidate.expiry_confidence,
                 deribit = ?candidate.venues.deribit,
                 kalshi = ?candidate.venues.kalshi,
-                "discovered new candidate mapping"
+                polymarket = ?candidate.venues.polymarket,
+                "discovered {}-venue candidate: {}, confidence={}",
+                venue_count,
+                candidate.id,
+                candidate.expiry_confidence,
             );
             metrics::counter!("lifecycle_candidates_discovered").increment(1);
         }
@@ -454,6 +515,24 @@ impl ContractLifecycleManager {
                         if should_expire {
                             events_to_expire.push(mapping.id.clone());
                             self.absence_tracker.remove(Venue::Kalshi, &kalshi.ticker);
+                        }
+                    }
+                }
+            }
+
+            // Check Polymarket absence (only if Polymarket was polled and not suspect)
+            if let Some(ref polymarket) = mapping.venues.polymarket {
+                if polymarket_polled && !polymarket_suspect {
+                    if discovered_ids.contains(&(Venue::Polymarket, polymarket.condition_id.as_str())) {
+                        self.absence_tracker.record_present(Venue::Polymarket, &polymarket.condition_id);
+                    } else if !events_to_expire.contains(&mapping.id) {
+                        // Don't double-expire if another venue already triggered
+                        let should_expire = self.absence_tracker.record_absent(
+                            Venue::Polymarket, &polymarket.condition_id,
+                        );
+                        if should_expire {
+                            events_to_expire.push(mapping.id.clone());
+                            self.absence_tracker.remove(Venue::Polymarket, &polymarket.condition_id);
                         }
                     }
                 }
