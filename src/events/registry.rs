@@ -100,6 +100,14 @@ impl EventRegistry {
             .count()
     }
 
+    /// Count of active, unapproved (pending) mappings.
+    pub fn pending_count(&self) -> usize {
+        self.mappings
+            .iter()
+            .filter(|m| !m.approved && m.status == LifecycleStatus::Active)
+            .count()
+    }
+
     /// Build both instrument and event indexes from the mappings vec.
     fn build_indexes(&mut self) {
         for (idx, mapping) in self.mappings.iter().enumerate() {
@@ -305,6 +313,40 @@ mod tests {
         let active: Vec<_> = registry.active_approved().collect();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].id, "active-approved");
+    }
+
+    #[test]
+    fn pending_count_returns_active_unapproved() {
+        let config = make_config(vec![
+            make_mapping(
+                "active-approved",
+                true,
+                LifecycleStatus::Active,
+                Some("INST-1"),
+                None,
+                None,
+            ),
+            make_mapping(
+                "active-unapproved",
+                false,
+                LifecycleStatus::Active,
+                Some("INST-2"),
+                None,
+                None,
+            ),
+            make_mapping(
+                "expired-unapproved",
+                false,
+                LifecycleStatus::Expired,
+                Some("INST-3"),
+                None,
+                None,
+            ),
+        ]);
+        let registry = EventRegistry::from_config(&config);
+
+        assert_eq!(registry.pending_count(), 1);
+        assert_eq!(registry.active_count(), 1);
     }
 
     #[test]

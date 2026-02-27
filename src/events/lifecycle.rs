@@ -431,27 +431,27 @@ impl ContractLifecycleManager {
         // Collect candidates for batched write (no per-item writes)
         let mut candidates_to_append: Vec<CandidateMapping> = new_candidates;
         for candidate in &candidates_to_append {
-            let venue_count = [
-                candidate.venues.deribit.is_some(),
-                candidate.venues.kalshi.is_some(),
-                candidate.venues.polymarket.is_some(),
+            let venue_names: Vec<&str> = [
+                candidate.venues.deribit.as_ref().map(|_| "deribit"),
+                candidate.venues.polymarket.as_ref().map(|_| "polymarket"),
+                candidate.venues.kalshi.as_ref().map(|_| "kalshi"),
             ]
-            .iter()
-            .filter(|&&v| v)
-            .count();
-            tracing::info!(
+            .into_iter()
+            .flatten()
+            .collect();
+
+            tracing::warn!(
                 event_id = %candidate.id,
-                venues = venue_count,
+                matched_venues = ?venue_names,
+                deribit_instrument = ?candidate.venues.deribit,
+                polymarket_instrument = ?candidate.venues.polymarket.as_ref().map(|(cid, _)| cid),
+                kalshi_instrument = ?candidate.venues.kalshi,
+                expiry = %candidate.expiry,
                 confidence = %candidate.expiry_confidence,
-                deribit = ?candidate.venues.deribit,
-                kalshi = ?candidate.venues.kalshi,
-                polymarket = ?candidate.venues.polymarket,
-                "discovered {}-venue candidate: {}, confidence={}",
-                venue_count,
-                candidate.id,
-                candidate.expiry_confidence,
+                "new proposal: candidate mapping discovered"
             );
             metrics::counter!("lifecycle_candidates_discovered").increment(1);
+            metrics::counter!("proposals_total").increment(1);
         }
 
         // 3. Flag novel/unmatched instruments
@@ -687,6 +687,12 @@ impl ContractLifecycleManager {
         // 8. Refresh runtime registry if TOML was modified
         if needs_write {
             self.refresh_registry().await;
+        }
+
+        // 9. Update pending proposals gauge (always, even if no write happened)
+        {
+            let registry = self.registry.read().await;
+            metrics::gauge!("proposals_pending").set(registry.pending_count() as f64);
         }
     }
 
