@@ -89,7 +89,7 @@ Plans:
   2. Each new proposal emits a structured WARN-level tracing log containing event_id, matched venues, instrument identifiers, expiry dates, and confidence score
   3. Prometheus gauges expose current pending (unapproved) proposal count and a total proposals counter increments on each new proposal
   4. On config reload (SIGHUP), approved mappings are validated: at least 2 venue instruments present, instruments still active on their venues, and expiry date not already passed -- invalid mappings are rejected with a warning log
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 20-01-PLAN.md — Proposal logging (WARN-level structured tracing), Prometheus metrics (proposals_pending gauge, proposals_total counter), PROP-01 verification
 - [ ] 20-02-PLAN.md — Approved-mapping validation on config reload (venue count >= 2, expiry not past) and async instrument-activity warnings
@@ -114,5 +114,5 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 18. Discovery Infrastructure Hardening | 2/2 | Complete    | 2026-02-26 | - |
 | 19. Polymarket Discovery and Cross-Venue Matching | 2/2 | Complete    | 2026-02-27 | - |
-| 20. Proposal Workflow and Operator Interface | v1.2 | 0/2 | Not started | - |
+| 20. Proposal Workflow and Operator Interface | 1/2 | In Progress|  | - |
 | 21. Lifecycle Management and Integration | v1.2 | 0/TBD | Not started | - |

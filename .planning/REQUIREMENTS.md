@@ -16,9 +16,9 @@ Requirements for Automated Event Management milestone. Each maps to roadmap phas
 
 ### Proposals
 
-- [ ] **PROP-01**: System writes candidate mappings to events.toml with approved = false via atomic TOML writes preserving formatting and comments
-- [ ] **PROP-02**: System emits structured tracing log with event_id, matched venues, instruments, expiry dates, and confidence when a new candidate is proposed
-- [ ] **PROP-03**: System exposes Prometheus gauges for pending proposal count and total proposals counter
+- [x] **PROP-01**: System writes candidate mappings to events.toml with approved = false via atomic TOML writes preserving formatting and comments
+- [x] **PROP-02**: System emits structured tracing log with event_id, matched venues, instruments, expiry dates, and confidence when a new candidate is proposed
+- [x] **PROP-03**: System exposes Prometheus gauges for pending proposal count and total proposals counter
 - [ ] **PROP-04**: System validates approved mappings on config reload (at least 2 venue instruments, instruments still active, expiry not passed)
 
 ### Lifecycle
@@ -90,9 +90,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DISC-02 | Phase 18 | Complete |
 | DISC-03 | Phase 19 | Complete |
 | DISC-04 | Phase 19 | Complete |
-| PROP-01 | Phase 20 | Pending |
-| PROP-02 | Phase 20 | Pending |
-| PROP-03 | Phase 20 | Pending |
+| PROP-01 | Phase 20 | Complete |
+| PROP-02 | Phase 20 | Complete |
+| PROP-03 | Phase 20 | Complete |
 | PROP-04 | Phase 20 | Pending |
 | LIFE-01 | Phase 21 | Pending |
 | LIFE-02 | Phase 21 | Pending |
