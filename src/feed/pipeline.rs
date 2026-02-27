@@ -37,6 +37,7 @@ use crate::feed::polymarket::supervisor::PolymarketSupervisor;
 use crate::feed::recording::RecordingService;
 use crate::feed::reliability::VenueRateLimiter;
 use crate::feed::traits::{RawDataSource, RawMessage};
+use crate::subscription::SubscriptionReceivers;
 use crate::types::{EventId, MarketSnapshot, Venue};
 
 /// Pipeline output handles containing the snapshot receiver and per-venue health trackers.
@@ -51,6 +52,10 @@ pub struct PipelineHandles {
     /// Per-venue rate limiters for sharing with settlement and future execution.
     /// Clones of the same Arc<GovernorLimiter> used by feed supervisors.
     pub venue_rate_limiters: std::collections::HashMap<Venue, VenueRateLimiter>,
+    /// Subscription watch channel receivers for dynamic instrument updates.
+    /// Created by SubscriptionManager, consumed by supervisors in Phase 23.
+    /// None in Mock/Replay modes where subscriptions are static.
+    pub subscription_rx: Option<SubscriptionReceivers>,
 }
 
 /// Selects how the pipeline receives raw market data.
@@ -102,6 +107,7 @@ pub async fn run_multi_venue_pipeline(
                 snapshot_rx,
                 venue_health: vec![],
                 venue_rate_limiters: std::collections::HashMap::new(),
+                subscription_rx: None,
             })
         }
     }
@@ -304,6 +310,7 @@ async fn run_live_multi_venue(
         snapshot_rx,
         venue_health: venue_health_handles,
         venue_rate_limiters: rate_limiters,
+        subscription_rx: None,
     })
 }
 
