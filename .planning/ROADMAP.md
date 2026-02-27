@@ -83,7 +83,9 @@ Plans:
   1. When operator sets approved = true on a new event mapping in events.toml, the system subscribes to that instrument's feeds on the relevant venues within one config reload cycle -- no restart required
   2. When an event is archived (moved to events_archive.toml with Retired status), the system unsubscribes from that instrument's feeds on the relevant venues within one config reload cycle -- no restart required
   3. All three venue supervisors (Deribit, Polymarket, Kalshi) accept watch channel updates and reconnect with the updated instrument list
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 23-01-PLAN.md — Wire watch::Receiver into all three venue supervisors and thread receivers through pipeline.rs
 
 ### Phase 24: Hardening and Observability
 **Goal**: Subscription lifecycle is observable via metrics and safe to operate with dry-run mode, and unsubscribed instruments leave no stale state
@@ -114,6 +116,6 @@ Plans:
 | 14-17 | v1.1 Paper Trading | 11/11 | Complete | 2026-02-26 |
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
 | 22 | 2/2 | Complete    | 2026-02-27 | - |
-| 23 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
+| 23 | v1.3 Subscription Mgmt | 0/1 | Planned | - |
 | 24 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
 | 25 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
