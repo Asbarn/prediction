@@ -75,26 +75,26 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SUB-01 | TBD | Pending |
-| SUB-02 | TBD | Pending |
-| SUB-03 | TBD | Pending |
-| SUB-04 | TBD | Pending |
-| SUB-05 | TBD | Pending |
-| SUB-06 | TBD | Pending |
-| OBS-01 | TBD | Pending |
-| OBS-02 | TBD | Pending |
-| OBS-03 | TBD | Pending |
-| OPS-01 | TBD | Pending |
-| OPS-02 | TBD | Pending |
-| FIX-01 | TBD | Pending |
-| FIX-02 | TBD | Pending |
-| FIX-03 | TBD | Pending |
+| SUB-01 | Phase 23 | Pending |
+| SUB-02 | Phase 23 | Pending |
+| SUB-03 | Phase 22 | Pending |
+| SUB-04 | Phase 22 | Pending |
+| SUB-05 | Phase 24 | Pending |
+| SUB-06 | Phase 22 | Pending |
+| OBS-01 | Phase 24 | Pending |
+| OBS-02 | Phase 24 | Pending |
+| OBS-03 | Phase 22 | Pending |
+| OPS-01 | Phase 24 | Pending |
+| OPS-02 | Phase 22 | Pending |
+| FIX-01 | Phase 25 | Pending |
+| FIX-02 | Phase 25 | Pending |
+| FIX-03 | Phase 25 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 14 total
-- Mapped to phases: 0
-- Unmapped: 14
+- Mapped to phases: 14
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-27*
-*Last updated: 2026-02-27 after initial definition*
+*Last updated: 2026-02-27 after roadmap creation*

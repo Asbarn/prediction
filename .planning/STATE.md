@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.3 Live Subscription Management
+**Current focus:** v1.3 Live Subscription Management -- Phase 22 (Subscription Manager Core)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-02-27 — Milestone v1.3 started
+Phase: 22 of 25 (Subscription Manager Core)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-02-27 -- Roadmap created for v1.3 (4 phases, 14 requirements)
 
 Progress: [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%
 
@@ -43,6 +43,13 @@ Progress: [░░░░░░░░░░░░░░░░░░░░░░░
 Decisions are logged in PROJECT.md Key Decisions table.
 Full decision history in .planning/milestones/v1.0-ROADMAP.md, v1.1-ROADMAP.md, and v1.2-ROADMAP.md
 
+Key v1.3 decisions:
+- Reconnect-based subscription for all 3 venues (uniform, avoids per-venue protocol differences)
+- tokio::sync::watch for pushing instrument lists to supervisors (latest-value semantics)
+- tokio::sync::Notify for registry-before-subscription ordering
+- Zero new crate dependencies (continues v1.1/v1.2 pattern)
+- Tech debt sweep in separate final phase for clean bisectability
+
 ### Pending Todos
 
 None.
@@ -52,10 +59,10 @@ None.
 - Polymarket groupItemTitle format is not guaranteed stable (permissionless market creation)
 - Windows atomic rename produces DELETE + RENAME events that may race with file watcher debouncer
 - Kalshi may introduce new ticker patterns that bypass extract_kalshi_asset parser
-- EventRegistry.refresh() behavior with new EventMapping entries needs verification
+- Stale state after unsubscribe is the primary risk -- SpreadEngine/DeribitProcessor/KalshiProcessor HashMaps grow monotonically (addressed in Phase 24)
 
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Defining v1.3 requirements
-Next action: Define requirements and create roadmap
+Stopped at: Created v1.3 roadmap (4 phases, 14 requirements mapped)
+Next action: Plan Phase 22 (Subscription Manager Core)

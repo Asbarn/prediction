@@ -9,6 +9,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - v1.0 MVP -- Phases 1-13 (shipped 2026-02-24) | [Full details](milestones/v1.0-ROADMAP.md)
 - v1.1 Paper Trading Validation -- Phases 14-17 (shipped 2026-02-26) | [Full details](milestones/v1.1-ROADMAP.md)
 - v1.2 Automated Event Management -- Phases 18-21 (shipped 2026-02-27) | [Full details](milestones/v1.2-ROADMAP.md)
+- v1.3 Live Subscription Management -- Phases 22-25 (in progress) | [Full details](milestones/v1.3-ROADMAP.md)
 
 ## Phases
 
@@ -51,6 +52,13 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 </details>
 
+### v1.3 Live Subscription Management (In Progress)
+
+- [ ] **Phase 22: Subscription Manager Core** - SubscriptionManager with reconciliation logic, registry ordering, and diff logging
+- [ ] **Phase 23: Dynamic Supervisor Subscriptions** - Wire watch channels into all three venue supervisors for reconnect-based subscribe/unsubscribe
+- [ ] **Phase 24: Hardening and Observability** - Stale state cleanup, Prometheus subscription metrics, and dry-run reconciliation mode
+- [ ] **Phase 25: Tech Debt Sweep** - Fix iv_spread, options book depth, and Kalshi staleness computation
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -58,3 +66,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 | 1-13 | v1.0 MVP | 36/36 | Complete | 2026-02-24 |
 | 14-17 | v1.1 Paper Trading | 11/11 | Complete | 2026-02-26 |
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
+| 22 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
+| 23 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
+| 24 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
+| 25 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
