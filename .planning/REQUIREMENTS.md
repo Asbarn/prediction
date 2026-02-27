@@ -9,7 +9,7 @@ Requirements for Automated Event Management milestone. Each maps to roadmap phas
 
 ### Discovery
 
-- [ ] **DISC-01**: System polls Polymarket Gamma API with crypto category filtering and extracts structured fields (asset, strike, direction, expiry) from groupItemTitle patterns
+- [x] **DISC-01**: System polls Polymarket Gamma API with crypto category filtering and extracts structured fields (asset, strike, direction, expiry) from groupItemTitle patterns
 - [x] **DISC-02**: System polls Deribit and Kalshi APIs for new instruments with shared rate limiters and consecutive-absence expiry guards
 - [ ] **DISC-03**: System matches cross-venue instruments using exact asset/strike/direction with configurable expiry date tolerance window (default 7 days)
 - [ ] **DISC-04**: System generates cross-venue candidate proposals including instruments from all matched venues with expiry confidence scoring (HIGH/MEDIUM/LOW based on date difference)
@@ -31,7 +31,7 @@ Requirements for Automated Event Management milestone. Each maps to roadmap phas
 ### Integration
 
 - [ ] **INTG-01**: Discovery manager runs as periodic background task within ContractLifecycleManager poll cycle
-- [ ] **INTG-02**: Polymarket discovery returns Vec<DiscoveredInstrument> (same type as Deribit/Kalshi) for unified cross-venue matching
+- [x] **INTG-02**: Polymarket discovery returns Vec<DiscoveredInstrument> (same type as Deribit/Kalshi) for unified cross-venue matching
 - [x] **INTG-03**: All TOML writes use existing VenueRateLimiter and batch writes per poll cycle (not per-candidate)
 
 ## v2 Requirements
@@ -86,7 +86,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DISC-01 | Phase 19 | Pending |
+| DISC-01 | Phase 19 | Complete |
 | DISC-02 | Phase 18 | Complete |
 | DISC-03 | Phase 19 | Pending |
 | DISC-04 | Phase 19 | Pending |
@@ -99,7 +99,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LIFE-03 | Phase 21 | Pending |
 | LIFE-04 | Phase 18 | Complete |
 | INTG-01 | Phase 21 | Pending |
-| INTG-02 | Phase 19 | Pending |
+| INTG-02 | Phase 19 | Complete |
 | INTG-03 | Phase 18 | Complete |
 
 **Coverage:**

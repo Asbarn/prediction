@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.2 Automated Event Management -- Phase 18 (Discovery Infrastructure Hardening)
+**Current focus:** v1.2 Automated Event Management -- Phase 19 (Polymarket Discovery and Cross-Venue Matching)
 
 ## Current Position
 
-Phase: 18 of 21 (Discovery Infrastructure Hardening) -- first phase of v1.2
-Plan: 02 of 02 complete
-Status: Phase Complete
-Last activity: 2026-02-26 -- Completed 18-02 (Lifecycle Integration)
+Phase: 19 of 21 (Polymarket Discovery and Cross-Venue Matching)
+Plan: 01 of 02 complete
+Status: In Progress
+Last activity: 2026-02-27 -- Completed 19-01 (Polymarket Structured Discovery)
 
-Progress: [######                        ] 20% (v1.2: phase 18 complete, 2/2 plans)
+Progress: [#########                     ] 30% (v1.2: phase 19 in progress, 19-01 complete)
 
 ## Performance Metrics
 
@@ -47,6 +47,9 @@ Recent decisions:
 - 18-01: Batch functions take &mut DocumentMut returning Result<()> for "parse once, mutate N, write once" pattern
 - 18-02: Refactored handle_deribit_roll to pure find_deribit_roll for batched write compatibility
 - 18-02: Windows atomic_write uses remove-before-rename via #[cfg(target_os = "windows")]
+- 19-01: String parsing over regex for Polymarket question text (3 predictable patterns)
+- 19-01: endDateIso is authoritative expiry source; question text dates are NOT parsed
+- 19-01: ExpiryConfidence::High default for existing CandidateMapping constructions (proper scoring in Plan 02)
 
 ### Pending Todos
 
@@ -61,6 +64,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-26
-Stopped at: Completed 18-02-PLAN.md (Lifecycle Integration) -- Phase 18 complete
-Next action: Execute Phase 19 (next v1.2 phase per ROADMAP)
+Last session: 2026-02-27
+Stopped at: Completed 19-01-PLAN.md (Polymarket Structured Discovery)
+Next action: Execute 19-02 (Cross-Venue Fuzzy Matching and Lifecycle Integration)
