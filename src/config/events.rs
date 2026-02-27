@@ -229,6 +229,16 @@ pub struct DiscoveryConfig {
     /// that venue. Default 0.2 (20%).
     #[serde(default = "default_partial_response_threshold")]
     pub partial_response_threshold: f64,
+    /// Expiry tolerance in days for cross-venue matching.
+    /// Instruments with the same asset/strike/direction but different
+    /// expiry dates within this window are considered matches.
+    /// Default 7 days (covers Deribit Friday to Kalshi/Polymarket end-of-month).
+    #[serde(default = "default_expiry_tolerance_days")]
+    pub expiry_tolerance_days: i64,
+    /// Polymarket event slug patterns for crypto price market discovery.
+    /// Supports {month} and {year} placeholders that are expanded at runtime.
+    #[serde(default = "default_polymarket_event_slugs")]
+    pub polymarket_event_slugs: Vec<String>,
 }
 
 impl DiscoveryConfig {
@@ -253,6 +263,8 @@ impl Default for DiscoveryConfig {
             kalshi_series_tickers: vec!["KXBTC".to_string()],
             consecutive_absence_threshold: default_consecutive_absence_threshold(),
             partial_response_threshold: default_partial_response_threshold(),
+            expiry_tolerance_days: default_expiry_tolerance_days(),
+            polymarket_event_slugs: default_polymarket_event_slugs(),
         }
     }
 }
@@ -264,6 +276,13 @@ fn default_deribit_currencies() -> Vec<String> { vec!["BTC".to_string()] }
 fn default_kalshi_series() -> Vec<String> { vec!["KXBTC".to_string()] }
 fn default_consecutive_absence_threshold() -> u32 { 3 }
 fn default_partial_response_threshold() -> f64 { 0.2 }
+fn default_expiry_tolerance_days() -> i64 { 7 }
+fn default_polymarket_event_slugs() -> Vec<String> {
+    vec![
+        "what-price-will-bitcoin-hit-in-{month}".to_string(),
+        "what-price-will-bitcoin-hit-in-{year}".to_string(),
+    ]
+}
 
 /// Expiry warning threshold configuration.
 ///

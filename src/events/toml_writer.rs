@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context};
 use toml_edit::{value, DocumentMut, Table};
 
 use crate::config::Direction;
+use crate::events::discovery::ExpiryConfidence;
 
 /// Input for appending a candidate mapping to events.toml.
 ///
@@ -21,6 +22,8 @@ pub struct CandidateMapping {
     pub expiry: String,
     /// Venue-specific instrument identifiers.
     pub venues: CandidateVenues,
+    /// Confidence score for expiry alignment between matched venues.
+    pub expiry_confidence: ExpiryConfidence,
 }
 
 /// Venue-specific identifiers for a candidate mapping.
@@ -48,6 +51,7 @@ fn build_candidate_table(candidate: &CandidateMapping) -> Table {
     entry["approved"] = value(false);
     entry["status"] = value("active");
     entry["discovered_at"] = value(chrono::Utc::now().to_rfc3339());
+    entry["expiry_confidence"] = value(candidate.expiry_confidence.to_string());
 
     // Add venue-specific sub-tables
     let mut venues = Table::new();
@@ -236,6 +240,7 @@ instrument = "BTC-27JUN25-100000-C"
                 polymarket: None,
                 kalshi: None,
             },
+            expiry_confidence: ExpiryConfidence::High,
         };
 
         let result = append_candidate_to_toml(SAMPLE_TOML, &candidate).unwrap();
@@ -264,6 +269,7 @@ instrument = "BTC-27JUN25-100000-C"
                 polymarket: Some(("0xdef".to_string(), "67890".to_string())),
                 kalshi: None,
             },
+            expiry_confidence: ExpiryConfidence::High,
         };
 
         let result = append_candidate_to_toml(SAMPLE_TOML, &candidate).unwrap();
@@ -296,6 +302,7 @@ instrument = "BTC-27JUN25-100000-C"
                 polymarket: Some(("0xaaa".to_string(), "99999".to_string())),
                 kalshi: Some("KXBTCD-25DEC30-T150000".to_string()),
             },
+            expiry_confidence: ExpiryConfidence::High,
         };
 
         let result = append_candidate_to_toml(SAMPLE_TOML, &candidate).unwrap();
@@ -342,6 +349,7 @@ instrument = "BTC-27JUN25-100000-C"
                 polymarket: None,
                 kalshi: None,
             },
+            expiry_confidence: ExpiryConfidence::High,
         };
 
         let result = append_candidate_to_toml("{{invalid toml", &candidate);
@@ -363,6 +371,7 @@ instrument = "BTC-27JUN25-100000-C"
                 polymarket: None,
                 kalshi: None,
             },
+            expiry_confidence: ExpiryConfidence::High,
         };
 
         let result = append_candidate_to_toml(toml_without_events, &candidate);

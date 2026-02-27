@@ -24,6 +24,7 @@ use crate::config::{
 use crate::events::discovery::{
     discover_deribit, discover_kalshi, discover_polymarket, filter_new_candidates,
     find_cross_venue_candidates, flag_novel_instruments, DiscoveredInstrument,
+    ExpiryConfidence,
 };
 use crate::events::registry::EventRegistry;
 use crate::events::risk::{check_expiry_warning, inflate_risk_score, compute_risk_for_mapping, BasisRiskCache, CachedRiskInfo};
@@ -693,6 +694,7 @@ impl ContractLifecycleManager {
                     polymarket: None,
                     kalshi: None,
                 },
+                expiry_confidence: ExpiryConfidence::High,
             });
         }
 

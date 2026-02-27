@@ -4,8 +4,8 @@
 //! `DiscoveredInstrument` structs, and identifies cross-venue candidate
 //! matches using exact four-field matching (asset + strike + expiry + direction).
 //!
-//! Polymarket discovery is limited to deactivation monitoring in v1
-//! (structured field extraction from free-form questions is deferred).
+//! Polymarket structured discovery parses question text from the Gamma API
+//! to extract asset, strike, direction, and uses `endDateIso` for expiry.
 
 use std::collections::{HashMap, HashSet};
 
@@ -63,6 +63,68 @@ impl MatchKey {
             direction: d.direction.clone(),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Expiry confidence scoring
+// ---------------------------------------------------------------------------
+
+/// Confidence level for expiry alignment between matched venues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpiryConfidence {
+    /// All venue expiries within 2 days of each other.
+    High,
+    /// All venue expiries within 7 days of each other.
+    Medium,
+    /// All venue expiries within the configured tolerance (>7 days).
+    Low,
+}
+
+impl std::fmt::Display for ExpiryConfidence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExpiryConfidence::High => write!(f, "HIGH"),
+            ExpiryConfidence::Medium => write!(f, "MEDIUM"),
+            ExpiryConfidence::Low => write!(f, "LOW"),
+        }
+    }
+}
+
+/// Compute expiry confidence from the maximum date spread in a group.
+pub fn compute_expiry_confidence(expiries: &[NaiveDate]) -> ExpiryConfidence {
+    if expiries.len() <= 1 {
+        return ExpiryConfidence::High;
+    }
+    let min = expiries.iter().min().unwrap();
+    let max = expiries.iter().max().unwrap();
+    let spread_days = (*max - *min).num_days();
+
+    if spread_days <= 2 {
+        ExpiryConfidence::High
+    } else if spread_days <= 7 {
+        ExpiryConfidence::Medium
+    } else {
+        ExpiryConfidence::Low
+    }
+}
+
+/// Generate concrete Polymarket event slugs from base patterns.
+///
+/// Replaces `{month}` with the current month name (lowercase) and
+/// `{year}` with the current four-digit year string.
+pub fn generate_polymarket_slugs(base_patterns: &[String]) -> Vec<String> {
+    let now = chrono::Utc::now();
+    let month_name = now.format("%B").to_string().to_lowercase();
+    let year = now.format("%Y").to_string();
+
+    base_patterns
+        .iter()
+        .map(|pattern| {
+            pattern
+                .replace("{month}", &month_name)
+                .replace("{year}", &year)
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -450,6 +512,7 @@ pub fn filter_new_candidates(
                 polymarket: None, // Polymarket excluded in v1
                 kalshi,
             },
+            expiry_confidence: ExpiryConfidence::High,
         });
     }
 
