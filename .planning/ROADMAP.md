@@ -96,7 +96,10 @@ Plans:
   2. Prometheus gauges show the current number of active subscriptions per venue (queryable as subscription_active{venue="deribit"})
   3. Prometheus counters track cumulative subscription activations and removals per venue (queryable as subscription_activations_total and subscription_removals_total)
   4. When dry_run = true in config, reconciliation logs what subscribe/unsubscribe actions would be taken without sending any commands to venues
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 24-01-PLAN.md — Subscription metrics (gauges + counters), dry-run reconciliation mode, SubscriptionConfig, and CleanupEvent infrastructure
+- [ ] 24-02-PLAN.md — Wire cleanup channels into all 5 stateful engines for stale state eviction after unsubscribe
 
 ### Phase 25: Tech Debt Sweep
 **Goal**: Three behavior-changing tech debt items from v1.0 are fixed so metrics and staleness detection reflect real data
@@ -117,5 +120,5 @@ Plans:
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
 | 22 | v1.3 Subscription Mgmt | 2/2 | Complete | 2026-02-27 |
 | 23 | v1.3 Subscription Mgmt | Complete    | 2026-02-27 | 2026-02-27 |
-| 24 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
+| 24 | v1.3 Subscription Mgmt | 0/2 | Planned | - |
 | 25 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
