@@ -41,3 +41,24 @@
 
 ---
 
+
+## v1.2 Automated Event Management (Shipped: 2026-02-27)
+
+**Phases completed:** 4 phases, 8 plans
+**LOC delta:** +2,122 lines (34,753 LOC Rust total)
+**Timeline:** 2 days (2026-02-26 to 2026-02-27)
+**Commits:** 16
+**Requirements:** 15/15 satisfied
+
+**Key accomplishments:**
+- Production-safe venue discovery polling with shared VenueRateLimiter instances, consecutive-absence guards preventing false expirations, and batched TOML writes eliminating race conditions
+- Polymarket Gamma API structured discovery with question text parsing (3 BTC price patterns), ExpiryConfidence scoring, and unified Vec<DiscoveredInstrument> type across all three venues
+- Cross-venue fuzzy matching via FuzzyMatchKey (asset/strike/direction) with configurable expiry tolerance window, handling Deribit Friday and Kalshi end-of-month expiry differences
+- Proposal workflow with WARN-level structured tracing logs, Prometheus proposals_pending gauge and proposals_total counter, and atomic TOML writes preserving formatting
+- Approved-mapping validation on config reload (venue count >= 2, expiry not past) plus async instrument-activity warnings gated behind discovery data availability
+- Event archival from events.toml to events_archive.toml with Retired lifecycle status, automatic unapproved-candidate cleanup, and full pipeline running as periodic background task in ContractLifecycleManager
+
+**Tech debt carried forward:** 13 non-blocking items from v1.0 (unchanged) + 2 low-severity items (unused exact-match functions preserved for backward compat, expiry_confidence TOML field is write-only)
+
+---
+
