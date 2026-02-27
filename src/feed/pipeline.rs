@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, watch, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::{Credentials, VenuesConfig, DeribitConfig};
@@ -37,7 +37,7 @@ use crate::feed::polymarket::supervisor::PolymarketSupervisor;
 use crate::feed::recording::RecordingService;
 use crate::feed::reliability::VenueRateLimiter;
 use crate::feed::traits::{RawDataSource, RawMessage};
-use crate::subscription::SubscriptionReceivers;
+use crate::subscription::{PolymarketSubscription, SubscriptionReceivers};
 use crate::types::{EventId, MarketSnapshot, Venue};
 
 /// Pipeline output handles containing the snapshot receiver and per-venue health trackers.
@@ -53,7 +53,7 @@ pub struct PipelineHandles {
     /// Clones of the same Arc<GovernorLimiter> used by feed supervisors.
     pub venue_rate_limiters: std::collections::HashMap<Venue, VenueRateLimiter>,
     /// Subscription watch channel receivers for dynamic instrument updates.
-    /// Created by SubscriptionManager, consumed by supervisors in Phase 23.
+    /// Consumed by supervisors in live mode. Retained for potential future introspection.
     /// None in Mock/Replay modes where subscriptions are static.
     pub subscription_rx: Option<SubscriptionReceivers>,
 }
@@ -92,10 +92,11 @@ pub async fn run_multi_venue_pipeline(
     recording_dir: PathBuf,
     cancel: CancellationToken,
     event_registry: Option<Arc<RwLock<EventRegistry>>>,
+    subscription_rx: Option<SubscriptionReceivers>,
 ) -> anyhow::Result<PipelineHandles> {
     match mode {
         DataMode::Live => {
-            run_live_multi_venue(config, credentials, recording_dir, cancel, event_registry.clone()).await
+            run_live_multi_venue(config, credentials, recording_dir, cancel, event_registry.clone(), subscription_rx).await
         }
         DataMode::Replay { path, speed } => {
             crate::replay::run_replay_pipeline(path, config, speed, cancel, event_registry).await
@@ -120,11 +121,21 @@ async fn run_live_multi_venue(
     recording_dir: PathBuf,
     cancel: CancellationToken,
     event_registry: Option<Arc<RwLock<EventRegistry>>>,
+    subscription_rx: Option<SubscriptionReceivers>,
 ) -> anyhow::Result<PipelineHandles> {
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<MarketSnapshot>(FAN_IN_BUFFER);
     let mut venue_health_handles: Vec<Arc<VenueHealth>> = Vec::new();
     let mut rate_limiters: std::collections::HashMap<Venue, VenueRateLimiter> =
         std::collections::HashMap::new();
+
+    // Destructure per-venue subscription receivers.
+    // When SubscriptionManager provides receivers (live mode with subscription management),
+    // they are passed to each supervisor. When None (no subscription management),
+    // one-shot watch channels seeded with config values are created instead.
+    let (deribit_rx, polymarket_rx, kalshi_rx) = match subscription_rx {
+        Some(rx) => (Some(rx.deribit), Some(rx.polymarket), Some(rx.kalshi)),
+        None => (None, None, None),
+    };
 
     // --- Deribit pipeline ---
     {
@@ -147,9 +158,16 @@ async fn run_live_multi_venue(
         );
 
         let (supervisor_tx, supervisor_rx) = mpsc::channel::<RawMessage>(1024);
+        let instruments_rx = match deribit_rx {
+            Some(rx) => rx,
+            None => {
+                let (_tx, rx) = watch::channel(config.deribit.instruments.clone());
+                rx
+            }
+        };
         let supervisor = DeribitSupervisor::new(
             config.deribit.clone(),
-            config.deribit.instruments.clone(),
+            instruments_rx,
             venue_cancel.clone(),
             rate_limiter,
             health.clone(),
@@ -196,8 +214,20 @@ async fn run_live_multi_venue(
         rate_limiters.insert(Venue::Polymarket, poly_rate_limiter);
 
         let (supervisor_tx, supervisor_rx) = mpsc::channel::<RawMessage>(1024);
+        let assets_rx = match polymarket_rx {
+            Some(rx) => rx,
+            None => {
+                let initial: Vec<PolymarketSubscription> = config.polymarket.assets.iter().map(|a| PolymarketSubscription {
+                    condition_id: a.condition_id.clone(),
+                    token_id: a.token_id.clone(),
+                }).collect();
+                let (_tx, rx) = watch::channel(initial);
+                rx
+            }
+        };
         let supervisor = PolymarketSupervisor::new(
             config.polymarket.clone(),
+            assets_rx,
             venue_cancel.clone(),
             health.clone(),
         );
@@ -252,10 +282,18 @@ async fn run_live_multi_venue(
                         );
 
                         let (supervisor_tx, supervisor_rx) = mpsc::channel::<RawMessage>(1024);
+                        let tickers_rx = match kalshi_rx {
+                            Some(rx) => rx,
+                            None => {
+                                let (_tx, rx) = watch::channel(config.kalshi.market_tickers.clone());
+                                rx
+                            }
+                        };
                         let supervisor = KalshiSupervisor::new(
                             config.kalshi.clone(),
                             key_id,
                             private_key,
+                            tickers_rx,
                             venue_cancel.clone(),
                             health.clone(),
                         );
@@ -422,9 +460,10 @@ pub async fn run_pipeline(
             );
             let health = VenueHealth::new(Venue::Deribit);
             let (supervisor_tx, supervisor_rx) = mpsc::channel::<RawMessage>(1024);
+            let (_sub_tx, instruments_rx) = watch::channel(config.instruments.clone());
             let supervisor = DeribitSupervisor::new(
                 config.clone(),
-                config.instruments.clone(),
+                instruments_rx,
                 cancel.clone(),
                 rate_limiter,
                 health,

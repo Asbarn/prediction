@@ -219,20 +219,16 @@ async fn main() -> anyhow::Result<()> {
 
             // Start the multi-venue pipeline
             let recording_dir = PathBuf::from("recordings");
-            let mut pipeline_handles = pipeline::run_multi_venue_pipeline(
+            let pipeline_handles = pipeline::run_multi_venue_pipeline(
                 mode,
                 &config.venues,
                 &config.credentials,
                 recording_dir,
                 shutdown_token.clone(),
                 Some(event_registry.clone()),
+                sub_receivers, // Pass receivers into pipeline for supervisor consumption
             )
             .await?;
-
-            // Attach subscription receivers to PipelineHandles for Phase 23 consumption
-            if let Some(receivers) = sub_receivers {
-                pipeline_handles.subscription_rx = Some(receivers);
-            }
 
             let snapshot_rx = pipeline_handles.snapshot_rx;
 
