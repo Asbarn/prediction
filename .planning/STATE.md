@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Planning next milestone
+**Current focus:** v1.3 Live Subscription Management
 
 ## Current Position
 
-Phase: Milestone complete
-Plan: N/A
-Status: Between milestones (v1.2 shipped, next TBD)
-Last activity: 2026-02-27 -- Completed v1.2 Automated Event Management milestone
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-27 — Milestone v1.3 started
 
-Progress: [##############################] 100% (v1.2 shipped)
+Progress: [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -57,5 +57,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed v1.2 milestone archival
-Next action: /gsd:new-milestone to start next milestone (/clear first for fresh context)
+Stopped at: Defining v1.3 requirements
+Next action: Define requirements and create roadmap

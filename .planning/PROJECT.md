@@ -50,11 +50,20 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ### Active
 
-<!-- Next milestone TBD -->
+## Current Milestone: v1.3 Live Subscription Management
+
+**Goal:** Dynamic feed subscription/unsubscription without restart, plus tech debt sweep.
+
+**Target features:**
+- Dynamic feed subscription for newly approved instruments without restart
+- Dynamic feed unsubscription for expired/retired instruments
+- Config-change-driven subscription reconciliation
+- Tech debt cleanup (15 accumulated items from v1.0-v1.2)
 
 - [ ] Dynamic feed subscription for newly approved instruments without restart
 - [ ] Dynamic feed unsubscription for expired/retired instruments
 - [ ] Config-change-driven subscription reconciliation
+- [ ] Tech debt sweep (v1.0-v1.2 accumulated items)
 
 ### Out of Scope
 
@@ -82,7 +91,7 @@ Signal analysis: hit rate, cost-adjusted edge, false positive rate, time-to-conv
 
 **System status:** Fully operational with automated event discovery. Operator reviews and approves proposed cross-venue mappings; expired events are archived automatically. System can run unattended for paper trading with self-managing event lifecycle.
 
-**Next priority:** Run the system in paper trading mode to collect settlement data and validate automated discovery quality. Then evaluate signal quality metrics and discovery accuracy to decide whether to proceed to execution (v2).
+**Next priority:** Ship dynamic subscription management so the system can subscribe/unsubscribe feeds without restart when event mappings change. Then run extended paper trading to validate discovery + signal quality before v2 execution.
 
 **Known tech debt:** 13 non-blocking items from v1.0 + 2 low-severity from v1.2 (unused exact-match functions preserved for backward compat, expiry_confidence TOML field is write-only). See MILESTONES.md for full list.
 
@@ -130,4 +139,4 @@ Signal analysis: hit rate, cost-adjusted edge, false positive rate, time-to-conv
 | Archive-then-remove safety pattern | Archive file written atomically before entries removed | v1.2 Validated -- no data loss risk |
 
 ---
-*Last updated: 2026-02-27 after v1.2 milestone*
+*Last updated: 2026-02-27 after v1.3 milestone start*
