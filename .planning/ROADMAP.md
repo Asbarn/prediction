@@ -46,7 +46,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 **Milestone Goal:** Eliminate manual events.toml curation -- system discovers markets across all three venues, proposes cross-venue mappings with confidence scoring, detects resolved events, manages lifecycle cleanup, and runs as an integrated background task. Operator intervention reduced to reviewing and approving proposals.
 
 - [x] **Phase 18: Discovery Infrastructure Hardening** - Production-safe venue polling with shared rate limiters, consecutive-absence guards, and batched TOML writes (completed 2026-02-26)
-- [ ] **Phase 19: Polymarket Discovery and Cross-Venue Matching** - Three-venue structured discovery with expiry tolerance matching and confidence-scored candidate proposals
+- [x] **Phase 19: Polymarket Discovery and Cross-Venue Matching** - Three-venue structured discovery with expiry tolerance matching and confidence-scored candidate proposals (completed 2026-02-27)
 - [ ] **Phase 20: Proposal Workflow and Operator Interface** - Atomic TOML proposal writing, structured logging, Prometheus metrics, and approval validation
 - [ ] **Phase 21: Lifecycle Management and Integration** - Event archival, unapproved candidate cleanup, Retired status, and background task wiring into ContractLifecycleManager
 
@@ -75,7 +75,7 @@ Plans:
   2. Polymarket discovery returns Vec<DiscoveredInstrument> (same type as Deribit/Kalshi), enabling unified cross-venue matching pipeline
   3. Cross-venue matching uses exact asset/strike/direction with configurable expiry tolerance window (default 7 days) -- Deribit Friday expiry and Kalshi end-of-month expiry for the same target period produce a match
   4. Each candidate proposal includes instruments from all matched venues with an expiry confidence score (HIGH/MEDIUM/LOW based on date difference between venues)
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 19-01-PLAN.md — Polymarket structured discovery, config extensions, ExpiryConfidence type
 - [ ] 19-02-PLAN.md — FuzzyMatchKey cross-venue matching with expiry tolerance, lifecycle integration
@@ -110,6 +110,6 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 18. Discovery Infrastructure Hardening | 2/2 | Complete    | 2026-02-26 | - |
-| 19. Polymarket Discovery and Cross-Venue Matching | 1/2 | In Progress|  | - |
+| 19. Polymarket Discovery and Cross-Venue Matching | 2/2 | Complete   | 2026-02-27 | - |
 | 20. Proposal Workflow and Operator Interface | v1.2 | 0/TBD | Not started | - |
 | 21. Lifecycle Management and Integration | v1.2 | 0/TBD | Not started | - |

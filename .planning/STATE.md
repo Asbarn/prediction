@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 
 ## Current Position
 
-Phase: 19 of 21 (Polymarket Discovery and Cross-Venue Matching)
-Plan: 01 of 02 complete
-Status: In Progress
-Last activity: 2026-02-27 -- Completed 19-01 (Polymarket Structured Discovery)
+Phase: 19 of 21 (Polymarket Discovery and Cross-Venue Matching) -- COMPLETE
+Plan: 02 of 02 complete
+Status: Phase Complete
+Last activity: 2026-02-27 -- Completed 19-02 (Cross-Venue Fuzzy Matching and Lifecycle Integration)
 
-Progress: [#########                     ] 30% (v1.2: phase 19 in progress, 19-01 complete)
+Progress: [##########                    ] 33% (v1.2: phase 19 complete, ready for phase 20)
 
 ## Performance Metrics
 
@@ -50,6 +50,9 @@ Recent decisions:
 - 19-01: String parsing over regex for Polymarket question text (3 predictable patterns)
 - 19-01: endDateIso is authoritative expiry source; question text dates are NOT parsed
 - 19-01: ExpiryConfidence::High default for existing CandidateMapping constructions (proper scoring in Plan 02)
+- 19-02: FuzzyMatchKey uses 3 fields (asset/strike/direction), expiry checked separately against tolerance
+- 19-02: Earliest expiry date as representative for event_id (most conservative)
+- 19-02: extra_venue_id field on DiscoveredInstrument for Polymarket token_id propagation
 
 ### Pending Todos
 
@@ -65,5 +68,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 19-01-PLAN.md (Polymarket Structured Discovery)
-Next action: Execute 19-02 (Cross-Venue Fuzzy Matching and Lifecycle Integration)
+Stopped at: Completed 19-02-PLAN.md (Cross-Venue Fuzzy Matching and Lifecycle Integration)
+Next action: Execute Phase 20 (Approval Workflow)

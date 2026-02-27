@@ -11,8 +11,8 @@ Requirements for Automated Event Management milestone. Each maps to roadmap phas
 
 - [x] **DISC-01**: System polls Polymarket Gamma API with crypto category filtering and extracts structured fields (asset, strike, direction, expiry) from groupItemTitle patterns
 - [x] **DISC-02**: System polls Deribit and Kalshi APIs for new instruments with shared rate limiters and consecutive-absence expiry guards
-- [ ] **DISC-03**: System matches cross-venue instruments using exact asset/strike/direction with configurable expiry date tolerance window (default 7 days)
-- [ ] **DISC-04**: System generates cross-venue candidate proposals including instruments from all matched venues with expiry confidence scoring (HIGH/MEDIUM/LOW based on date difference)
+- [x] **DISC-03**: System matches cross-venue instruments using exact asset/strike/direction with configurable expiry date tolerance window (default 7 days)
+- [x] **DISC-04**: System generates cross-venue candidate proposals including instruments from all matched venues with expiry confidence scoring (HIGH/MEDIUM/LOW based on date difference)
 
 ### Proposals
 
@@ -88,8 +88,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | DISC-01 | Phase 19 | Complete |
 | DISC-02 | Phase 18 | Complete |
-| DISC-03 | Phase 19 | Pending |
-| DISC-04 | Phase 19 | Pending |
+| DISC-03 | Phase 19 | Complete |
+| DISC-04 | Phase 19 | Complete |
 | PROP-01 | Phase 20 | Pending |
 | PROP-02 | Phase 20 | Pending |
 | PROP-03 | Phase 20 | Pending |
