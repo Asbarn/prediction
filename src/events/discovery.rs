@@ -35,6 +35,10 @@ pub struct DiscoveredInstrument {
     pub is_active: bool,
     /// Original milliseconds-since-epoch for precise comparison.
     pub raw_expiry_timestamp: i64,
+    /// Optional extra venue-specific ID (e.g., Polymarket token_id).
+    /// Set by discover_polymarket_structured for the Yes-outcome token_id.
+    /// None for Deribit and Kalshi instruments.
+    pub extra_venue_id: Option<String>,
 }
 
 /// Four-field match key for exact cross-venue matching.
@@ -60,6 +64,31 @@ impl MatchKey {
             asset: d.asset.to_uppercase(),
             strike: d.strike,
             expiry: d.expiry,
+            direction: d.direction.clone(),
+        }
+    }
+}
+
+/// Three-field match key for fuzzy (tolerance-based) cross-venue matching.
+///
+/// Groups instruments by asset, strike, and direction only -- ignoring expiry.
+/// Expiry tolerance is checked separately in `find_cross_venue_candidates_fuzzy`.
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct FuzzyMatchKey {
+    /// Asset ticker, uppercased.
+    pub asset: String,
+    /// Strike price, exact after normalization.
+    pub strike: Decimal,
+    /// Direction (above/below).
+    pub direction: Direction,
+}
+
+impl FuzzyMatchKey {
+    /// Build a fuzzy match key from a discovered instrument.
+    pub fn from_discovered(d: &DiscoveredInstrument) -> Self {
+        Self {
+            asset: d.asset.to_uppercase(),
+            strike: d.strike,
             direction: d.direction.clone(),
         }
     }
@@ -207,6 +236,7 @@ pub async fn discover_deribit(
                 direction,
                 is_active: info.is_active,
                 raw_expiry_timestamp: info.expiration_timestamp,
+                extra_venue_id: None,
             });
         }
     }
@@ -338,6 +368,7 @@ fn parse_kalshi_market(market: &KalshiMarketInfo) -> Option<DiscoveredInstrument
         direction,
         is_active: true,
         raw_expiry_timestamp: raw_ts,
+        extra_venue_id: None,
     })
 }
 
@@ -570,7 +601,7 @@ pub async fn discover_polymarket_structured(
                 };
 
                 // Get token_id: prefer the "Yes" outcome token, fallback to first
-                let _token_id = market
+                let token_id = market
                     .tokens
                     .iter()
                     .find(|t| t.outcome == "Yes")
@@ -587,6 +618,7 @@ pub async fn discover_polymarket_structured(
                     direction,
                     is_active: true,
                     raw_expiry_timestamp: 0, // Polymarket uses date, not millisecond timestamp
+                    extra_venue_id: Some(token_id),
                 });
             }
         }
@@ -690,26 +722,148 @@ pub fn filter_new_candidates(
     new_candidates
 }
 
+// ---------------------------------------------------------------------------
+// Fuzzy (tolerance-based) cross-venue matching
+// ---------------------------------------------------------------------------
+
+/// Group discovered instruments by asset/strike/direction with expiry tolerance.
+///
+/// Pass 1: Groups all instruments by `FuzzyMatchKey` (no expiry).
+/// Pass 2: Filters to groups with 2+ different venues and expiry spread
+/// within `expiry_tolerance_days`. Returns each qualifying group with its
+/// computed `ExpiryConfidence`.
+pub fn find_cross_venue_candidates_fuzzy(
+    instruments: &[DiscoveredInstrument],
+    expiry_tolerance_days: i64,
+) -> Vec<(FuzzyMatchKey, Vec<&DiscoveredInstrument>, ExpiryConfidence)> {
+    // Pass 1: Group by FuzzyMatchKey
+    let mut groups: HashMap<FuzzyMatchKey, Vec<&DiscoveredInstrument>> = HashMap::new();
+    for inst in instruments {
+        let key = FuzzyMatchKey::from_discovered(inst);
+        groups.entry(key).or_default().push(inst);
+    }
+
+    // Pass 2: Filter to multi-venue groups within expiry tolerance
+    let mut results = Vec::new();
+    for (key, insts) in groups {
+        // Check 2+ different venues
+        let venues: HashSet<Venue> = insts.iter().map(|i| i.venue).collect();
+        if venues.len() < 2 {
+            continue;
+        }
+
+        // Compute expiry spread
+        let expiries: Vec<NaiveDate> = insts.iter().map(|i| i.expiry).collect();
+        let min_expiry = expiries.iter().min().unwrap();
+        let max_expiry = expiries.iter().max().unwrap();
+        let spread_days = (*max_expiry - *min_expiry).num_days();
+
+        if spread_days > expiry_tolerance_days {
+            continue;
+        }
+
+        let confidence = compute_expiry_confidence(&expiries);
+        results.push((key, insts, confidence));
+    }
+
+    results
+}
+
+/// Filter fuzzy candidate groups to only those not already in the registry.
+///
+/// For each candidate group, uses the earliest expiry as the representative
+/// date (most conservative). Generates event_id as `{ASSET}-{STRIKE}-{earliest_expiry}`.
+/// Builds `CandidateMapping` with all matched venue instruments including
+/// Polymarket condition_id + token_id from `extra_venue_id`.
+pub fn filter_new_candidates_fuzzy(
+    candidates: &[(FuzzyMatchKey, Vec<&DiscoveredInstrument>, ExpiryConfidence)],
+    existing_registry: &EventRegistry,
+) -> Vec<CandidateMapping> {
+    let mut new_candidates = Vec::new();
+
+    for (key, instruments, confidence) in candidates {
+        // Use earliest expiry as representative date
+        let earliest_expiry = instruments
+            .iter()
+            .map(|i| i.expiry)
+            .min()
+            .unwrap();
+
+        // Generate event_id with earliest expiry
+        let event_id = format!("{}-{}-{}", key.asset, key.strike, earliest_expiry);
+
+        // Check if this event already exists in the registry
+        if existing_registry.lookup_by_event_id(&event_id).is_some() {
+            continue;
+        }
+
+        // Check if any individual instrument is already mapped
+        let any_already_mapped = instruments.iter().any(|inst| {
+            existing_registry
+                .lookup_by_instrument(inst.venue, &inst.instrument_id)
+                .is_some()
+        });
+        if any_already_mapped {
+            continue;
+        }
+
+        // Build CandidateVenues from all instruments in the group
+        let mut deribit: Option<String> = None;
+        let mut kalshi: Option<String> = None;
+        let mut polymarket: Option<(String, String)> = None;
+
+        for inst in instruments {
+            match inst.venue {
+                Venue::Deribit => deribit = Some(inst.instrument_id.clone()),
+                Venue::Kalshi => kalshi = Some(inst.instrument_id.clone()),
+                Venue::Polymarket => {
+                    polymarket = Some((
+                        inst.instrument_id.clone(),
+                        inst.extra_venue_id.clone().unwrap_or_default(),
+                    ));
+                }
+            }
+        }
+
+        new_candidates.push(CandidateMapping {
+            id: event_id,
+            asset: key.asset.clone(),
+            strike: key.strike.to_string(),
+            direction: key.direction.clone(),
+            expiry: earliest_expiry.to_string(),
+            venues: CandidateVenues {
+                deribit,
+                polymarket,
+                kalshi,
+            },
+            expiry_confidence: *confidence,
+        });
+    }
+
+    new_candidates
+}
+
 /// Flag instruments that exist in only one venue and are not in any existing mapping.
 ///
-/// These are logged for user attention as potential new opportunity types
-/// (novel assets, event structures, etc.).
+/// Uses `FuzzyMatchKey` (asset/strike/direction without expiry) so that
+/// instruments with different expiry dates but matching economic parameters
+/// are not flagged as novel when a cross-venue match exists within tolerance.
 pub fn flag_novel_instruments<'a>(
     discovered: &'a [DiscoveredInstrument],
     existing_registry: &EventRegistry,
 ) -> Vec<&'a DiscoveredInstrument> {
-    // Build a set of all match keys to find which are single-venue
-    let mut key_venues: HashMap<MatchKey, HashSet<Venue>> = HashMap::new();
+    // Build a set of all fuzzy match keys to find which are single-venue
+    let mut key_venues: HashMap<FuzzyMatchKey, HashSet<Venue>> = HashMap::new();
     for inst in discovered {
-        let key = MatchKey::from_discovered(inst);
+        let key = FuzzyMatchKey::from_discovered(inst);
         key_venues.entry(key).or_default().insert(inst.venue);
     }
 
     discovered
         .iter()
         .filter(|inst| {
-            let key = MatchKey::from_discovered(inst);
-            // Single-venue: only one venue has this match key
+            let key = FuzzyMatchKey::from_discovered(inst);
+            // Single-venue: only one venue has this fuzzy match key
             let is_single_venue = key_venues
                 .get(&key)
                 .map_or(true, |venues| venues.len() == 1);
@@ -753,6 +907,29 @@ mod tests {
             direction,
             is_active: true,
             raw_expiry_timestamp: 0,
+            extra_venue_id: None,
+        }
+    }
+
+    fn make_discovered_with_extra(
+        venue: Venue,
+        instrument_id: &str,
+        asset: &str,
+        strike: Decimal,
+        expiry: NaiveDate,
+        direction: Direction,
+        extra_venue_id: Option<String>,
+    ) -> DiscoveredInstrument {
+        DiscoveredInstrument {
+            venue,
+            instrument_id: instrument_id.to_string(),
+            asset: asset.to_string(),
+            strike,
+            expiry,
+            direction,
+            is_active: true,
+            raw_expiry_timestamp: 0,
+            extra_venue_id,
         }
     }
 
@@ -1389,5 +1566,256 @@ mod tests {
         assert_eq!(resp[0].markets.len(), 2);
         assert_eq!(resp[0].markets[0].condition_id, "0xabc123");
         assert_eq!(resp[0].markets[1].condition_id, "0xdef456");
+    }
+
+    // --- FuzzyMatchKey tests ---
+
+    #[test]
+    fn fuzzy_match_same_asset_strike_direction_different_expiry() {
+        // Deribit Friday expiry + Kalshi end-of-month within 7-day tolerance
+        let instruments = vec![
+            make_discovered(
+                Venue::Deribit,
+                "BTC-27JUN25-100000-C",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered(
+                Venue::Kalshi,
+                "KXBTCD-25JUN30-T100000",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 30).unwrap(),
+                Direction::Above,
+            ),
+        ];
+
+        let results = find_cross_venue_candidates_fuzzy(&instruments, 7);
+        assert_eq!(results.len(), 1);
+        let (key, group, confidence) = &results[0];
+        assert_eq!(key.asset, "BTC");
+        assert_eq!(key.strike, Decimal::from_str("100000").unwrap());
+        assert_eq!(key.direction, Direction::Above);
+        assert_eq!(group.len(), 2);
+        // 3-day spread -> Medium confidence
+        assert_eq!(*confidence, ExpiryConfidence::Medium);
+    }
+
+    #[test]
+    fn fuzzy_match_expiry_exceeds_tolerance() {
+        // Same instruments but with 2-day tolerance -> 3-day spread exceeds it
+        let instruments = vec![
+            make_discovered(
+                Venue::Deribit,
+                "BTC-27JUN25-100000-C",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered(
+                Venue::Kalshi,
+                "KXBTCD-25JUN30-T100000",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 30).unwrap(),
+                Direction::Above,
+            ),
+        ];
+
+        let results = find_cross_venue_candidates_fuzzy(&instruments, 2);
+        assert!(results.is_empty(), "3-day spread should exceed 2-day tolerance");
+    }
+
+    #[test]
+    fn fuzzy_match_three_venues() {
+        // Deribit + Kalshi + Polymarket all BTC-100000-Above within 5 days
+        let instruments = vec![
+            make_discovered(
+                Venue::Deribit,
+                "BTC-27JUN25-100000-C",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered(
+                Venue::Kalshi,
+                "KXBTCD-25JUN30-T100000",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 30).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered_with_extra(
+                Venue::Polymarket,
+                "0xabc123",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 30).unwrap(),
+                Direction::Above,
+                Some("tok_yes".to_string()),
+            ),
+        ];
+
+        let results = find_cross_venue_candidates_fuzzy(&instruments, 7);
+        assert_eq!(results.len(), 1);
+        let (_, group, _) = &results[0];
+        assert_eq!(group.len(), 3);
+        let venues: HashSet<Venue> = group.iter().map(|i| i.venue).collect();
+        assert!(venues.contains(&Venue::Deribit));
+        assert!(venues.contains(&Venue::Kalshi));
+        assert!(venues.contains(&Venue::Polymarket));
+    }
+
+    #[test]
+    fn fuzzy_match_high_confidence() {
+        // All venues expire on same date -> High confidence
+        let instruments = vec![
+            make_discovered(
+                Venue::Deribit,
+                "BTC-27JUN25-100000-C",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered(
+                Venue::Kalshi,
+                "KXBTCD-25JUN27-T100000",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+                Direction::Above,
+            ),
+        ];
+
+        let results = find_cross_venue_candidates_fuzzy(&instruments, 7);
+        assert_eq!(results.len(), 1);
+        let (_, _, confidence) = &results[0];
+        assert_eq!(*confidence, ExpiryConfidence::High);
+    }
+
+    #[test]
+    fn fuzzy_match_excludes_single_venue() {
+        // Only Deribit instruments -> empty results
+        let instruments = vec![
+            make_discovered(
+                Venue::Deribit,
+                "BTC-27JUN25-100000-C",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered(
+                Venue::Deribit,
+                "BTC-27JUN25-100000-P",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+                Direction::Below,
+            ),
+        ];
+
+        let results = find_cross_venue_candidates_fuzzy(&instruments, 7);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn filter_fuzzy_generates_correct_event_id() {
+        // Verify event_id uses earliest expiry
+        let instruments = vec![
+            make_discovered(
+                Venue::Deribit,
+                "BTC-27JUN25-100000-C",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered(
+                Venue::Kalshi,
+                "KXBTCD-25JUN30-T100000",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 30).unwrap(),
+                Direction::Above,
+            ),
+        ];
+
+        let candidates = find_cross_venue_candidates_fuzzy(&instruments, 7);
+        let registry = make_empty_registry();
+        let new = filter_new_candidates_fuzzy(&candidates, &registry);
+
+        assert_eq!(new.len(), 1);
+        // Event ID should use June 27 (earliest expiry)
+        assert_eq!(new[0].id, "BTC-100000-2025-06-27");
+        assert_eq!(new[0].expiry, "2025-06-27");
+    }
+
+    #[test]
+    fn filter_fuzzy_skips_existing() {
+        let instruments = vec![
+            make_discovered(
+                Venue::Deribit,
+                "BTC-27JUN25-100000-C",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered(
+                Venue::Kalshi,
+                "KXBTCD-25JUN30-T100000",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 30).unwrap(),
+                Direction::Above,
+            ),
+        ];
+
+        let candidates = find_cross_venue_candidates_fuzzy(&instruments, 7);
+        let registry = make_registry_with(vec![make_mapping(
+            "BTC-100000-2025-06-27",
+            "BTC-27JUN25-100000-C",
+        )]);
+
+        let new = filter_new_candidates_fuzzy(&candidates, &registry);
+        assert!(new.is_empty(), "should skip already-registered mapping");
+    }
+
+    #[test]
+    fn filter_fuzzy_includes_polymarket_venue_ids() {
+        let instruments = vec![
+            make_discovered(
+                Venue::Deribit,
+                "BTC-27JUN25-100000-C",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered_with_extra(
+                Venue::Polymarket,
+                "0xabc123",
+                "BTC",
+                Decimal::from_str("100000").unwrap(),
+                NaiveDate::from_ymd_opt(2025, 6, 30).unwrap(),
+                Direction::Above,
+                Some("tok_yes_123".to_string()),
+            ),
+        ];
+
+        let candidates = find_cross_venue_candidates_fuzzy(&instruments, 7);
+        let registry = make_empty_registry();
+        let new = filter_new_candidates_fuzzy(&candidates, &registry);
+
+        assert_eq!(new.len(), 1);
+        let polymarket = new[0].venues.polymarket.as_ref().unwrap();
+        assert_eq!(polymarket.0, "0xabc123"); // condition_id
+        assert_eq!(polymarket.1, "tok_yes_123"); // token_id from extra_venue_id
     }
 }

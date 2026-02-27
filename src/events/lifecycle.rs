@@ -796,6 +796,7 @@ mod tests {
                 direction: Direction::Above,
                 is_active: true,
                 raw_expiry_timestamp: 0,
+                extra_venue_id: None,
             },
             DiscoveredInstrument {
                 venue: Venue::Deribit,
@@ -806,6 +807,7 @@ mod tests {
                 direction: Direction::Above,
                 is_active: false,
                 raw_expiry_timestamp: 0,
+                extra_venue_id: None,
             },
         ];
 
