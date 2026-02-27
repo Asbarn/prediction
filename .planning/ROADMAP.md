@@ -55,7 +55,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 ### v1.3 Live Subscription Management (In Progress)
 
 - [x] **Phase 22: Subscription Manager Core** - SubscriptionManager with reconciliation logic, registry ordering, and diff logging (completed 2026-02-27)
-- [ ] **Phase 23: Dynamic Supervisor Subscriptions** - Wire watch channels into all three venue supervisors for reconnect-based subscribe/unsubscribe
+- [x] **Phase 23: Dynamic Supervisor Subscriptions** - Wire watch channels into all three venue supervisors for reconnect-based subscribe/unsubscribe (completed 2026-02-27)
 - [ ] **Phase 24: Hardening and Observability** - Stale state cleanup, Prometheus subscription metrics, and dry-run reconciliation mode
 - [ ] **Phase 25: Tech Debt Sweep** - Fix iv_spread, options book depth, and Kalshi staleness computation
 
@@ -72,8 +72,8 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   4. When a supervisor reconnects (e.g., from network drop), it uses the latest instrument list from the registry, not the static startup config
 **Plans:** 2/2 plans complete
 Plans:
-- [ ] 22-01-PLAN.md — SubscriptionManager module with reconciliation logic, diff computation, and structured logging
-- [ ] 22-02-PLAN.md — Wire SubscriptionManager into main.rs with Notify ordering and watch channel lifecycle
+- [x] 22-01-PLAN.md — SubscriptionManager module with reconciliation logic, diff computation, and structured logging
+- [x] 22-02-PLAN.md — Wire SubscriptionManager into main.rs with Notify ordering and watch channel lifecycle
 
 ### Phase 23: Dynamic Supervisor Subscriptions
 **Goal**: Operator can approve new instruments or archive expired ones and see the system subscribe/unsubscribe feeds without restart
@@ -83,9 +83,9 @@ Plans:
   1. When operator sets approved = true on a new event mapping in events.toml, the system subscribes to that instrument's feeds on the relevant venues within one config reload cycle -- no restart required
   2. When an event is archived (moved to events_archive.toml with Retired status), the system unsubscribes from that instrument's feeds on the relevant venues within one config reload cycle -- no restart required
   3. All three venue supervisors (Deribit, Polymarket, Kalshi) accept watch channel updates and reconnect with the updated instrument list
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
-- [ ] 23-01-PLAN.md — Wire watch::Receiver into all three venue supervisors and thread receivers through pipeline.rs
+- [x] 23-01-PLAN.md — Wire watch::Receiver into all three venue supervisors and thread receivers through pipeline.rs
 
 ### Phase 24: Hardening and Observability
 **Goal**: Subscription lifecycle is observable via metrics and safe to operate with dry-run mode, and unsubscribed instruments leave no stale state
@@ -115,7 +115,7 @@ Plans:
 | 1-13 | v1.0 MVP | 36/36 | Complete | 2026-02-24 |
 | 14-17 | v1.1 Paper Trading | 11/11 | Complete | 2026-02-26 |
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
-| 22 | 2/2 | Complete    | 2026-02-27 | - |
-| 23 | v1.3 Subscription Mgmt | 0/1 | Planned | - |
+| 22 | v1.3 Subscription Mgmt | 2/2 | Complete | 2026-02-27 |
+| 23 | v1.3 Subscription Mgmt | 1/1 | Complete | 2026-02-27 |
 | 24 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
 | 25 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |

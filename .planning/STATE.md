@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 23 of 25 (Supervisor Wiring)
-Plan: 0 of ? in current phase
-Status: Phase 22 complete, advancing to Phase 23
-Last activity: 2026-02-27 -- Completed 22-02 SubscriptionManager main.rs wiring
+Plan: 1 of 1 in current phase
+Status: Phase 23 complete
+Last activity: 2026-02-27 -- Completed 23-01 Dynamic Supervisor Subscriptions
 
-Progress: [████████████████████████████████] 100% (Phase 22)
+Progress: [████████████████████████████████] 100% (Phase 23)
 
 ## Performance Metrics
 
@@ -52,6 +52,9 @@ Key v1.3 decisions:
 - [Phase 22]: SubscriptionManager takes SubscriptionSenders struct for cleaner constructor API
 - [Phase 22]: Explicit drop(reg) before notify_one() to prevent deadlock with read lock acquisition
 - [Phase 22]: sub_senders/sub_receivers wrapped in Option for clean flow out of is_live block
+- [Phase 23]: PolymarketAsset re-exported from config/mod.rs for supervisor import
+- [Phase 23]: One-shot watch channels with immediate sender drop for Mock/Replay modes
+- [Phase 23]: Subscription receivers consumed by pipeline function, not post-hoc attached
 
 ### Pending Todos
 
@@ -67,5 +70,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 22-02-PLAN.md (SubscriptionManager main.rs wiring)
-Next action: Plan Phase 23 (Supervisor Wiring)
+Stopped at: Completed 23-01-PLAN.md (Dynamic Supervisor Subscriptions)
+Next action: Plan Phase 24 (Stale State Cleanup)

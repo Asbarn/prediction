@@ -9,8 +9,8 @@ Requirements for v1.3 Live Subscription Management. Each maps to roadmap phases.
 
 ### Subscription Management
 
-- [ ] **SUB-01**: System subscribes to newly approved instrument feeds without restart when operator sets `approved = true` in events.toml
-- [ ] **SUB-02**: System unsubscribes from expired/retired instrument feeds without restart when events are archived
+- [x] **SUB-01**: System subscribes to newly approved instrument feeds without restart when operator sets `approved = true` in events.toml
+- [x] **SUB-02**: System unsubscribes from expired/retired instrument feeds without restart when events are archived
 - [x] **SUB-03**: Config change to events.toml triggers automatic reconciliation that computes per-venue instrument diffs and issues minimal subscribe/unsubscribe actions
 - [x] **SUB-04**: Registry refresh completes before subscription reconciliation reads registry state (ordering guarantee)
 - [ ] **SUB-05**: Stale internal state (order books, snapshots, rolling stats) is cleaned up after instruments are unsubscribed
@@ -75,8 +75,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SUB-01 | Phase 23 | Pending |
-| SUB-02 | Phase 23 | Pending |
+| SUB-01 | Phase 23 | Complete |
+| SUB-02 | Phase 23 | Complete |
 | SUB-03 | Phase 22 | Complete |
 | SUB-04 | Phase 22 | Complete |
 | SUB-05 | Phase 24 | Pending |
@@ -97,4 +97,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-27*
-*Last updated: 2026-02-27 after roadmap creation*
+*Last updated: 2026-02-27 after Phase 23 completion*
