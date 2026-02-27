@@ -8,13 +8,14 @@ use std::time::Duration;
 
 use backoff::backoff::Backoff;
 use backoff::ExponentialBackoffBuilder;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
-use crate::config::PolymarketConfig;
+use crate::config::{PolymarketAsset, PolymarketConfig};
 use crate::feed::health::VenueHealth;
 use crate::feed::polymarket::client::PolymarketClient;
 use crate::feed::traits::RawMessage;
+use crate::subscription::PolymarketSubscription;
 
 /// Reconnection supervisor for Polymarket WebSocket feed.
 ///
@@ -22,17 +23,26 @@ use crate::feed::traits::RawMessage;
 /// No rate limiter needed for Polymarket (public read-only channel).
 pub struct PolymarketSupervisor {
     config: PolymarketConfig,
+    assets_rx: watch::Receiver<Vec<PolymarketSubscription>>,
     cancel: CancellationToken,
     health: Arc<VenueHealth>,
 }
 
 impl PolymarketSupervisor {
-    pub fn new(config: PolymarketConfig, cancel: CancellationToken, health: Arc<VenueHealth>) -> Self {
-        Self { config, cancel, health }
+    pub fn new(
+        config: PolymarketConfig,
+        assets_rx: watch::Receiver<Vec<PolymarketSubscription>>,
+        cancel: CancellationToken,
+        health: Arc<VenueHealth>,
+    ) -> Self {
+        Self { config, assets_rx, cancel, health }
     }
 
     /// Run the reconnection loop, forwarding all messages to `tx`.
-    pub async fn run(self, tx: mpsc::Sender<RawMessage>) {
+    pub async fn run(mut self, tx: mpsc::Sender<RawMessage>) {
+        // Mark initial value as seen to prevent spurious startup reconnect.
+        self.assets_rx.borrow_and_update();
+
         let reconnect = &self.config.reconnect;
         let mut backoff = ExponentialBackoffBuilder::new()
             .with_initial_interval(Duration::from_millis(reconnect.initial_backoff_ms))
@@ -50,11 +60,19 @@ impl PolymarketSupervisor {
                 break;
             }
 
+            // Read latest asset list and inject into a cloned config.
+            let subscriptions = self.assets_rx.borrow().clone();
+            let mut config = self.config.clone();
+            config.assets = subscriptions.into_iter().map(|s| PolymarketAsset {
+                condition_id: s.condition_id,
+                token_id: s.token_id,
+            }).collect();
+
             attempt += 1;
             self.health.increment_connections();
-            tracing::info!(attempt = attempt, "PolymarketSupervisor connecting...");
+            tracing::info!(attempt = attempt, assets = config.assets.len(), "PolymarketSupervisor connecting...");
 
-            let client = PolymarketClient::new(self.config.clone(), self.cancel.clone());
+            let client = PolymarketClient::new(config, self.cancel.clone());
 
             match client.start().await {
                 Ok(mut raw_rx) => {
@@ -71,6 +89,19 @@ impl PolymarketSupervisor {
                             _ = self.cancel.cancelled() => {
                                 tracing::info!("PolymarketSupervisor cancelled during forwarding");
                                 return;
+                            }
+
+                            result = self.assets_rx.changed() => {
+                                match result {
+                                    Ok(()) => {
+                                        tracing::info!("PolymarketSupervisor: asset list updated, reconnecting");
+                                        backoff.reset();
+                                        break;
+                                    }
+                                    Err(_) => {
+                                        tracing::warn!("PolymarketSupervisor: subscription channel closed, continuing with current assets");
+                                    }
+                                }
                             }
 
                             msg = raw_rx.recv() => {

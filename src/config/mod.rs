@@ -15,7 +15,7 @@ pub use system::{
     AnalysisConfig, LoggingConfig, PaperTradeConfig, PrometheusConfig, SignalConfig,
     StalenessConfig, SystemConfig,
 };
-pub use venues::{DeribitConfig, KalshiConfig, PolymarketConfig, VenuesConfig};
+pub use venues::{DeribitConfig, KalshiConfig, PolymarketAsset, PolymarketConfig, VenuesConfig};
 
 use crate::error::ConfigError;
 use serde::de::DeserializeOwned;

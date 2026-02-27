@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use backoff::backoff::Backoff;
 use backoff::ExponentialBackoffBuilder;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::DeribitConfig;
@@ -28,7 +28,7 @@ use crate::feed::traits::RawMessage;
 /// rate-limited.
 pub struct DeribitSupervisor {
     config: DeribitConfig,
-    instruments: Vec<String>,
+    instruments_rx: watch::Receiver<Vec<String>>,
     cancel: CancellationToken,
     rate_limiter: VenueRateLimiter,
     health: Arc<VenueHealth>,
@@ -37,14 +37,14 @@ pub struct DeribitSupervisor {
 impl DeribitSupervisor {
     pub fn new(
         config: DeribitConfig,
-        instruments: Vec<String>,
+        instruments_rx: watch::Receiver<Vec<String>>,
         cancel: CancellationToken,
         rate_limiter: VenueRateLimiter,
         health: Arc<VenueHealth>,
     ) -> Self {
         Self {
             config,
-            instruments,
+            instruments_rx,
             cancel,
             rate_limiter,
             health,
@@ -62,7 +62,12 @@ impl DeribitSupervisor {
     /// Backoff resets only after successful connection AND first message
     /// received (per research: prevents burn-through when server accepts
     /// TCP but immediately closes WebSocket).
-    pub async fn run(self, tx: mpsc::Sender<RawMessage>) {
+    pub async fn run(mut self, tx: mpsc::Sender<RawMessage>) {
+        // Mark initial value as seen to prevent spurious startup reconnect.
+        // Without this, changed() would fire immediately since the receiver
+        // hasn't observed the initial value yet (Pitfall 1 from research).
+        self.instruments_rx.borrow_and_update();
+
         let reconnect = &self.config.reconnect;
         let mut backoff = ExponentialBackoffBuilder::new()
             .with_initial_interval(Duration::from_millis(reconnect.initial_backoff_ms))
@@ -80,14 +85,18 @@ impl DeribitSupervisor {
                 break;
             }
 
+            // Read latest instrument list at the top of each reconnect iteration.
+            // borrow().clone() drops the Ref immediately before any .await point.
+            let instruments = self.instruments_rx.borrow().clone();
+
             attempt += 1;
             self.health.increment_connections();
-            tracing::info!(attempt = attempt, "DeribitSupervisor connecting...");
+            tracing::info!(attempt = attempt, instruments = instruments.len(), "DeribitSupervisor connecting...");
 
             // Create a fresh client for each attempt, passing the rate limiter
             let client = DeribitClient::new(
                 self.config.clone(),
-                self.instruments.clone(),
+                instruments,
                 self.cancel.clone(),
             )
             .with_rate_limiter(self.rate_limiter.clone());
@@ -108,6 +117,22 @@ impl DeribitSupervisor {
                             _ = self.cancel.cancelled() => {
                                 tracing::info!("DeribitSupervisor cancelled during forwarding");
                                 return;
+                            }
+
+                            result = self.instruments_rx.changed() => {
+                                match result {
+                                    Ok(()) => {
+                                        tracing::info!("DeribitSupervisor: instrument list updated, reconnecting");
+                                        backoff.reset(); // Intentional reconnect, not a failure
+                                        break; // -> outer loop re-enters, reads updated list
+                                    }
+                                    Err(_) => {
+                                        tracing::warn!("DeribitSupervisor: subscription channel closed, continuing with current instruments");
+                                        // Channel closed (SubscriptionManager dropped). Continue operating
+                                        // with current instruments. changed() will keep returning Err,
+                                        // but biased select checks cancel first, so no busy loop.
+                                    }
+                                }
                             }
 
                             msg = raw_rx.recv() => {

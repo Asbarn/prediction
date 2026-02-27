@@ -10,7 +10,7 @@ use std::time::Duration;
 use backoff::backoff::Backoff;
 use backoff::ExponentialBackoffBuilder;
 use rsa::RsaPrivateKey;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::KalshiConfig;
@@ -26,6 +26,7 @@ pub struct KalshiSupervisor {
     config: KalshiConfig,
     api_key_id: String,
     private_key: RsaPrivateKey,
+    tickers_rx: watch::Receiver<Vec<String>>,
     cancel: CancellationToken,
     health: Arc<VenueHealth>,
 }
@@ -35,6 +36,7 @@ impl KalshiSupervisor {
         config: KalshiConfig,
         api_key_id: String,
         private_key: RsaPrivateKey,
+        tickers_rx: watch::Receiver<Vec<String>>,
         cancel: CancellationToken,
         health: Arc<VenueHealth>,
     ) -> Self {
@@ -42,13 +44,17 @@ impl KalshiSupervisor {
             config,
             api_key_id,
             private_key,
+            tickers_rx,
             cancel,
             health,
         }
     }
 
     /// Run the reconnection loop, forwarding all messages to `tx`.
-    pub async fn run(self, tx: mpsc::Sender<RawMessage>) {
+    pub async fn run(mut self, tx: mpsc::Sender<RawMessage>) {
+        // Mark initial value as seen to prevent spurious startup reconnect.
+        self.tickers_rx.borrow_and_update();
+
         let reconnect = &self.config.reconnect;
         let mut backoff = ExponentialBackoffBuilder::new()
             .with_initial_interval(Duration::from_millis(reconnect.initial_backoff_ms))
@@ -66,13 +72,18 @@ impl KalshiSupervisor {
                 break;
             }
 
+            // Read latest tickers and inject into a cloned config.
+            let tickers = self.tickers_rx.borrow().clone();
+            let mut config = self.config.clone();
+            config.market_tickers = tickers;
+
             attempt += 1;
             self.health.increment_connections();
-            tracing::info!(attempt = attempt, "KalshiSupervisor connecting...");
+            tracing::info!(attempt = attempt, tickers = config.market_tickers.len(), "KalshiSupervisor connecting...");
 
             // Fresh client per attempt = fresh auth signature
             let client = KalshiClient::new(
-                self.config.clone(),
+                config,
                 self.api_key_id.clone(),
                 self.private_key.clone(),
                 self.cancel.clone(),
@@ -93,6 +104,19 @@ impl KalshiSupervisor {
                             _ = self.cancel.cancelled() => {
                                 tracing::info!("KalshiSupervisor cancelled during forwarding");
                                 return;
+                            }
+
+                            result = self.tickers_rx.changed() => {
+                                match result {
+                                    Ok(()) => {
+                                        tracing::info!("KalshiSupervisor: ticker list updated, reconnecting");
+                                        backoff.reset();
+                                        break;
+                                    }
+                                    Err(_) => {
+                                        tracing::warn!("KalshiSupervisor: subscription channel closed, continuing with current tickers");
+                                    }
+                                }
                             }
 
                             msg = raw_rx.recv() => {
