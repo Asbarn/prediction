@@ -1,266 +1,352 @@
-# Stack Research: v1.2 Automated Event Management
+# Stack Research: v1.3 Live Subscription Management
 
-**Domain:** Venue market discovery, cross-venue event matching, TOML proposal writing
-**Researched:** 2026-02-26
+**Domain:** Dynamic WebSocket subscription/unsubscription, config-driven feed reconciliation, tech debt cleanup
+**Researched:** 2026-02-27
 **Confidence:** HIGH
 
 ## Scope
 
-This document covers ONLY the stack additions needed for v1.2 Automated Event Management. The existing v1.0/v1.1 stack is validated and unchanged. See prior STACK.md versions for those decisions.
+This document covers ONLY the stack additions and changes needed for v1.3 Live Subscription Management and tech debt cleanup. The existing v1.0-v1.2 stack is validated and unchanged. See prior STACK.md for those decisions.
 
-## Existing Stack Already Covering v1.2 Needs
+## Executive Finding: Zero New Dependencies Required
 
-Most v1.2 capabilities are **already covered** by the existing dependency tree. Critical finding: discovery.rs and toml_writer.rs already exist with working implementations.
+v1.3 requires **no new crate dependencies**. Every capability needed for dynamic subscription management is already present in the existing dependency tree. The work is purely architectural -- restructuring how existing components (supervisors, clients, config watcher) interact.
 
-| Technology | Version (resolved) | v1.2 Usage | Already Used By |
-|------------|-------------------|------------|-----------------|
-| reqwest | 0.12 | Venue discovery API polling | Settlement checkers, Gamma API |
-| serde + serde_json | 1.0 | Deserialize API responses | Everywhere |
-| toml | 0.8.23 | Config deserialization | SystemConfig, EventsConfig |
-| toml_edit | 0.22.27 | Format-preserving TOML writes | `events::toml_writer` (already implemented) |
-| governor | 0.8.1 | Rate limiting discovery polls | `feed::reliability::rate_limiter` |
-| chrono | 0.4 | Expiry dates, timestamps | Throughout |
-| rust_decimal | 1.40 | Strike price comparison | Pricing pipeline |
-| tokio | 1.x (full) | Async polling loops, channels | Runtime |
-| tracing | 0.1 | Log new proposals | Everywhere |
-| rsa + sha2 + base64 | 0.9 / 0.10 / 0.22 | Kalshi RSA-PSS auth for discovery | Kalshi feed auth |
-
-## New Dependencies Required
-
-### One new direct dependency: `strsim`
-
-| Technology | Version | Purpose | Why This One |
-|------------|---------|---------|-------------|
-| strsim | 0.11 | String similarity metrics for fuzzy event name matching | Already in dependency tree transitively via clap; provides Jaro-Winkler and normalized Levenshtein -- the two algorithms needed for event title comparison |
-
-**Why `strsim` and not alternatives:**
-
-| Crate | What It Does | Why Not (or Why Yes) |
-|-------|-------------|---------------------|
-| **strsim 0.11** | String similarity metrics (Jaro-Winkler, Levenshtein, Sorensen-Dice) | **USE THIS.** Already transitively compiled (via clap). Provides normalized 0.0-1.0 similarity scores. Zero additional binary size cost. |
-| nucleo | Interactive fuzzy finder (fzf-like) | Wrong tool. Designed for user-facing search-as-you-type, not batch comparison of event titles. |
-| fuzzy-matcher | Smith-Waterman based fuzzy matching | Wrong tool. Designed for ranking search results, not pairwise similarity scoring between known strings. |
-| rapidfuzz | Python-first fuzzy matching with Rust bindings | Heavier than needed. strsim covers our use case in a fraction of the API surface. |
-| regex | Pattern matching | Over-engineered for "are these two event titles about the same thing?" questions. |
-
-### Why strsim Is the Right Choice
-
-The cross-venue matching problem is: given `"Will BTC be above $100K on June 27?"` (Polymarket) and `"BTC-27JUN25-100000-C"` (Deribit), determine if they describe the same event.
-
-For **Deribit and Kalshi**, matching is already exact (per discovery.rs): both venues expose structured fields (asset, strike, expiry, direction) that can be compared directly. The existing `MatchKey` four-field exact match handles this.
-
-Fuzzy matching is needed specifically for:
-1. **Polymarket question text parsing** -- extracting structured fields from free-form text like "Will Bitcoin be above $100,000 on June 27, 2025?" and matching against known event patterns
-2. **Confidence scoring** -- computing a similarity score between a normalized Polymarket question and a canonical event description to set a confidence threshold for auto-proposals
-3. **Future multi-asset expansion** -- when event naming conventions vary across venues
-
-The relevant `strsim` functions:
-- `jaro_winkler(a, b) -> f64` -- Returns 0.0-1.0 similarity, boosting common prefixes. Best for event titles that start with the same asset name.
-- `normalized_levenshtein(a, b) -> f64` -- Returns 0.0-1.0 similarity based on edit distance. Good for catching rewordings.
-- `sorensen_dice(a, b) -> f64` -- Bigram-based similarity. Useful as a tiebreaker.
-
-**Confidence:** HIGH. `strsim 0.11.1` is already compiled as a transitive dependency of `clap_builder 4.5.60 -> strsim 0.11.1`. Adding it as a direct dependency reuses the same compiled artifact with zero additional build cost.
-
-### What NOT to Add
-
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| Any NLP/ML crate (rust-bert, tokenizers, etc.) | Massive overkill. Event matching is pattern extraction + string similarity, not natural language understanding. | `strsim` + regex patterns + structured field comparison |
-| fuzzy-matcher | Interactive search tool, not batch similarity scorer | `strsim` |
-| nucleo / nucleo-matcher | fzf-like fuzzy finder for UIs, wrong problem domain | `strsim` |
-| skim | Terminal fuzzy finder, not a library for programmatic matching | `strsim` |
-| levenshtein (standalone crate) | Only provides Levenshtein. strsim provides Levenshtein + 7 other algorithms in one crate that is already compiled. | `strsim` |
-| Any database (SQLite, sled) | Discovery state is tiny (list of known instruments, last poll time). Fits in memory + existing checkpoint pattern. | In-memory HashSet + JSON checkpoint |
-| reqwest-middleware | Rate limiting is already handled by `governor`. Adding middleware layers is unnecessary abstraction. | `governor::RateLimiter` (existing) |
-| tower-http rate limiting | Already have `governor` for per-venue rate limiting. tower-http is for server-side middleware. | `governor::RateLimiter` (existing) |
+This continues the project's pattern of minimal dependency growth: v1.1 added zero new crates, v1.2 added one (strsim, already transitively compiled). v1.3 adds zero.
 
 ---
 
-## Venue Discovery API Details
+## Existing Stack Covering v1.3 Needs
 
-### Deribit: `public/get_instruments`
+### Core Infrastructure (unchanged)
 
-**Already implemented in:** `src/events/discovery.rs::discover_deribit()`
+| Technology | Version | v1.3 Usage | Why Sufficient |
+|------------|---------|------------|----------------|
+| tokio | 1.x (full) | mpsc channels for subscription commands, watch channels for config changes | Already the async runtime; subscription commands are just another channel message type |
+| tokio-tungstenite | 0.28 | Dynamic subscribe/unsubscribe messages on live WebSocket connections | Already handles WS read/write split; sending additional subscribe/unsubscribe frames is the same `write.send()` path |
+| futures-util | 0.3 | SinkExt for write half of WebSocket | Already used for `write.send()` in all three venue clients |
+| tokio-util | 0.7 | CancellationToken for per-venue lifecycle | Already used for shutdown signaling; child tokens enable per-subscription cancellation |
+| notify + notify-debouncer-mini | 8 / 0.7 | File watcher triggers config reload -> subscription reconciliation | Already watching config directory; config changes already propagate via `watch::channel` |
+| serde + serde_json | 1.0 | Subscribe/unsubscribe message construction | Already used for JSON-RPC (Deribit) and JSON (Polymarket, Kalshi) message building |
+| toml + toml_edit | 0.8 / 0.22 | Config reload parsing, events.toml reading | Already integrated in ConfigReloader and lifecycle manager |
+| tracing | 0.1 | Subscription change logging | Already structured logging throughout |
+| metrics | 0.24 | Subscription count gauges, reconciliation metrics | Already the metrics facade; just new metric names |
+| backoff | 0.4 | Reconnection with updated subscription lists | Already used in all three supervisors |
 
-| Property | Value |
-|----------|-------|
-| Endpoint | `GET /api/v2/public/get_instruments?currency={}&kind=option` |
-| Auth | None (public endpoint) |
-| Pagination | None -- returns all instruments for currency/kind in one response |
-| Rate limit | 1 req/s sustained (official docs). Current config polls every 300s, well under limit. |
-| Response size | ~200-500 instruments per currency for options. Single response, no pagination needed. |
-| Filtering | By currency (required), kind (optional), expired flag |
+### Why No New Dependencies
 
-**No changes needed.** The existing implementation is correct and complete.
-
-### Kalshi: `GET /trade-api/v2/markets`
-
-**Already implemented in:** `src/events/discovery.rs::discover_kalshi()`
-
-| Property | Value |
-|----------|-------|
-| Endpoint | `GET /trade-api/v2/markets?series_ticker={}&status=open&limit=200` |
-| Auth | RSA-PSS signed headers (reuses existing `sign_kalshi_request`) |
-| Pagination | Cursor-based. Response includes `cursor` field; pass as query param for next page. Empty/null cursor = last page. |
-| Rate limit | Not explicitly documented for this endpoint. Current config polls every 600s. |
-| Filtering | By series_ticker, status, event_ticker. Supports up to limit=1000. |
-| Response size | Paginated, default limit=100, max 1000. KXBTC series typically has 20-50 open markets. |
-
-**No changes needed.** Cursor-based pagination is already correctly implemented in the loop.
-
-### Polymarket: `GET /markets` (Gamma API)
-
-**Already implemented in:** `src/events/discovery.rs::discover_polymarket()`
-
-| Property | Value |
-|----------|-------|
-| Endpoint | `GET {gamma_api_url}/markets?active=true&limit=100&offset={}` |
-| Auth | None required |
-| Pagination | Offset-based. Increment offset by limit until response count < limit. |
-| Rate limit | Not officially documented. Current config polls every 600s. |
-| Filtering | By active, closed, tag_id, slug, order |
-| Response size | Polymarket has thousands of markets. Crypto subset is smaller but still needs pagination. |
-
-**No changes needed.** Offset-based pagination is already correctly implemented.
-
-**Note:** The existing implementation correctly marks Polymarket as "deactivation monitoring only in v1" -- structured field extraction from free-form questions is the v1.2 addition that needs `strsim`.
+| Capability Needed | How Existing Stack Handles It |
+|-------------------|------------------------------|
+| Send subscribe command to live WS | `write.send(Message::text(json))` -- already done at connection startup in all 3 clients |
+| Send unsubscribe command to live WS | Same `write.send()` path with unsubscribe payload -- no new API needed |
+| Receive subscription commands from outside | `tokio::sync::mpsc::Receiver<SubscriptionCommand>` -- standard bounded channel, already the primary IPC mechanism |
+| Diff old vs new subscription sets | `HashSet::difference()` / `HashSet::symmetric_difference()` -- stdlib, no crate needed |
+| Config change notification | `tokio::sync::watch::Receiver<AppConfig>` -- already distributed to all config consumers |
+| Per-subscription cleanup | `HashMap` of active subscriptions with instrument IDs as keys -- stdlib |
+| Atomic TOML reads during reconciliation | `std::fs::read_to_string` + `toml::from_str` -- already the config loading path |
 
 ---
 
-## Rate Limiting Strategy for Discovery Polling
+## Venue-Specific Subscription API Details
 
-The existing `governor` crate is sufficient. No new rate limiting infrastructure needed.
+### Deribit: Full Dynamic Subscribe/Unsubscribe Support
 
-### Current Rate Limiting Architecture
+**Confidence:** HIGH (verified against official docs)
 
-```
-VenueRateLimiter (governor::RateLimiter<NotKeyed, InMemoryState, DefaultClock>)
-  |-- Per-venue instance with configurable req/s quota
-  |-- .wait().await blocks until rate allows
-  |-- Already used in: WebSocket message sending, settlement checking
+Deribit natively supports dynamic subscription changes on a live WebSocket connection.
+
+**Subscribe (already implemented):**
+```json
+{
+    "jsonrpc": "2.0",
+    "id": 42,
+    "method": "public/subscribe",
+    "params": { "channels": ["book.BTC-27JUN25-100000-C.none.20.100ms", "ticker.BTC-27JUN25-100000-C.raw"] }
+}
 ```
 
-### Discovery Polling Approach
+**Unsubscribe (new for v1.3):**
+```json
+{
+    "jsonrpc": "2.0",
+    "id": 43,
+    "method": "public/unsubscribe",
+    "params": { "channels": ["book.BTC-27JUN25-100000-C.none.20.100ms", "ticker.BTC-27JUN25-100000-C.raw"] }
+}
+```
 
-Discovery runs on long intervals (300-600 seconds per venue), far below any rate limit. The rate limiter is a safety net, not the primary throttle.
+**Key details:**
+- Both methods accept batch channel lists (up to 500 channels per request)
+- Unsubscribe response contains only the channels that were successfully removed
+- Can be sent at any time on an active connection without reconnection
+- Rate limited under the same 20 req/s private endpoint limit (public subscribe/unsubscribe is public but still counted)
+- The `build_subscription_channels()` function in `channels.rs` already generates the 3 channels per instrument + price index; it can be reused for both subscribe and unsubscribe
 
-| Venue | Poll interval (config) | API rate limit | Safety margin |
-|-------|----------------------|----------------|---------------|
-| Deribit | 300s (5 min) | 1 req/s sustained | 300x headroom |
-| Kalshi | 600s (10 min) | Conservative (undocumented) | Safe at 10-min intervals |
-| Polymarket | 600s (10 min) | Undocumented | Safe at 10-min intervals |
+**Integration point:** The `DeribitClient` currently sends subscribe once during `start()` then enters a read-only loop. For v1.3, the write half of the WebSocket must remain accessible to the supervisor/controller so it can send additional subscribe/unsubscribe messages.
 
-**Recommendation:** Reuse the existing `VenueRateLimiter` pattern. Create one rate limiter per venue for discovery operations, sharing the same `governor` infrastructure. The `tokio::time::interval` loop already provides coarse-grained throttling; the rate limiter prevents bursts during pagination (Kalshi may need 2-3 requests per poll cycle due to cursor pagination).
+**Architecture change needed:** The spawned task in `DeribitClient::start()` currently owns both read and write halves. The write half must be extractable (returned alongside the `mpsc::Receiver<RawMessage>`, or held behind an `Arc<Mutex<SplitSink>>`, or commands routed through a channel that the task reads). The channel approach is cleanest because it avoids locking the write half.
+
+### Polymarket: Subscribe Supported, Unsubscribe NOT Supported
+
+**Confidence:** HIGH (verified against official WSS docs)
+
+Polymarket supports dynamic subscription additions but **does NOT support unsubscription**.
+
+**Subscribe (additional assets on live connection):**
+```json
+{
+    "assets_ids": ["new_token_id_1", "new_token_id_2"],
+    "type": "market"
+}
+```
+
+**Unsubscribe:** NOT AVAILABLE. Once subscribed to an asset, the only way to stop receiving updates is to close the connection and reconnect with the desired subscription set.
+
+**Implication for v1.3:** For adding new instruments, send another subscribe message on the existing connection. For removing expired instruments, the supervisor must trigger a reconnection cycle with the updated subscription list. This is not a problem -- the existing supervisor already handles reconnection with exponential backoff. The reconnection just needs to use the latest instrument list instead of the static one from startup.
+
+**Integration point:** The `PolymarketClient` currently reads `self.config.assets` at connection time. For v1.3, the supervisor must be able to provide the current asset list to each new client instance, and must be able to trigger subscribe for additions without reconnecting.
+
+### Kalshi: Subscribe and Unsubscribe Both Supported
+
+**Confidence:** MEDIUM (subscribe confirmed from existing code + docs; unsubscribe confirmed from error codes and API reference but exact message format not fully documented in public docs)
+
+Kalshi supports both subscribe and unsubscribe via WebSocket commands.
+
+**Subscribe (per-market, already implemented):**
+```json
+{
+    "id": 1,
+    "cmd": "subscribe",
+    "params": {
+        "channels": ["orderbook_delta"],
+        "market_ticker": "KXBTCD-25JUN30-T100000"
+    }
+}
+```
+
+**Unsubscribe (new for v1.3):**
+```json
+{
+    "id": 2,
+    "cmd": "unsubscribe",
+    "params": {
+        "sids": [<subscription_id_from_subscribe_response>]
+    }
+}
+```
+
+**Key details:**
+- Subscribe returns a subscription ID (sid) in the "subscribed" response message
+- Unsubscribe requires the sid, not the market_ticker
+- v1.3 must track the sid returned for each subscription to enable clean unsubscription
+- Alternative: Kalshi also allows subscribing to multiple market_tickers in one request via `"market_tickers": [...]`
+
+**Integration point:** The `KalshiClient` currently sends per-ticker subscribe messages during `start()`. For v1.3, the client must (a) capture the sid from subscribe responses, (b) expose a way to send new subscribe/unsubscribe commands on the live connection, and (c) maintain a sid-to-ticker mapping for cleanup.
 
 ---
 
-## TOML Writing Strategy
+## Architecture Changes Required (No New Crates)
 
-**Already implemented in:** `src/events/toml_writer.rs`
+### 1. Subscription Command Channel
 
-The `toml_edit 0.22` crate is already integrated with working functions:
-- `append_candidate_to_toml()` -- Appends new `[[events]]` entry with `approved = false`
-- `mark_expired_in_toml()` -- Updates status field to "expired"
+Each venue supervisor needs an inbound command channel in addition to its outbound raw message channel.
 
-Both functions parse the existing TOML content, modify the AST, and serialize back -- preserving all comments, formatting, and manual edits.
+```rust
+/// Commands that can be sent to a venue's subscription manager.
+enum SubscriptionCommand {
+    /// Subscribe to new instruments (e.g., after config approval)
+    Subscribe(Vec<String>),
+    /// Unsubscribe from instruments (e.g., after expiry/archival)
+    Unsubscribe(Vec<String>),
+    /// Replace entire subscription set (reconciliation)
+    Reconcile(HashSet<String>),
+}
+```
 
-**Why toml_edit and not toml for writing:**
-- `toml` (the serde-based crate) would serialize from structs, destroying comments, custom formatting, and field ordering
-- `toml_edit` operates on the document AST, preserving every byte that is not modified
-- This is critical because `events.toml` is human-curated (operator reviews and approves proposals)
+**Implementation with existing crates:**
+- `tokio::sync::mpsc::channel::<SubscriptionCommand>(32)` -- bounded channel, same pattern used everywhere
+- Supervisor's `run()` loop adds a `select!` branch reading from this channel
+- Commands are forwarded to the write half of the WebSocket connection
 
-**No version upgrade needed.** `toml_edit 0.22.27` is current and compatible with `toml 0.8.23` (they share `toml_datetime 0.6.11`). While 0.23.x exists, upgrading would require also upgrading `toml` to maintain compatibility, which is unnecessary churn for zero functional benefit.
+### 2. Write Half Access Pattern
+
+The WebSocket write half must be accessible for dynamic commands. Three patterns are possible with existing crates:
+
+| Pattern | Crate(s) | Pros | Cons |
+|---------|----------|------|------|
+| **Command channel (recommended)** | tokio::sync::mpsc | Clean separation; write half stays owned by single task; no locking | Extra channel hop for commands |
+| Arc<Mutex<SplitSink>> | tokio::sync::Mutex | Direct write access from outside | Lock contention with heartbeat responses; complexity |
+| Return write half alongside receiver | None | Simple ownership | Caller must manage write half lifetime; doesn't compose with supervisor pattern |
+
+**Recommendation:** Command channel. The spawned WS loop task already handles writes (heartbeat responses, subscribe). Adding a `select!` branch for inbound commands is the natural extension. Zero new crates. Zero lock contention. Clean task ownership.
+
+### 3. Config-to-Subscription Reconciliation
+
+The config hot-reload path already exists: `ConfigReloader` -> `watch::channel` -> consumer tasks. Currently the consumer only refreshes the `EventRegistry`. For v1.3, the consumer also computes subscription diffs and sends commands.
+
+```rust
+// Pseudocode using existing types
+let old_instruments = current_subscriptions.clone();
+let new_instruments = compute_desired_subscriptions(&new_config.events, &new_config.venues);
+let to_add: Vec<_> = new_instruments.difference(&old_instruments).collect();
+let to_remove: Vec<_> = old_instruments.difference(&new_instruments).collect();
+
+if !to_add.is_empty() {
+    deribit_cmd_tx.send(SubscriptionCommand::Subscribe(to_add)).await;
+    polymarket_cmd_tx.send(SubscriptionCommand::Subscribe(to_add)).await;
+    kalshi_cmd_tx.send(SubscriptionCommand::Subscribe(to_add)).await;
+}
+if !to_remove.is_empty() {
+    deribit_cmd_tx.send(SubscriptionCommand::Unsubscribe(to_remove)).await;
+    // Polymarket: reconnect with new set (no unsubscribe API)
+    polymarket_cmd_tx.send(SubscriptionCommand::Reconcile(new_instruments)).await;
+    kalshi_cmd_tx.send(SubscriptionCommand::Unsubscribe(to_remove)).await;
+}
+```
+
+**All types used above** (`HashSet`, `Vec`, `mpsc::Sender`) are stdlib or tokio -- zero new crates.
+
+### 4. Supervisor Changes
+
+Current supervisors take `instruments: Vec<String>` at construction and use them immutably for every reconnection. For v1.3:
+
+- Supervisor holds `Arc<RwLock<Vec<String>>>` (or `watch::Receiver<Vec<String>>`) for the current instrument list
+- On reconnection, reads the latest list (not the original static list)
+- Between reconnections, forwards subscription commands to the active client's command channel
+- When the client disconnects, the supervisor automatically subscribes to the full current set on the next connection
+
+**No new crates.** `Arc<RwLock<T>>` is `tokio::sync::RwLock`, already used for `EventRegistry`. `watch::Receiver` is already used for config distribution.
+
+---
+
+## Tech Debt Cleanup: No New Dependencies
+
+The 15 tech debt items from v1.0-v1.2 are all code-level fixes that require no new crates:
+
+| Tech Debt Item | Fix Type | Dependencies Needed |
+|----------------|----------|-------------------|
+| iv_spread always 0.0 in signal engine | Code fix: populate from solver metadata | None |
+| Expired test instrument in events.toml | Config cleanup: remove or archive | None |
+| Empty Kalshi default config | Config fix: add sensible defaults | None |
+| Options book depth hardcoded to 0 | Code fix: read from config | None |
+| Unused exact-match functions (backward compat) | Code cleanup: remove dead code | None |
+| expiry_confidence TOML field write-only | Code fix: add to EventMapping deserialization or remove from writes | None |
+| Stale REQUIREMENTS.md checkboxes | Doc cleanup | None |
+| Other v1.0 accumulated items (9 total) | Various code/config fixes | None |
 
 ---
 
 ## Cargo.toml Changes
 
-**One line added:**
+**Zero lines added.** No changes to Cargo.toml for v1.3.
+
+The existing dependency tree is fully sufficient:
 
 ```toml
-# Fuzzy string matching for cross-venue event name comparison
-strsim = "0.11"
+# ALL OF THESE ALREADY EXIST -- no additions needed for v1.3
+
+# Subscription command channels
+tokio = { version = "1", features = ["full"] }  # mpsc, watch, RwLock, select!
+
+# WebSocket write (subscribe/unsubscribe messages)
+tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+
+# JSON message construction
+serde_json = "1.0"
+
+# Config hot-reload (triggers reconciliation)
+notify = "8"
+notify-debouncer-mini = "0.7"
+
+# Metrics for subscription tracking
+metrics = "0.24"
+
+# Reconnection on Polymarket (no unsubscribe API)
+backoff = { version = "0.4", features = ["tokio"] }
 ```
 
-That is the entirety of the Cargo.toml change for v1.2.
+---
 
-Full context of what stays unchanged:
+## What NOT to Add
 
-```toml
-# EXISTING -- already covers v1.2 discovery needs
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }  # API polling
-serde = { version = "1.0", features = ["derive"] }                 # Response deserialization
-serde_json = "1.0"                                                  # JSON parsing
-toml = "0.8"                                                        # Config reading
-toml_edit = "0.22"                                                  # Format-preserving TOML writing
-governor = "0.8"                                                    # Rate limiting
-chrono = { version = "0.4", features = ["serde"] }                  # Dates and timestamps
-rust_decimal = { version = "1.40", features = ["maths", "serde-with-str"] }  # Strike comparison
-rsa = { version = "0.9", features = ["sha2"] }                     # Kalshi auth
-tokio = { version = "1", features = ["full"] }                     # Async runtime
-tracing = "0.1"                                                     # Logging
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| Any WebSocket management crate (ws-tool, ezsockets) | tokio-tungstenite is already integrated with proper split read/write pattern | Existing tokio-tungstenite 0.28 |
+| Channel abstraction crate (crossbeam-channel, flume) | tokio::sync::mpsc is the project standard for bounded async channels | Existing tokio mpsc channels |
+| State machine crate (statig, machine) | Subscription state is simple (active set + pending adds/removes); enum + match is sufficient | Rust enum + match |
+| Actor framework (actix, xactor, ractor) | Supervisors are already actor-like (own their state, receive messages via channels, run in spawned tasks). Adding a framework adds API surface without simplifying the code. | Existing supervisor pattern |
+| Any config-watching crate beyond notify | notify + debouncer is already integrated and working | Existing notify 8 |
+| tower / tower-http | Server-side middleware. We are a client consuming venue APIs. | Direct reqwest + WS calls |
+| dashmap | No concurrent map needed. Subscription state is owned by a single task per venue. | HashMap (stdlib) |
+| parking_lot | No contention on subscription state. Each supervisor owns its state exclusively. tokio Mutex/RwLock sufficient for rare cross-task access. | tokio::sync::RwLock (existing) |
 
-# NEW -- one addition
-strsim = "0.11"                                                     # String similarity (Jaro-Winkler, Levenshtein)
+---
+
+## Version Compatibility Verification
+
+All existing crates remain at their current versions. No upgrades needed.
+
+| Crate | Current Version | Rust 2024 Edition | Status |
+|-------|----------------|-------------------|--------|
+| tokio | 1.x | Compatible | Unchanged |
+| tokio-tungstenite | 0.28 | Compatible | Unchanged |
+| futures-util | 0.3 | Compatible | Unchanged |
+| tokio-util | 0.7 | Compatible | Unchanged |
+| serde_json | 1.0 | Compatible | Unchanged |
+| notify | 8 | Compatible | Unchanged |
+| notify-debouncer-mini | 0.7 | Compatible | Unchanged |
+| metrics | 0.24 | Compatible | Unchanged |
+| backoff | 0.4 | Compatible | Unchanged |
+
+**Rust compiler:** 1.85+ (2024 edition) -- no issues with any existing dependency.
+
+---
+
+## Integration Points Summary
+
+### Current Data Flow (v1.2)
+
+```
+ConfigReloader --watch::channel--> EventRegistry refresh (read-only)
+                                   (no feed-side effect)
+
+Pipeline startup:
+  config.venues.deribit.instruments --> DeribitSupervisor (static Vec<String>)
+  config.venues.polymarket.assets   --> PolymarketSupervisor (static config)
+  config.venues.kalshi.market_tickers -> KalshiSupervisor (static Vec<String>)
 ```
 
-## Integration Points with Existing Architecture
+### Target Data Flow (v1.3)
 
-### What Already Exists (discovery.rs)
-
-The `src/events/discovery.rs` module already contains:
-- `discover_deribit()` -- Polls Deribit instruments API, returns `Vec<DiscoveredInstrument>`
-- `discover_kalshi()` -- Polls Kalshi markets API with cursor pagination, returns `Vec<DiscoveredInstrument>`
-- `discover_polymarket()` -- Polls Polymarket Gamma API with offset pagination, returns `Vec<PolymarketMarketInfo>`
-- `find_cross_venue_candidates()` -- Groups instruments by exact `MatchKey` (asset + strike + expiry + direction)
-- `filter_new_candidates()` -- Filters out already-registered events
-- `flag_novel_instruments()` -- Identifies single-venue instruments for operator attention
-
-### What v1.2 Adds Using `strsim`
-
-The missing piece is Polymarket-to-structured-field matching. Currently Polymarket is "deactivation monitoring only" because its data is free-form text. With `strsim`:
-
-```rust
-use strsim::jaro_winkler;
-
-/// Compute confidence that a Polymarket question matches a known event.
-fn match_confidence(
-    polymarket_question: &str,
-    canonical_description: &str,
-) -> f64 {
-    let normalized_question = normalize_event_text(polymarket_question);
-    let normalized_canonical = normalize_event_text(canonical_description);
-    jaro_winkler(&normalized_question, &normalized_canonical)
-}
-
-fn normalize_event_text(text: &str) -> String {
-    text.to_lowercase()
-        .replace("bitcoin", "btc")
-        .replace("$", "")
-        .replace(",", "")
-        // ... further normalization
-}
+```
+ConfigReloader --watch::channel--> SubscriptionReconciler
+                                      |
+                              compute diff (HashSet difference)
+                                      |
+                    +--Subscribe/Unsubscribe commands--+
+                    |                 |                 |
+              DeribitSupervisor  PolySupervisor  KalshiSupervisor
+                    |                 |                 |
+              WS write half     WS write half     WS write half
+              (subscribe/       (subscribe only;  (subscribe/
+               unsubscribe)      reconnect for     unsubscribe via
+                                 removal)          sids)
 ```
 
-This enables:
-1. Given a Deribit+Kalshi candidate match (found via exact fields), search Polymarket for a market about the same event
-2. Score Polymarket questions against the canonical event description
-3. If score exceeds threshold (e.g., 0.85), include Polymarket in the proposed mapping
+### Files That Change (Architecture, Not Dependencies)
 
-### What toml_writer.rs Already Handles
-
-The TOML writing is fully implemented. The `append_candidate_to_toml()` function:
-- Parses existing `events.toml` preserving comments and formatting
-- Appends a new `[[events]]` entry with all venue-specific sub-tables
-- Sets `approved = false` and `discovered_at` timestamp
-- Returns the modified TOML as a string
-
-The orchestrator (discovery manager) will:
-1. Read current `events.toml` content
-2. Call `append_candidate_to_toml()` with the new candidate
-3. Write the result atomically (write-to-temp + rename, existing pattern)
-4. Emit a structured log for operator notification
-5. The existing `ConfigReloader` + SIGHUP mechanism picks up new approved entries
+| File | Change |
+|------|--------|
+| `src/feed/deribit/client.rs` | Add command channel; WS loop reads commands + messages |
+| `src/feed/deribit/supervisor.rs` | Accept command channel; forward to active client; use latest instruments on reconnect |
+| `src/feed/polymarket/client.rs` | Add subscribe command support; supervisor triggers reconnect for removals |
+| `src/feed/polymarket/supervisor.rs` | Accept command channel; dynamic instrument list |
+| `src/feed/kalshi/client.rs` | Add command channel; track subscription IDs (sids) |
+| `src/feed/kalshi/supervisor.rs` | Accept command channel; forward to active client |
+| `src/feed/pipeline.rs` | Wire command channels into pipeline assembly; expose command senders |
+| `src/main.rs` | Create reconciliation task; connect config watch to subscription commands |
+| Various tech debt files | Code fixes (15 items, no dependency changes) |
 
 ---
 
@@ -268,40 +354,26 @@ The orchestrator (discovery manager) will:
 
 | Category | Recommended | Alternative | Why Not |
 |----------|-------------|-------------|---------|
-| String matching | strsim 0.11 | Hand-rolled Levenshtein | strsim is already compiled (via clap). Reimplementing Jaro-Winkler correctly is non-trivial and error-prone. |
-| String matching | strsim 0.11 | NLP/ML (rust-bert) | Enormous dependency (PyTorch runtime). Event matching is string comparison, not language understanding. |
-| TOML writing | toml_edit 0.22 (existing) | toml 0.8 serde serialization | Destroys comments and formatting in human-curated config files. |
-| TOML writing | toml_edit 0.22 (existing) | toml_edit 0.23 upgrade | Would require coordinated toml 0.9 upgrade. No functional benefit for our use case. |
-| Rate limiting | governor 0.8 (existing) | reqwest-middleware | Already have per-venue rate limiters. Adding middleware is unnecessary abstraction. |
-| Rate limiting | governor 0.8 (existing) | Manual tokio::time::sleep | governor provides GCRA token bucket. Manual sleep does not handle burst correctly. |
-| Discovery state | In-memory + JSON checkpoint | SQLite | Discovery state is a set of known instrument IDs. Fits in a HashSet. |
-| Pagination | Per-venue implementation (existing) | Generic paginator crate | No good Rust crate exists. Each venue has different pagination (none, cursor, offset). Three implementations already exist and work. |
+| Subscription commands | mpsc channel per venue | Shared broadcast channel | mpsc is point-to-point (one controller, one supervisor). broadcast adds unnecessary cloning and back-pressure complexity. |
+| Write half access | Command channel pattern | Arc<Mutex<SplitSink>> | Mutex adds lock contention between heartbeat responses and subscription commands. Channel pattern keeps single-owner semantics. |
+| Instrument list sharing | watch::Receiver<Vec<String>> per venue | Arc<RwLock<Vec<String>>> | watch provides change notification for free (`.changed().await`). RwLock requires polling or separate notification channel. |
+| Polymarket unsubscribe | Reconnect with new list | Ignore stale data and filter client-side | Reconnection is cleaner. Ignoring data wastes bandwidth and processing. Supervisor already handles reconnection gracefully. |
+| Config diff computation | HashSet::difference (stdlib) | Custom diff algorithm | stdlib HashSet operations are O(n) and correct. No reason to add complexity. |
+| Subscription state tracking | HashMap<String, SubscriptionState> per venue | External state store (Redis, SQLite) | State is small (dozens of instruments), ephemeral (rebuilt on restart), and per-process. External store adds latency and failure modes. |
 
-## Version Compatibility
-
-| Crate | Pinned | Resolved | Rust Edition | Notes |
-|-------|--------|----------|-------------|-------|
-| strsim | 0.11 | 0.11.1 | 2015+ compatible | Already compiled as transitive dep of clap |
-| toml_edit | 0.22 | 0.22.27 | 2021+ | Paired with toml 0.8, do not upgrade independently |
-| toml | 0.8 | 0.8.23 | 2021+ | Paired with toml_edit 0.22 |
-| governor | 0.8 | 0.8.1 | 2021+ | Stable, actively maintained |
-
-Key constraint: Rust 2024 edition (1.85+) is specified in `Cargo.toml`. All crates (existing and new) support this.
+---
 
 ## Sources
 
-- [strsim crate on crates.io](https://crates.io/crates/strsim) -- v0.11.1, provides Jaro-Winkler, Levenshtein, Sorensen-Dice and others (HIGH confidence)
-- [strsim-rs GitHub](https://github.com/rapidfuzz/strsim-rs) -- Maintained by rapidfuzz organization, last updated Nov 2025 (HIGH confidence)
-- [strsim 0.11.1 API docs](https://docs.rs/strsim/0.11.1/strsim/) -- Full function listing confirmed (HIGH confidence)
-- [Deribit API docs](https://docs.deribit.com/) -- `public/get_instruments` endpoint: no pagination, no auth, 1 req/s sustained limit (HIGH confidence)
-- [Kalshi API docs: Get Markets](https://docs.kalshi.com/api-reference/market/get-markets) -- Cursor-based pagination, limit 1-1000, series_ticker filtering (HIGH confidence)
-- [Kalshi API docs: Pagination](https://docs.kalshi.com/getting_started/pagination) -- Cursor mechanism: null cursor = last page (HIGH confidence)
-- [Polymarket Gamma API: Get Events](https://docs.polymarket.com/developers/gamma-markets-api/get-events) -- Offset-based pagination, active/closed filtering (HIGH confidence)
-- [toml_edit on crates.io](https://crates.io/crates/toml_edit) -- v0.23.7 latest, v0.22.27 in use, no breaking changes needed (MEDIUM confidence)
-- [governor on crates.io](https://crates.io/crates/governor) -- v0.8.x, GCRA-based rate limiting (HIGH confidence)
-- Existing codebase analysis: `src/events/discovery.rs`, `src/events/toml_writer.rs`, `src/feed/reliability/rate_limiter.rs` -- All three discovery functions, TOML writer, and rate limiter already implemented (HIGH confidence)
-- Cargo dependency tree: `cargo tree -p strsim -i` confirms strsim 0.11.1 is already compiled via clap_builder (HIGH confidence)
+- [Deribit API Documentation](https://docs.deribit.com/) -- public/subscribe and public/unsubscribe methods, batch channel lists (HIGH confidence)
+- [Deribit Connection Management Best Practices](https://support.deribit.com/hc/en-us/articles/25944603459613-Connection-Management-Best-Practices) -- Dynamic subscription, connection_too_slow warnings (HIGH confidence)
+- [Polymarket CLOB WSS Overview](https://docs.polymarket.com/developers/CLOB/websocket/wss-overview) -- Subscribe supported, unsubscribe NOT supported, modify subscriptions note (HIGH confidence)
+- [Kalshi WebSocket Quick Start](https://docs.kalshi.com/getting_started/quick_start_websockets) -- Subscribe command format, subscription IDs (MEDIUM confidence)
+- [Kalshi WebSocket Connection](https://docs.kalshi.com/websockets/websocket-connection) -- Unsubscribe requires sids, error codes for unknown sid (MEDIUM confidence)
+- [tokio-tungstenite on crates.io](https://crates.io/crates/tokio-tungstenite) -- v0.28, SplitSink write access (HIGH confidence)
+- [tokio::sync module](https://docs.rs/tokio/latest/tokio/sync/index.html) -- mpsc, watch, RwLock, Mutex (HIGH confidence)
+- Existing codebase analysis: `src/feed/*/client.rs`, `src/feed/*/supervisor.rs`, `src/feed/pipeline.rs`, `src/config/reload.rs`, `src/main.rs` -- Current architecture confirmed by direct code reading (HIGH confidence)
 
 ---
-*Stack research for: v1.2 Automated Event Management*
-*Researched: 2026-02-26*
+*Stack research for: v1.3 Live Subscription Management*
+*Researched: 2026-02-27*

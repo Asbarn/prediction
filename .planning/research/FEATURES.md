@@ -1,316 +1,325 @@
-# Feature Landscape: v1.2 Automated Event Management
+# Feature Landscape: v1.3 Live Subscription Management & Tech Debt Cleanup
 
-**Domain:** Market discovery, cross-venue event matching, event lifecycle management for cross-venue prediction market arbitrage
-**Researched:** 2026-02-26
-**Confidence:** HIGH (discovery APIs, lifecycle management) / MEDIUM (Polymarket structured matching, expiry date alignment heuristics)
+**Domain:** Dynamic WebSocket feed subscription/unsubscription management for cross-venue prediction market arbitrage system
+**Researched:** 2026-02-27
+**Confidence:** HIGH (venue API subscription capabilities verified via official docs) / MEDIUM (reconciliation patterns, edge cases)
 
-**Scope note:** This research covers ONLY the new features for v1.2 Automated Event Management. Existing v1.0/v1.1 features (feeds, pricing, spread engines, paper trading, settlement tracking, signal analysis, persistence, alerting) are already built. The v1.2 milestone builds directly on: `EventRegistry`, `ContractLifecycleManager`, `ConfigReloader`, `events.toml`, and the existing `events::discovery` module which already has scaffolded discovery functions for all three venues.
+**Scope note:** This research covers ONLY the new features for v1.3: dynamic feed subscription management and tech debt cleanup. Existing v1.0-v1.2 features (feeds, pricing, spread engines, paper trading, settlement, signal analysis, persistence, alerting, automated event discovery, fuzzy matching, proposal workflow, archive/cleanup) are already built and operational at 34,753 LOC Rust.
 
-**Critical existing code inventory:** The codebase already has substantial v1.2 infrastructure:
-- `discover_deribit()` -- polls `/api/v2/public/get_instruments`, returns `Vec<DiscoveredInstrument>` with structured fields (no auth required)
-- `discover_kalshi()` -- polls `/trade-api/v2/markets` with RSA-PSS auth, pagination via cursor, parses `floor_strike`/`cap_strike`
-- `discover_polymarket()` -- polls Gamma API `/markets`, returns `Vec<PolymarketMarketInfo>` (deactivation monitoring only in current form)
-- `find_cross_venue_candidates()` -- exact four-field matching (asset + strike + expiry + direction)
-- `filter_new_candidates()` -- deduplicates against existing registry
-- `flag_novel_instruments()` -- flags unmatched single-venue instruments
-- `append_candidate_to_toml()` / `mark_expired_in_toml()` -- toml_edit-based atomic writers preserving formatting
-- `ContractLifecycleManager::poll_cycle()` -- full orchestration loop with per-venue interval tracking, candidate appending, expiry detection, Deribit roll handling, expiry warnings, risk cache population, and registry refresh
-- `ConfigReloader` -- file-system watcher with 500ms debounce, distributes new `AppConfig` via `watch` channel
-- `DiscoveryConfig` -- per-venue poll intervals, currency/series filters in events.toml
-- `LifecycleStatus` enum: Active, Expiring, Expired
-
-The question is: what features are MISSING from this already-built infrastructure?
+**Critical existing architecture context:**
+- **Supervisors are fire-and-forget.** Each venue supervisor (`DeribitSupervisor`, `PolymarketSupervisor`, `KalshiSupervisor`) takes a fixed instrument list at construction time and owns the reconnection loop. There is NO command channel into the supervisor -- it cannot receive subscribe/unsubscribe instructions after spawning.
+- **Clients subscribe once at startup.** `DeribitClient::start()` sends a single batch `public/subscribe` with all instruments. `PolymarketClient::start()` sends one subscribe message with all `assets_ids`. `KalshiClient::start()` iterates `market_tickers` and sends individual subscribe commands per ticker.
+- **Config reload updates EventRegistry but NOT feeds.** The config watch subscriber in `main.rs` calls `registry.refresh()` on TOML file changes. The feed supervisors and clients are unaware that the set of active instruments changed.
+- **The pipeline is static.** `run_live_multi_venue()` builds all three venue pipelines at startup with fixed instrument lists cloned from config. No mechanism exists to inject new instruments or remove expired ones without restarting.
 
 ---
 
 ## Table Stakes
 
-Features the automated event management system must have. Without these, the operator still needs to manually curate events.toml -- the entire goal of v1.2 is defeated.
+Features the system must have for v1.3 to deliver its stated goal. Without these, the operator must still restart the process when event mappings change.
 
-### TS-1: Polymarket Structured Market Discovery
+### TS-1: Command Channel into Supervisors
 
-The current `discover_polymarket()` implementation fetches markets but is limited to deactivation monitoring. It does NOT extract structured fields (asset, strike, direction, expiry) from Polymarket market data, making it impossible to include Polymarket in cross-venue candidate matching. This is the single largest gap.
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | Supervisors currently have zero communication channel after spawn. Dynamic subscription requires a way to send subscribe/unsubscribe commands to a running supervisor. |
+| Complexity | Medium |
+| Dependencies | Existing supervisor pattern (all three venues) |
 
-| Feature | Why Expected | Complexity | Dependencies on Existing Code |
-|---------|--------------|------------|-------------------------------|
-| Polymarket crypto market filtering | Current discovery fetches all active markets. Must filter to crypto/BTC price-level markets using Gamma API `tag_id=21` (Crypto category) or category-based filtering to avoid processing thousands of irrelevant political/sports markets. | LOW | Existing `discover_polymarket()` fetches from `/markets`. Add query parameter `tag_id=21` or use `/events?tag_id=21` endpoint. |
-| Extract structured fields from Polymarket group events | Polymarket structures BTC price markets as grouped events (e.g., "What price will Bitcoin hit in February?") with sub-markets per price level. Each sub-market has `groupItemTitle` like "up 150,000" containing the strike price. Must parse `groupItemTitle` and parent event metadata to extract asset, strike, direction. | HIGH | Existing `PolymarketMarketInfo` struct needs expansion: add `groupItemTitle`, `groupItemThreshold`, parent event fields. New: regex/pattern parser for `groupItemTitle` (e.g., "up 150,000" -> direction=Above, strike=150000). |
-| Polymarket expiry date extraction | Polymarket provides `endDateIso` on markets and `endDate` on parent events. Must normalize these to `NaiveDate` for cross-venue matching. Polymarket end dates often differ from Deribit/Kalshi expiries (monthly vs specific Friday). | MEDIUM | Existing `PolymarketMarketInfo` has `end_date_iso: Option<String>`. New: parse to `NaiveDate`, apply expiry alignment tolerance for cross-venue matching. |
-| Polymarket token ID extraction for mapping | When proposing a candidate match, must capture `conditionId` and `clobTokenIds` (Yes token) for the events.toml `PolymarketMapping`. The existing `PolymarketMapping` struct requires both `condition_id` and `token_id`. | LOW | Existing `PolymarketMarketInfo` has `condition_id` field. Need `tokens` array parsing (existing struct has `Vec<PolymarketToken>`). Map "Yes" outcome token_id for the mapping. |
+**What it is:** An `mpsc` or `watch` command channel that each supervisor monitors in its `select!` loop alongside the existing forwarding and cancellation branches. Commands would include `Subscribe(Vec<String>)`, `Unsubscribe(Vec<String>)`, and potentially `Reconcile(HashSet<String>)` (full desired-state replacement).
 
-**Polymarket data structure reality (from API investigation):**
+**Why it matters:** This is the architectural prerequisite for every other subscription feature. Without it, nothing downstream can trigger subscription changes.
 
-Polymarket does NOT provide machine-readable structured fields for asset, strike price, or direction. Price thresholds exist only in narrative form within the `question` text (e.g., "Will Bitcoin reach $150,000 in February?") and the `groupItemTitle` display label (e.g., "up 150,000"). This means:
+**Venue-specific considerations:**
+- **Deribit:** Supervisor creates fresh `DeribitClient` per reconnect. The command must be buffered so it survives reconnects -- the supervisor must replay the current desired subscription set on each new connection.
+- **Polymarket:** Supervisor creates fresh `PolymarketClient` per reconnect. Same buffering requirement.
+- **Kalshi:** Supervisor creates fresh `KalshiClient` per reconnect. Same pattern, but Kalshi also supports `update_subscription` with `add_markets`/`delete_markets` actions on a live connection via subscription IDs (sids).
 
-1. `groupItemTitle` is the most reliable semi-structured source -- consistent format for price-level markets within a group
-2. The `question` text is free-form and varies by market creator
-3. There is no `strike`, `asset`, or `direction` field in the API response
+**Design consideration:** The simplest correct approach is to maintain a `desired_instruments: HashSet<String>` inside each supervisor that is the authoritative source of truth. Commands mutate this set. On reconnect, the client subscribes to the full desired set. On a live connection, incremental subscribe/unsubscribe messages are sent.
 
-**Parsing approach:** Use `groupItemTitle` regex patterns (e.g., `(up|down)\s+([\d,]+)`) as the primary extraction method for grouped price markets. Fall back to `question` text regex for standalone markets. This is inherently fragile -- format changes will break extraction. Mitigation: log extraction failures, require human approval via `approved = false`.
 
-### TS-2: Expiry Date Alignment and Tolerance Matching
+### TS-2: Dynamic Subscribe for Newly Approved Instruments
 
-The current `find_cross_venue_candidates()` requires exact four-field matching including exact expiry date. In practice, venues use different expiry dates for economically equivalent events:
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | When an operator approves a proposed event mapping in `events.toml`, the system must start subscribing to the new venue instruments without restart. This is the primary stated goal of v1.3. |
+| Complexity | Medium |
+| Dependencies | TS-1 (command channel), existing config reload + EventRegistry refresh |
 
-- **Deribit**: Options expire on specific Fridays (e.g., 2025-06-27 at 08:00 UTC)
-- **Kalshi**: Markets close at `close_time`, often end-of-day or end-of-month (e.g., 2025-06-30T23:59:59Z)
-- **Polymarket**: End dates are typically end-of-month (e.g., 2026-03-01T05:00:00Z)
+**What it is:** When `events.toml` changes (operator sets `approved = true` on a candidate mapping), the config reload detects the change, refreshes the EventRegistry, and a new component computes the diff between currently-subscribed instruments and the new desired set. For each venue, newly needed instruments are sent as Subscribe commands to the appropriate supervisor.
 
-An exact match on expiry date will miss the majority of real cross-venue matches.
+**Flow:**
+```
+events.toml change detected
+  -> ConfigReloader fires new AppConfig
+  -> EventRegistry refreshes
+  -> SubscriptionReconciler computes diff:
+       desired = registry.active_approved() instruments per venue
+       current = tracked set of currently-subscribed instruments
+       to_add = desired - current
+       to_remove = current - desired
+  -> For each venue: send Subscribe(to_add) and Unsubscribe(to_remove)
+```
 
-| Feature | Why Expected | Complexity | Dependencies on Existing Code |
-|---------|--------------|------------|-------------------------------|
-| Configurable expiry date tolerance window | Allow matches where expiry dates differ by up to N days (configurable, default 7). Events within the same economic window (e.g., "BTC above $100K by end of June") should match even if Deribit says June 27 and Kalshi says June 30. | MEDIUM | Existing `MatchKey` has exact `expiry: NaiveDate` field. New: tolerance comparison that groups expiries within a window. Must update `find_cross_venue_candidates()` to use fuzzy expiry matching while keeping asset/strike/direction exact. |
-| Expiry confidence scoring | When expiries match exactly, confidence=HIGH. When they differ by 1-3 days, confidence=MEDIUM. When 4-7 days, confidence=LOW. Confidence is logged with the candidate proposal for operator review. | LOW | New field on `CandidateMapping` or in the proposal log. Computed from the actual day difference. |
-| Settlement timing capture in proposals | Auto-populate `SettlementMetadata` fields (deribit_settlement_time, venue resolution times) in candidate proposals based on discovered close_time/expiration_time data. Reduces manual curation needed after approval. | MEDIUM | Existing `SettlementMetadata` struct in `EventMapping`. Existing Deribit `expiration_timestamp` and Kalshi `close_time` in discovered instruments. New: auto-fill settlement metadata during candidate generation. |
+**Venue API capabilities (verified):**
+- **Deribit:** `public/subscribe` adds channels to existing subscriptions on the same connection. Up to 500 channels per subscribe message. Rate limited at ~3.3 req/s sustained. [Deribit docs](https://docs.deribit.com/)
+- **Polymarket:** Supports `"operation": "subscribe"` with new `assets_ids` on existing connection. [Polymarket WSS docs](https://docs.polymarket.com/developers/CLOB/websocket/wss-overview)
+- **Kalshi:** `subscribe` command adds new market tickers. Also supports `update_subscription` with `"action": "add_markets"` on existing subscription IDs. [Kalshi docs](https://docs.kalshi.com/websockets/websocket-connection)
 
-### TS-3: Event Retirement and Cleanup
 
-The current `mark_expired_in_toml()` sets `status = "expired"` but expired entries accumulate forever. Over months of operation, events.toml will grow unboundedly with stale entries, degrading readability and parse performance.
+### TS-3: Dynamic Unsubscribe for Expired/Retired Instruments
 
-| Feature | Why Expected | Complexity | Dependencies on Existing Code |
-|---------|--------------|------------|-------------------------------|
-| Expired event archival | Move entries with `status = "expired"` that are older than a configurable retention period (e.g., 30 days past expiry) from events.toml to an `events_archive.toml` or remove them entirely. Keep events.toml clean and focused on active/pending events. | MEDIUM | Existing `mark_expired_in_toml()` sets status. Existing `toml_edit`-based writers. New: retention period config, archive writer, periodic cleanup in lifecycle poll_cycle. |
-| Unapproved candidate expiration | Auto-discovered candidates (`approved = false`) that sit unapproved past their expiry date should be auto-cleaned. No point keeping proposals for events that already happened. | LOW | Existing `approved` and `expiry` fields on `EventMapping`. New: check in poll_cycle -- if `!approved && expiry < today`, mark as expired or remove. |
-| Retired status addition | Add a `Retired` status to `LifecycleStatus` for events that have been fully settled and archived. Distinguishes "recently expired, settlement pending" from "done, can be cleaned up." | LOW | Existing `LifecycleStatus` enum: Active, Expiring, Expired. New: add `Retired` variant. Transition: Expired -> Retired after settlement confirmed or retention period elapsed. |
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | When events expire and are archived to `events_archive.toml` (v1.2 archival flow), their instruments should be unsubscribed to stop wasting bandwidth and processing on stale data. |
+| Complexity | Medium |
+| Dependencies | TS-1 (command channel), TS-2 (reconciliation infrastructure) |
 
-### TS-4: Proposal Notification and Approval Workflow
+**What it is:** The reverse of TS-2. When the lifecycle manager marks events as Expired/Retired and archives them, the reconciler detects that instruments are no longer needed and sends Unsubscribe commands.
 
-The current system appends candidates with `approved = false` and logs an info message. The operator must manually find and edit events.toml to approve. This workflow needs to be clear and low-friction.
+**Venue API capabilities (verified):**
+- **Deribit:** `public/unsubscribe` removes specific channels from subscription. Also `public/unsubscribe_all` to clear everything (useful during reconnect for clean slate). [Deribit docs](https://docs.deribit.com/)
+- **Polymarket:** Supports `"operation": "unsubscribe"` with `assets_ids` to remove. [Polymarket WSS docs](https://docs.polymarket.com/developers/CLOB/websocket/wss-overview)
+- **Kalshi:** `unsubscribe` command using `sids` (subscription IDs), and `update_subscription` with `"action": "delete_markets"` on a specific subscription. [Kalshi docs](https://docs.kalshi.com/getting_started/quick_start_websockets)
 
-| Feature | Why Expected | Complexity | Dependencies on Existing Code |
-|---------|--------------|------------|-------------------------------|
-| Structured proposal log emission | When a candidate is discovered, emit a structured tracing log with all details: event_id, matched venues, instruments, expiry dates (per venue), confidence score, and what the operator needs to verify. Machine-parseable for monitoring. | LOW | Existing `tracing::info!` in `poll_cycle` logs event_id, deribit, kalshi. New: expand to include all matched fields, confidence, and a human-readable summary. |
-| Prometheus metrics for pending proposals | Gauge metric `lifecycle_pending_proposals` showing count of `approved = false` entries. Counter `lifecycle_proposals_total` for total proposals made. Enables Alertmanager rules for "new proposals awaiting review." | LOW | Existing `metrics::counter!("lifecycle_candidates_discovered")`. New: add gauge for pending count, updated each poll cycle. |
-| Approval triggers config reload | When operator sets `approved = true` in events.toml, the existing `ConfigReloader` file watcher detects the change and reloads. The lifecycle manager must then update the runtime `EventRegistry` and trigger subscription management for the newly approved mapping. | LOW | Existing `ConfigReloader` watches config directory. Existing `EventRegistry.refresh()`. The pipeline already reacts to registry changes. This may already work -- needs verification. |
-| Approval validation | When a candidate is approved, validate that the mapping is complete (has at least 2 venue instruments), the instruments still exist/are active on their venues, and the expiry has not passed. Reject invalid approvals with clear error messages. | MEDIUM | Existing `config::validation` module. New: runtime validation on config reload that checks approved mappings against current venue state. |
+**Important nuance:** Unsubscribing does not need to be instant. It is acceptable for there to be a brief period where stale data continues arriving after an instrument is marked expired. The processor already handles unknown instruments gracefully (they just do not match any event in the registry). The downstream impact of delayed unsubscription is wasted bandwidth, not incorrect behavior.
 
-### TS-5: Live Subscription Management
 
-When a new event mapping is approved, the system must start receiving market data for the new instruments without a full restart.
+### TS-4: Config-Change-Driven Subscription Reconciliation
 
-| Feature | Why Expected | Complexity | Dependencies on Existing Code |
-|---------|--------------|------------|-------------------------------|
-| Dynamic feed subscription for new instruments | When a mapping transitions from unapproved to approved, subscribe to the relevant WebSocket channels for the new instruments on each venue. | HIGH | Existing venue WebSocket clients (`DeribitClient`, `KalshiClient`, `PolymarketClient`) manage subscriptions at startup. Need to expose `subscribe(instrument)` / `unsubscribe(instrument)` methods that can be called at runtime. Each venue has different subscription semantics. |
-| Dynamic feed unsubscription for expired instruments | When a mapping transitions to expired/retired, unsubscribe from the venue WebSocket channels to free up connection resources and reduce noise. | MEDIUM | Depends on dynamic subscription capability above. New: unsubscribe on status transition. Must handle gracefully if the instrument is shared with another active mapping. |
-| Config-change-driven subscription reconciliation | On config reload (file watcher or SIGHUP), compute the diff between old and new active instrument sets. Subscribe to new instruments, unsubscribe from removed instruments. | HIGH | Existing `ConfigReloader` distributes new `AppConfig` via `watch` channel. Existing `EventRegistry.refresh()` updates the in-memory registry. New: subscription reconciliation logic that compares old vs new `active_approved()` sets and issues subscribe/unsubscribe commands. |
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | This is the orchestration layer that ties TS-1 through TS-3 together. A single reconciliation function compares desired state (EventRegistry active+approved instruments) with current state (what supervisors are actually subscribed to) and issues the minimal set of subscribe/unsubscribe commands. |
+| Complexity | Medium-High |
+| Dependencies | TS-1, TS-2, TS-3, existing ConfigReloader + EventRegistry |
+
+**What it is:** A `SubscriptionReconciler` component that:
+1. Listens to `watch::Receiver<AppConfig>` for config changes (same channel the EventRegistry subscriber uses)
+2. Extracts the desired per-venue instrument sets from the new EventRegistry state
+3. Diffs against currently-tracked subscription state
+4. Sends targeted Subscribe/Unsubscribe commands per venue
+5. Updates its tracked state on successful subscription changes
+
+**Why "reconciliation" and not just "diff":** On reconnect, the client subscribes to the full desired set (not just the diff). The reconciler must handle the case where a reconnect happened between config changes, meaning the supervisor already subscribed to the new set. The reconciler's tracked state must be resynchronized on reconnect events. This is the "reconcile" operation: assert the full desired state regardless of what the current state might be.
+
+**Edge cases the reconciler must handle:**
+- Config change while a venue is disconnected (supervisor in backoff) -- must queue and apply on reconnect
+- Multiple rapid config changes -- must coalesce into a single reconciliation pass
+- Partial subscription failures -- Deribit returns only successfully subscribed channels; must track partial state
+- Venue connection drops after subscribe command sent but before confirmation -- must re-reconcile on reconnect
+
+
+### TS-5: Tech Debt Sweep (v1.0-v1.2 Accumulated Items)
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | 15 accumulated tech debt items (13 from v1.0, 2 from v1.2) have been carried forward for 3 milestones. This milestone explicitly includes a tech debt cleanup. |
+| Complexity | Low-Medium (individually simple, but there are 15 items) |
+| Dependencies | None (can be done independently of subscription features) |
+
+**The full tech debt inventory:**
+
+**From v1.0 (13 items):**
+1. `RecordLine.channel` set to empty String for all recorded messages (info)
+2. Gamma omitted from Greeks calculator (accepted user decision -- leave as-is)
+3. `pricing_brent_fallbacks_total` Prometheus counter specified but not implemented (info)
+4. `iv_spread` field always 0.0 in `ArbSignal` (warning -- metadata incomplete)
+5. `options book_depth_levels` hardcoded to 0 (info)
+6. Replay processor JoinHandle silently dropped in `replay/mod.rs:221` (info)
+7. Kalshi `is_stale` always false -- staleness gate not computed from exchange_timestamp (info)
+8. 10 stale `REQUIREMENTS.md` checkboxes marked `[ ] Pending` for satisfied requirements (medium)
+9. Expired instrument `BTC-27JUN25-100000-C` in events.toml (medium)
+10. Kalshi `market_tickers = []` -- no markets in default config (medium)
+11. `[health]` and `[signal_generation]` sections absent from config.toml (low)
+12. Mock mode lacks event_id annotation (accepted limitation)
+13. Polymarket condition_id not used at runtime (info)
+
+**From v1.2 (2 items):**
+14. Old exact-match functions (`find_cross_venue_candidates`, `filter_new_candidates`) preserved but unused (low)
+15. `expiry_confidence` TOML field is write-only -- not round-tripped via EventMapping struct (low)
+
+**Recommendation for which to fix:**
+- **Fix:** Items 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14 (straightforward, meaningful improvements)
+- **Leave as-is:** Items 2 (user decision), 12 (accepted), 13 (informational, no harm), 15 (write-only is acceptable for human-readable annotation)
+- **Total fixable:** 11 items, mostly trivial individual changes
 
 ---
 
 ## Differentiators
 
-Features that go beyond basic automated discovery and provide smarter matching, richer context, or reduced operator burden. Not required for v1.2 MVP but significantly increase the system's autonomy.
+Features that go beyond the stated v1.3 goals but would add significant operational value. Not expected for the milestone but worth documenting.
 
-### D-1: Smart Cross-Venue Matching Heuristics
+### DIFF-1: Subscription State Observability
 
-| Feature | Value Proposition | Complexity | Dependencies on Existing Code |
-|---------|-------------------|------------|-------------------------------|
-| Partial venue matching (2 of 3 venues) | Current matching requires 2+ venues with matching instruments. But a Deribit option and a Kalshi market may match while no Polymarket equivalent exists. The system should propose partial matches and flag missing venues for the operator. | LOW | Existing `find_cross_venue_candidates()` already returns 2+ venue matches. This is already working. Enhancement: when a partial match (Deribit+Kalshi but no Polymarket) is proposed, explicitly note the missing venue in the proposal log. |
-| Strike price normalization across venues | Kalshi uses `floor_strike` (dollars), Deribit uses `strike` (option strike), Polymarket embeds price in question text. Different rounding or representation (100000 vs 100,000 vs $100K) could prevent matches. Normalize all to `Decimal` before matching. | LOW | Existing code already normalizes to `Decimal` via `Decimal::from_f64_retain()`. Enhancement: strip currency symbols, commas, and "K"/"M" suffixes during Polymarket text parsing. |
-| Temporal clustering of proposals | If the system discovers 50 new Deribit options at different strikes for the same expiry, it should batch proposals rather than emitting 50 individual log lines. Group proposals by expiry date and present as a summary. | LOW | New: accumulate proposals per poll cycle and emit a single summary log with counts by expiry. |
+| Attribute | Detail |
+|-----------|--------|
+| Value Proposition | Prometheus gauges showing per-venue active subscription count, subscribe/unsubscribe event counters, and reconciliation timing. Gives operator visibility into dynamic subscription behavior. |
+| Complexity | Low |
+| Dependencies | TS-4 (reconciler) |
 
-### D-2: Discovery Intelligence
+**What it is:** Metrics like `feed_subscriptions_active{venue="deribit"}`, `feed_subscription_changes_total{venue="deribit", action="subscribe"}`, `feed_reconciliation_duration_seconds`. These are cheap to implement (a few `metrics::counter!` / `metrics::gauge!` calls) and provide essential operational visibility.
 
-| Feature | Value Proposition | Complexity | Dependencies on Existing Code |
-|---------|-------------------|------------|-------------------------------|
-| Venue instrument change detection | Track the full set of active instruments per venue across poll cycles. Detect not just new instruments but also deactivations, status changes, and metadata updates. Emit structured change logs. | MEDIUM | Existing `all_discovered` in poll_cycle is transient. New: persist the previous poll's instrument set (in memory) and diff against current. |
-| Discovery health monitoring | Track discovery success/failure rates per venue. Alert if a venue consistently fails discovery (API down, auth expired, rate limited). Distinct from feed health -- discovery uses REST, not WebSocket. | LOW | Existing `metrics::counter!("lifecycle_discovery_polls")` per venue. New: add failure counter and success rate computation. Alert if failure rate exceeds threshold. |
-| Polymarket question text pattern library | Maintain a configurable set of regex patterns for extracting structured data from Polymarket question text. Start with BTC price patterns, extensible to ETH and other assets. Log unmatched patterns for operator review and pattern expansion. | MEDIUM | New: pattern library in config (TOML array of regex patterns with named capture groups). Applied during Polymarket discovery. Fallback: log raw question text for manual review. |
+**Recommendation:** Include. The system already has comprehensive Prometheus metrics across all components. Adding subscription metrics is consistent with the existing observability philosophy and costs almost nothing.
 
-### D-3: Candidate Quality Scoring
 
-| Feature | Value Proposition | Complexity | Dependencies on Existing Code |
-|---------|-------------------|------------|-------------------------------|
-| Match confidence composite score | Combine expiry alignment confidence, venue count (2 vs 3), and liquidity indicators into a single match quality score. Higher scores = more likely to be profitable arb opportunities. | MEDIUM | New: composite scoring function. Inputs: expiry day difference, number of matched venues, instrument activity status. Output: 0.0-1.0 confidence. |
-| Liquidity pre-screening | Before proposing a candidate, check if the discovered instruments have meaningful volume/open interest. Low-liquidity matches are real but untradeable. Flag low-liquidity candidates differently. | MEDIUM | Deribit `get_instruments` does not return volume (need separate `get_book_summary`). Kalshi markets response includes volume. Polymarket includes `volume`. New: optional liquidity check during discovery. |
-| Historical match accuracy tracking | Track how often auto-proposed candidates were approved vs rejected by the operator. Over time, this reveals whether the matching criteria are too loose (many rejections) or too tight (missing real matches). | LOW | New: Prometheus counters for proposals_approved vs proposals_rejected. Compute approval rate periodically. |
+### DIFF-2: Subscription Health Validation
+
+| Attribute | Detail |
+|-----------|--------|
+| Value Proposition | Periodic check that expected instruments are actually producing data. Detects silent subscription failures where the subscribe command succeeded but the venue stopped sending data for that instrument. |
+| Complexity | Medium |
+| Dependencies | TS-4, existing VenueHealth infrastructure |
+
+**What it is:** A watchdog that checks each subscribed instrument against the last-seen timestamp in the snapshot pipeline. If an instrument that should be producing data has not been seen for N seconds, emit a warning. This catches cases where:
+- The venue accepted the subscribe but quietly dropped it
+- The instrument became inactive (no trading activity)
+- A partial subscription failure was not detected
+
+**Recommendation:** Defer to future milestone. The existing staleness detection (`is_stale` on MarketSnapshot) and alerting (`AlertMonitor` with feed silence detection) already cover most of this. The marginal value is low for a paper trading system.
+
+
+### DIFF-3: Graceful Subscription Transition (Overlap Period)
+
+| Attribute | Detail |
+|-----------|--------|
+| Value Proposition | When rolling from an expiring instrument to its replacement (e.g., BTC-27JUN25 -> BTC-26SEP25), subscribe to the new instrument before unsubscribing the old one. Ensures continuous coverage during the transition window. |
+| Complexity | Medium-High |
+| Dependencies | TS-2, TS-3, lifecycle status awareness |
+
+**What it is:** Instead of unsubscribing expired instruments immediately, maintain a brief overlap period where both old and new instruments are subscribed. This is relevant for the Deribit expiry roll scenario where the lifecycle manager detects a roll candidate.
+
+**Recommendation:** Defer. The current lifecycle manager already handles `Expiring` -> `Expired` -> `Retired` state transitions with configurable thresholds. The overlap period would add complexity without meaningful benefit for paper trading. Subscriptions bandwidth is not a bottleneck at the current scale (dozens of instruments, not thousands).
+
+
+### DIFF-4: Dry-Run Reconciliation Mode
+
+| Attribute | Detail |
+|-----------|--------|
+| Value Proposition | Log what subscribe/unsubscribe actions WOULD be taken without actually sending them. Useful for validating reconciliation logic before enabling it. |
+| Complexity | Low |
+| Dependencies | TS-4 |
+
+**Recommendation:** Include as a config flag. Trivial to implement (wrap the send calls in an `if !dry_run` check and log the actions regardless). Provides a safety net during initial deployment. Can be removed once the feature is validated.
 
 ---
 
 ## Anti-Features
 
-Features that seem relevant to automated event management but should be explicitly avoided.
+Features to explicitly NOT build in v1.3.
 
-| Anti-Feature | Why It Seems Relevant | Why Avoid | What to Do Instead |
-|--------------|----------------------|-----------|-------------------|
-| NLP/ML-based Polymarket question parsing | "Use a language model to extract structured data from free-form questions" | Adds heavyweight dependencies (tokenizers, models, or API calls to external services). Polymarket crypto price markets follow a small number of predictable patterns -- regex is sufficient. ML is overkill for "Will Bitcoin reach $150,000?" and unreliable for edge cases. Also violates the zero-new-dependency principle established in v1.1. | Regex pattern library on `groupItemTitle` and `question` text. Log unmatched patterns for manual review. Keep patterns in TOML config for easy extension without recompilation. |
-| Full-text fuzzy matching across all venues | "Use Levenshtein distance or TF-IDF to match market descriptions across venues" | Polymarket uses free-form English questions, Deribit uses structured instrument names, Kalshi uses structured tickers. These are fundamentally different representations. Fuzzy text matching would produce high false positive rates and miss real matches. | Exact structured field matching (asset + strike + direction) with fuzzy expiry tolerance. This is what the codebase already does for Deribit+Kalshi. Extend to Polymarket only after extracting structured fields from `groupItemTitle`. |
-| Automatic approval of high-confidence matches | "If confidence > 0.95, auto-approve without human review" | For a solo trader managing real arbitrage positions (v2), every mapping directly affects capital allocation. A false match between venues with different settlement criteria could cause total loss on both legs. The approval gate is a critical safety mechanism. | Always write candidates with `approved = false`. Make approval easy (edit one field in TOML), not automatic. Log enough context that approval takes <30 seconds per candidate. |
-| Real-time event stream subscription for discovery | "Subscribe to venue WebSocket feeds for new instrument notifications instead of polling" | Deribit does not offer a WebSocket notification for new instruments. Kalshi does not offer real-time market listing notifications. Polymarket has no push API for new event creation. All three venues require REST polling for discovery. New instruments appear on a daily/weekly cadence, not millisecond -- polling every 5-10 minutes is more than sufficient. | REST polling at configured intervals per venue, which is already implemented in `ContractLifecycleManager`. |
-| Multi-asset discovery (ETH, SOL, etc.) in v1.2 | "While building discovery, add support for all assets" | The existing system is BTC-only by design decision (highest cross-venue liquidity). Adding multi-asset discovery before BTC event management is validated adds complexity without value. ETH options on Deribit have different strike intervals, Kalshi may not have ETH markets, and Polymarket ETH market question formats may differ. | Keep `deribit_currencies = ["BTC"]` and `kalshi_series_tickers = ["KXBTC"]` in discovery config. The architecture supports multi-asset (config-driven), but v1.2 validates the automation with BTC only. |
-| Automated events.toml conflict resolution | "If two concurrent discovery cycles modify events.toml, merge changes" | Single-binary, single-writer architecture. The lifecycle manager is the only writer. ConfigReloader is read-only. There is no concurrent write scenario. Adding merge logic adds complexity for a problem that does not exist. | Keep single-writer pattern. Lifecycle manager owns all writes to events.toml. Operator edits (approval) happen between poll cycles and are read via ConfigReloader. |
-| Database-backed event store replacing events.toml | "TOML files don't scale, use SQLite for event storage" | events.toml will contain at most dozens to low-hundreds of entries (BTC binary events across 3 venues with monthly/quarterly expiries). TOML is human-readable, git-trackable, and requires zero dependencies. A database adds operational complexity for a solo-trader system. | Keep events.toml as the source of truth. The `toml_edit`-based writers preserve formatting and comments. Archive old entries to keep the file manageable. |
+### AF-1: Per-Instrument Connection Isolation
+
+| Anti-Feature | One WebSocket connection per instrument per venue |
+|--------------|--------------------------------------------------|
+| Why Avoid | Deribit can handle 500 channels on a single connection. Kalshi supports multiple market subscriptions per connection. One-connection-per-instrument would create hundreds of connections, violating rate limits and consuming excessive resources. |
+| What to Do Instead | Use the existing single-connection-per-venue architecture. Add/remove instruments on the existing connection. |
+
+
+### AF-2: Full Pipeline Restart on Subscription Change
+
+| Anti-Feature | Tear down and rebuild the entire venue pipeline (supervisor + processor + forwarder) when instruments change |
+|--------------|---------------------------------------------|
+| Why Avoid | This is the current workaround (restart the process). It is disruptive, loses in-flight state, and defeats the purpose of v1.3. The whole point is to add/remove subscriptions without disrupting the existing pipeline. |
+| What to Do Instead | Send incremental subscribe/unsubscribe commands on the existing WebSocket connection within the running supervisor. |
+
+
+### AF-3: Automatic Approval of Subscription Changes
+
+| Anti-Feature | System automatically subscribes to newly discovered (unapproved) instrument candidates |
+|--------------|----------------------------------------------------------------------------------------|
+| Why Avoid | Violates the `approved = false` safety gate that is a "non-negotiable safety mechanism" (per PROJECT.md Key Decisions). Subscribing to unapproved instruments would generate signals on unvalidated cross-venue mappings, potentially leading to false arbitrage signals. |
+| What to Do Instead | Only subscribe to instruments from `active_approved()` event mappings. The operator must explicitly set `approved = true` in events.toml before the system will subscribe. |
+
+
+### AF-4: WebSocket Multiplexing / Connection Pooling
+
+| Anti-Feature | Generic WebSocket connection pool with dynamic routing |
+|--------------|--------------------------------------------------------|
+| Why Avoid | Over-engineered for the current scale. Three venues with one connection each is perfectly adequate. Connection pooling adds complexity (connection affinity, subscription routing, failover) with zero benefit at dozens-of-instruments scale. |
+| What to Do Instead | Keep the existing one-supervisor-per-venue architecture. |
+
+
+### AF-5: Bidirectional Subscription Sync (Venue -> System)
+
+| Anti-Feature | Query the venue to discover what we are currently subscribed to, and sync our internal state from the venue's response |
+|--------------|--------------------------------------------------------|
+| Why Avoid | Only Kalshi supports `list_subscriptions`. Deribit and Polymarket have no equivalent. Building this for one venue creates an inconsistent abstraction. The system's own tracked state should be authoritative. |
+| What to Do Instead | Track desired and confirmed subscription state internally. On reconnect, subscribe to the full desired set (clean slate). |
 
 ---
 
 ## Feature Dependencies
 
 ```
-[Polymarket Structured Discovery (TS-1)]
-    |
-    +--> Requires: Existing discover_polymarket() (fetches raw market data)
-    +--> Requires: Gamma API tag_id filtering (crypto category)
-    +--> Requires: groupItemTitle regex parser (new)
-    +--> Enables: Three-venue cross-venue matching
-    |
-    v
-[Expiry Date Alignment (TS-2)]
-    |
-    +--> Requires: Existing find_cross_venue_candidates() (exact matching)
-    +--> Modifies: MatchKey expiry comparison (tolerance window)
-    +--> Enables: Real-world cross-venue matching where dates differ
-    |
-    v
-[Cross-Venue Candidate Matching] (combined TS-1 + TS-2)
-    |
-    +--> Feeds into: Existing append_candidate_to_toml()
-    +--> Feeds into: Proposal Notification (TS-4)
+TS-1: Command Channel into Supervisors
+  |
+  +-- TS-2: Dynamic Subscribe (needs command channel to send subscribe commands)
+  |     |
+  |     +-- TS-4: Reconciliation (needs subscribe capability)
+  |
+  +-- TS-3: Dynamic Unsubscribe (needs command channel to send unsubscribe commands)
+        |
+        +-- TS-4: Reconciliation (needs unsubscribe capability)
 
-[Event Retirement (TS-3)]
-    |
-    +--> Requires: Existing mark_expired_in_toml()
-    +--> Requires: Existing LifecycleStatus enum (add Retired variant)
-    +--> Independent of: Discovery features
-    +--> Enables: Long-term events.toml hygiene
+TS-4: Reconciliation
+  |
+  +-- DIFF-1: Subscription Observability (add metrics to reconciler)
+  |
+  +-- DIFF-4: Dry-Run Mode (add config flag to reconciler)
 
-[Proposal Workflow (TS-4)]
-    |
-    +--> Requires: Existing candidate appending (already works)
-    +--> Requires: Existing ConfigReloader (detects approval edits)
-    +--> Enhances: Operator experience via structured logs + metrics
-    +--> Independent of: Which venues participate in matching
-
-[Live Subscription Management (TS-5)]
-    |
-    +--> Requires: Existing ConfigReloader (triggers on approval)
-    +--> Requires: Existing EventRegistry.refresh() (knows new instruments)
-    +--> Requires: Venue WebSocket clients to expose subscribe/unsubscribe (NEW, HIGH complexity)
-    +--> Depends on: Proposal Workflow (TS-4) for the approval trigger
+TS-5: Tech Debt Sweep (independent -- no dependencies on subscription features)
 ```
 
-### Dependency Notes
+**Critical path:** TS-1 -> TS-2 + TS-3 -> TS-4 -> DIFF-1 + DIFF-4
 
-- **Polymarket Structured Discovery (TS-1) is the hardest new work.** Deribit and Kalshi discovery already work with structured API fields. Polymarket is the gap because its API lacks machine-readable strike/direction/asset fields.
-- **Expiry Date Alignment (TS-2) unlocks real matching.** Without tolerance, the exact-date requirement will miss most real cross-venue matches. This is a surgical change to `find_cross_venue_candidates()`.
-- **Event Retirement (TS-3) is fully independent** of discovery features. Can be built in any order. Provides operational hygiene.
-- **Proposal Workflow (TS-4) is largely already built.** The candidate appending, structured logging, and config reload path exist. Enhancements are incremental.
-- **Live Subscription Management (TS-5) is the highest-risk feature.** Requires changes to all three venue WebSocket clients to support runtime subscription changes. Each venue has different subscription semantics (Deribit uses JSON-RPC subscribe/unsubscribe, Kalshi uses a different message format, Polymarket CLOB has its own subscribe model).
-
-### Build Order Recommendation
-
-```
-Phase 1 (independent, immediate value):
-  Track A: Event Retirement & Cleanup (TS-3) -- operational hygiene, low risk
-  Track B: Proposal Workflow Enhancement (TS-4) -- better notifications, low risk
-
-Phase 2 (the matching upgrade):
-  Polymarket Structured Discovery (TS-1) -- regex parser for groupItemTitle
-  Expiry Date Alignment (TS-2) -- tolerance window for cross-venue matching
-  These two together enable three-venue automated candidate proposals.
-
-Phase 3 (the hardest piece, gated by validation of Phase 2):
-  Live Subscription Management (TS-5) -- dynamic subscribe/unsubscribe
-  This requires changes across all three venue client modules.
-  Consider: is restart-on-approval acceptable for v1.2 MVP?
-    If yes, defer TS-5 to v1.3 and rely on existing SIGHUP config reload.
-```
+**Parallel work:** TS-5 can be done at any point, including before or alongside the subscription features.
 
 ---
 
 ## MVP Recommendation
 
-### Must Build (eliminates manual events.toml curation for most cases)
+**Prioritize (must ship for v1.3):**
+1. **TS-1:** Command channel into supervisors -- architectural prerequisite
+2. **TS-2:** Dynamic subscribe for newly approved instruments -- primary user-facing feature
+3. **TS-3:** Dynamic unsubscribe for expired instruments -- completes the lifecycle
+4. **TS-4:** Config-change-driven reconciliation -- ties it all together
+5. **TS-5:** Tech debt sweep -- explicit milestone goal, 11 fixable items
+6. **DIFF-1:** Subscription observability metrics -- cheap, high operational value
+7. **DIFF-4:** Dry-run reconciliation mode -- cheap safety net
 
-1. **Polymarket Structured Discovery (TS-1)** -- Without this, Polymarket cannot participate in automated matching. The system remains limited to Deribit+Kalshi auto-matching with manual Polymarket curation. This is the primary gap.
-
-2. **Expiry Date Alignment (TS-2)** -- Without tolerance matching, exact expiry dates will prevent most real cross-venue matches. Venues use different expiry conventions (Friday vs end-of-month). This is a small code change with large impact.
-
-3. **Proposal Workflow Enhancement (TS-4)** -- The approval workflow already works at a basic level. Enhancement to structured logs and Prometheus metrics makes it production-ready for ongoing operation.
-
-4. **Event Retirement (TS-3)** -- Unapproved expired candidates and long-expired events must be cleaned up. Without this, events.toml grows unboundedly during extended operation.
-
-### Defer
-
-- **Live Subscription Management (TS-5):** This is the highest-risk, highest-complexity feature. The alternative is acceptable for v1.2: approve a mapping, then SIGHUP or restart the system. New subscriptions take effect on restart/reload. Dynamic subscription management is a v1.3 enhancement once the discovery and matching pipeline is validated.
-
-- **Candidate Quality Scoring (D-3):** Useful but not essential. The operator reviews proposals manually and can assess quality from the logged context. Build the data collection in v1.2; add scoring later.
-
-- **Polymarket Question Pattern Library (D-2):** Start with hardcoded regex patterns for BTC price markets in v1.2. Make it configurable in a future iteration if pattern diversity increases.
-
-- **Liquidity Pre-screening (D-3):** Requires additional API calls per candidate. Not worth the complexity for BTC markets which generally have decent liquidity across all three venues.
+**Defer:**
+- **DIFF-2:** Subscription health validation -- existing alerting covers most cases
+- **DIFF-3:** Graceful subscription transition with overlap -- paper trading does not need this level of continuity
 
 ---
 
-## Feature Prioritization Matrix
+## Venue API Subscription Capabilities Summary
 
-| Feature | User Value | Implementation Cost | Risk | Priority |
-|---------|------------|---------------------|------|----------|
-| Polymarket Structured Discovery (TS-1) | HIGH | HIGH | MEDIUM (regex fragility) | P1 |
-| Expiry Date Alignment (TS-2) | HIGH | LOW | LOW | P1 |
-| Event Retirement & Cleanup (TS-3) | MEDIUM | LOW | LOW | P1 |
-| Proposal Workflow Enhancement (TS-4) | MEDIUM | LOW | LOW | P1 |
-| Live Subscription Management (TS-5) | HIGH | HIGH | HIGH (3 venue clients) | P2 (defer to v1.3) |
-| Match Confidence Scoring (D-3) | MEDIUM | MEDIUM | LOW | P2 |
-| Discovery Health Monitoring (D-2) | LOW | LOW | LOW | P2 |
-| Polymarket Pattern Library (D-2) | MEDIUM | MEDIUM | LOW | P3 |
-| Venue Change Detection (D-2) | LOW | MEDIUM | LOW | P3 |
-| Liquidity Pre-screening (D-3) | LOW | MEDIUM | LOW | P3 |
+| Capability | Deribit | Polymarket | Kalshi |
+|-----------|---------|------------|--------|
+| Subscribe on existing connection | `public/subscribe` with channels array | `subscribe` operation with `assets_ids` | `subscribe` cmd with `channels` + `market_ticker` |
+| Unsubscribe on existing connection | `public/unsubscribe` with channels array | `unsubscribe` operation with `assets_ids` | `unsubscribe` cmd with `sids` |
+| Unsubscribe all | `public/unsubscribe_all` (no params) | Not documented | Not documented |
+| Update existing subscription | N/A (subscribe is additive) | N/A | `update_subscription` with `add_markets`/`delete_markets` |
+| List current subscriptions | Not available | Not available | `list_subscriptions` |
+| Max channels per message | 500 | Not documented | Not documented |
+| Subscribe rate limit | ~3.3 req/s sustained | Not documented | Not documented |
+| Subscription ID tracking | Not used | Not used | Required (`sids` for unsubscribe) |
 
----
+**Key architectural implication:** Kalshi's subscription ID (`sid`) model requires the system to track subscription IDs returned from subscribe responses. Deribit and Polymarket are channel-name-based (subscribe/unsubscribe by channel name). This means the supervisor command channel abstraction must be venue-aware, or each supervisor must handle the venue-specific protocol internally (recommended: keep venue specifics inside each supervisor, expose a uniform command interface).
 
-## Existing Code That Needs Modification vs New Code
-
-Understanding what already exists is critical for accurate effort estimation.
-
-### Modifications to Existing Code
-
-| Module | What Exists | What Changes |
-|--------|-------------|--------------|
-| `events::discovery::discover_polymarket()` | Fetches all active markets, returns `Vec<PolymarketMarketInfo>` | Add crypto tag filtering, parse `groupItemTitle`/`question` for structured fields, return `Vec<DiscoveredInstrument>` instead of raw market info |
-| `events::discovery::find_cross_venue_candidates()` | Exact four-field `MatchKey` (asset, strike, expiry, direction) | Change expiry matching from exact to tolerance-based |
-| `events::discovery::MatchKey` | `expiry: NaiveDate` used for Hash/Eq | Either add tolerance to comparison or group by (asset, strike, direction) then post-filter expiry ranges |
-| `config::events::LifecycleStatus` | Active, Expiring, Expired | Add `Retired` variant |
-| `events::lifecycle::ContractLifecycleManager::poll_cycle()` | Discovers, matches, expires, warns, refreshes | Add retirement cleanup step, enhanced proposal logging, Polymarket inclusion in matching |
-| `events::discovery::PolymarketMarketInfo` | conditionId, question, endDateIso, active, closed, tokens, category | Add groupItemTitle, groupItemThreshold, parent event fields |
-
-### New Code Required
-
-| Module | Purpose | Complexity |
-|--------|---------|------------|
-| Polymarket `groupItemTitle` parser | Extract (asset, strike, direction) from display labels | MEDIUM -- regex patterns, error handling, logging |
-| Expiry tolerance matcher | Group instruments by (asset, strike, direction) then match expiry within window | LOW -- refactor of existing matching logic |
-| Event archival writer | Move expired entries to archive file or remove after retention | LOW -- extension of existing toml_edit writers |
-| Unapproved candidate cleanup | Auto-expire candidates past their expiry date | LOW -- date comparison in poll_cycle |
-| Approval validation | Verify approved mappings have valid instruments | MEDIUM -- REST calls to verify instrument existence |
+**Confidence levels:**
+- Deribit subscribe/unsubscribe: HIGH (verified via official docs at docs.deribit.com)
+- Polymarket subscribe/unsubscribe: MEDIUM (verified via WSS overview docs; unsubscribe documented but less commonly used in community examples)
+- Kalshi subscribe/unsubscribe/update: MEDIUM (verified via quick start docs; update_subscription with sids verified via search results but exact response format not confirmed from official docs)
 
 ---
 
 ## Sources
 
-### Venue API Documentation (HIGH confidence)
-- [Polymarket Gamma API Overview](https://docs.polymarket.com/developers/gamma-markets-api/overview) -- endpoints, structure
-- [Polymarket Gamma API Structure](https://docs.polymarket.com/developers/gamma-markets-api/gamma-structure) -- events/markets hierarchy
-- [Polymarket Fetching Market Data](https://docs.polymarket.com/quickstart/fetching-data) -- query patterns
-- [Kalshi API: Get Markets](https://docs.kalshi.com/api-reference/market/get-markets) -- structured fields including floor_strike, cap_strike, close_time, status
-- [Kalshi API: Get Series](https://docs.kalshi.com/api-reference/market/get-series) -- series discovery with settlement sources
-- [Kalshi API Changelog](https://docs.kalshi.com/changelog) -- field deprecations, new fields (volume on series Jan 2026, price_level_structure moved Oct 2025)
-- [Deribit API Documentation](https://docs.deribit.com/) -- get_instruments endpoint
-
-### Polymarket Market Structure (MEDIUM confidence -- verified via live API)
-- [Polymarket Gamma API live endpoint](https://gamma-api.polymarket.com/) -- tested crypto tag filtering with `tag_id=21`
-- [Polymarket Market Discovery Bot](https://deepwiki.com/frankomondo/polymarket-trading-bots-telegram/3.3-market-discovery-and-real-time-monitoring) -- real-world implementation of Gamma API discovery, CoinMarket struct patterns
-- [Polymarket API Architecture](https://medium.com/@gwrx2005/the-polymarket-api-architecture-endpoints-and-use-cases-f1d88fa6c1bf) -- endpoint overview, data flow
-
-### Cross-Venue Settlement & Matching (MEDIUM confidence)
-- [How Kalshi and Polymarket Settle Event Contracts](https://defirate.com/prediction-markets/how-contracts-settle/) -- settlement divergence risks, dispute mechanisms
-- [Prediction Market Arbitrage Guide 2026](https://newyorkcityservers.com/blog/prediction-market-arbitrage-guide) -- cross-venue matching challenges
-- [Prediction Markets at Scale: 2026 Outlook](https://insights4vc.substack.com/p/prediction-markets-at-scale-2026) -- API maturation, developer tooling trends
-
-### Event Lifecycle Patterns (MEDIUM confidence)
-- [Event-Driven Finite State Machine for Distributed Trading](https://www.quantisan.com/event-driven-finite-state-machine-for-a-distributed-trading-system/) -- state machine patterns for trading systems
-- [Signal Types, States, and Lifecycle](https://www.mql5.com/en/blogs/post/767493) -- PREVIEW/PENDING/ACTIVE/WIN/LOSS/EXPIRED lifecycle
-
----
-
-*Feature research for: v1.2 Automated Event Management*
-*Researched: 2026-02-26*
+- [Deribit API Documentation](https://docs.deribit.com/) -- subscribe/unsubscribe methods, 500-channel limit, rate limits
+- [Deribit Market Data Collection Best Practices](https://docs.deribit.com/articles/market-data-collection-best-practices) -- batch subscription, instrument.state lifecycle feed
+- [Polymarket WSS Overview](https://docs.polymarket.com/developers/CLOB/websocket/wss-overview) -- subscribe/unsubscribe operations, dynamic modification
+- [Kalshi WebSocket Connection](https://docs.kalshi.com/websockets/websocket-connection) -- subscribe/unsubscribe/update_subscription commands
+- [Kalshi Quick Start WebSockets](https://docs.kalshi.com/getting_started/quick_start_websockets) -- message formats, subscription IDs
+- [Tokio Channels Tutorial](https://tokio.rs/tokio/tutorial/channels) -- command channel pattern for async task management
