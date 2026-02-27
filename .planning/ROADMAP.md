@@ -110,6 +110,6 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 18. Discovery Infrastructure Hardening | 2/2 | Complete    | 2026-02-26 | - |
-| 19. Polymarket Discovery and Cross-Venue Matching | 2/2 | Complete   | 2026-02-27 | - |
+| 19. Polymarket Discovery and Cross-Venue Matching | 2/2 | Complete    | 2026-02-27 | - |
 | 20. Proposal Workflow and Operator Interface | v1.2 | 0/TBD | Not started | - |
 | 21. Lifecycle Management and Integration | v1.2 | 0/TBD | Not started | - |
