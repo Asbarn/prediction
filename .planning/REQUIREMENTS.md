@@ -30,7 +30,7 @@ Requirements for Automated Event Management milestone. Each maps to roadmap phas
 
 ### Integration
 
-- [ ] **INTG-01**: Discovery manager runs as periodic background task within ContractLifecycleManager poll cycle
+- [x] **INTG-01**: Discovery manager runs as periodic background task within ContractLifecycleManager poll cycle
 - [x] **INTG-02**: Polymarket discovery returns Vec<DiscoveredInstrument> (same type as Deribit/Kalshi) for unified cross-venue matching
 - [x] **INTG-03**: All TOML writes use existing VenueRateLimiter and batch writes per poll cycle (not per-candidate)
 
@@ -98,7 +98,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LIFE-02 | Phase 21 | Complete |
 | LIFE-03 | Phase 21 | Complete |
 | LIFE-04 | Phase 18 | Complete |
-| INTG-01 | Phase 21 | Pending |
+| INTG-01 | Phase 21 | Complete |
 | INTG-02 | Phase 19 | Complete |
 | INTG-03 | Phase 18 | Complete |
 

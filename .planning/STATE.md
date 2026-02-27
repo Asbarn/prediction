@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 ## Current Position
 
 Phase: 21 of 21 (Lifecycle Management and Integration)
-Plan: 01 of 02 complete
-Status: Executing
-Last activity: 2026-02-27 -- Completed 21-01 (Lifecycle Foundation: Retired Status, Retention Config, Archive Helpers)
+Plan: 02 of 02 complete
+Status: Phase Complete
+Last activity: 2026-02-27 -- Completed 21-02 (Archive-and-Cleanup Poll Cycle Integration)
 
-Progress: [##############                ] 46% (v1.2: phase 21 plan 01 complete)
+Progress: [##############################] 100% (v1.2: phase 21 plan 02 complete -- milestone done)
 
 ## Performance Metrics
 
@@ -38,6 +38,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Full decision history in .planning/milestones/v1.0-ROADMAP.md and .planning/milestones/v1.1-ROADMAP.md
 
 Recent decisions:
+- 21-02: archive_and_cleanup returns bool for conditional registry refresh (OR-ed with needs_write)
+- 21-02: Archive-then-remove: archive file written atomically before entries removed from events.toml
+- 21-02: Integration test uses toml_writer functions directly to avoid full manager construction
 - 21-01: Retired variant after Expired in enum for logical lifecycle progression
 - 21-01: Archive retention default 30 days for financial data retention
 - 21-01: Defensive TOML parsing with unwrap_or defaults for missing fields
@@ -77,5 +80,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 21-01-PLAN.md (Lifecycle Foundation: Retired Status, Retention Config, Archive Helpers)
-Next action: Execute 21-02-PLAN.md (Archive-and-Cleanup Poll Cycle Integration)
+Stopped at: Completed 21-02-PLAN.md (Archive-and-Cleanup Poll Cycle Integration)
+Next action: v1.2 milestone complete -- all 21 phases, all plans executed

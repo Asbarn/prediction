@@ -48,7 +48,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - [x] **Phase 18: Discovery Infrastructure Hardening** - Production-safe venue polling with shared rate limiters, consecutive-absence guards, and batched TOML writes (completed 2026-02-26)
 - [x] **Phase 19: Polymarket Discovery and Cross-Venue Matching** - Three-venue structured discovery with expiry tolerance matching and confidence-scored candidate proposals (completed 2026-02-27)
 - [x] **Phase 20: Proposal Workflow and Operator Interface** - Atomic TOML proposal writing, structured logging, Prometheus metrics, and approval validation (completed 2026-02-27)
-- [ ] **Phase 21: Lifecycle Management and Integration** - Event archival, unapproved candidate cleanup, Retired status, and background task wiring into ContractLifecycleManager
+- [x] **Phase 21: Lifecycle Management and Integration** - Event archival, unapproved candidate cleanup, Retired status, and background task wiring into ContractLifecycleManager (completed 2026-02-27)
 
 ## Phase Details
 
@@ -104,7 +104,7 @@ Plans:
   3. LifecycleStatus includes a Retired variant for fully settled and archived events, distinguishing them from merely expired events
   4. The discovery manager runs as a periodic background task within the ContractLifecycleManager poll cycle, executing the full discover-match-propose pipeline each cycle
   5. After one complete poll cycle, the operator can observe new candidate entries in events.toml (approved=false) for any newly detected cross-venue instrument matches
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 21-01-PLAN.md — Retired lifecycle status, archive_retention_days config, and toml_writer archive/cleanup helper functions
 - [ ] 21-02-PLAN.md — Poll cycle archive_and_cleanup integration and INTG-01 background task verification
@@ -118,4 +118,4 @@ Plans:
 | 18. Discovery Infrastructure Hardening | 2/2 | Complete    | 2026-02-26 | - |
 | 19. Polymarket Discovery and Cross-Venue Matching | 2/2 | Complete    | 2026-02-27 | - |
 | 20. Proposal Workflow and Operator Interface | 2/2 | Complete    | 2026-02-27 | - |
-| 21. Lifecycle Management and Integration | 1/2 | In Progress|  | - |
+| 21. Lifecycle Management and Integration | 2/2 | Complete   | 2026-02-27 | - |
