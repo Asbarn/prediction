@@ -26,6 +26,7 @@ use crate::spread::logger::SpreadLogger;
 use crate::spread::patterns::{compute_gross_spread, SpreadPattern, SpreadResult};
 use crate::spread::rolling_stats::RollingStats;
 use crate::spread::threshold::compute_threshold;
+use crate::subscription::CleanupEvent;
 use crate::types::{MarketSnapshot, Venue};
 
 /// Stateful spread computation context.
@@ -146,6 +147,7 @@ impl SpreadEngine {
         cancel: CancellationToken,
         signal_tx: mpsc::Sender<SpreadResult>,
         ptrade_snap_tx: Option<mpsc::Sender<MarketSnapshot>>,
+        mut cleanup_rx: mpsc::Receiver<CleanupEvent>,
     ) {
         let mut stats_interval = tokio::time::interval(Duration::from_secs(
             self.config.stats_emission_interval_secs,
@@ -166,6 +168,26 @@ impl SpreadEngine {
 
                 _ = stats_interval.tick() => {
                     self.emit_aggregate_stats();
+                }
+
+                Some(_cleanup) = cleanup_rx.recv() => {
+                    // Evict stale entries for instruments no longer subscribed.
+                    // Use the registry to determine which event_ids are still active,
+                    // then retain only entries matching those active event_ids.
+                    let reg = registry.read().await;
+                    let active_ids: std::collections::HashSet<String> =
+                        reg.active_approved().map(|m| m.id.clone()).collect();
+                    drop(reg);
+
+                    let before_latest = self.latest.len();
+                    self.latest.retain(|&(ref eid, _), _| active_ids.contains(eid));
+                    let before_stats = self.stats.len();
+                    self.stats.retain(|eid, _| active_ids.contains(eid));
+                    tracing::info!(
+                        latest_removed = before_latest - self.latest.len(),
+                        stats_removed = before_stats - self.stats.len(),
+                        "SpreadEngine: cleaned up stale entries"
+                    );
                 }
 
                 snapshot = snapshot_rx.recv() => {

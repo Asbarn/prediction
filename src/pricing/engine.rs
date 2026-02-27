@@ -23,6 +23,7 @@ use crate::pricing::types::{
     SolverResult,
 };
 use crate::pricing::vol_surface::{SmilePoint, VolSmile};
+use crate::subscription::CleanupEvent;
 use crate::types::{DualTimestamp, InstrumentId, MarketSnapshot, Probability, Venue};
 
 // ---------------------------------------------------------------------------
@@ -99,6 +100,7 @@ impl PricingEngine {
         mut snapshot_rx: mpsc::Receiver<MarketSnapshot>,
         probability_tx: mpsc::Sender<ImpliedProbability>,
         cancel: CancellationToken,
+        mut cleanup_rx: mpsc::Receiver<CleanupEvent>,
     ) {
         info!(
             near_expiry_cutoff_hours = self.config.near_expiry_cutoff_hours,
@@ -118,6 +120,20 @@ impl PricingEngine {
                         "pricing engine shutting down"
                     );
                     break;
+                }
+
+                Some(cleanup) = cleanup_rx.recv() => {
+                    // Evict stale iv_cache entries for removed Deribit instruments.
+                    // Do NOT clean up smiles or smile_points -- per Research Pitfall 5,
+                    // multiple instruments share an expiry date, and smiles expire naturally.
+                    let to_remove: std::collections::HashSet<&str> =
+                        cleanup.deribit_instruments.iter().map(|s| s.as_str()).collect();
+                    let before = self.iv_cache.len();
+                    self.iv_cache.retain(|k, _| !to_remove.contains(k.to_string().as_str()));
+                    tracing::info!(
+                        iv_cache_removed = before - self.iv_cache.len(),
+                        "PricingEngine: cleaned up stale iv_cache entries"
+                    );
                 }
 
                 snapshot = snapshot_rx.recv() => {
@@ -629,7 +645,8 @@ mod tests {
         let cancel = CancellationToken::new();
 
         let cancel_clone = cancel.clone();
-        let handle = tokio::spawn(engine.run(snap_rx, prob_tx, cancel_clone));
+        let (_cleanup_tx, cleanup_rx) = mpsc::channel::<crate::subscription::CleanupEvent>(1);
+        let handle = tokio::spawn(engine.run(snap_rx, prob_tx, cancel_clone, cleanup_rx));
 
         // Send a mock Deribit option snapshot (far-future expiry to avoid near-expiry path)
         // Bid=0.08 BTC, Ask=0.10 BTC with underlying $100000
@@ -664,7 +681,8 @@ mod tests {
         let cancel = CancellationToken::new();
 
         let cancel_clone = cancel.clone();
-        let handle = tokio::spawn(engine.run(snap_rx, prob_tx, cancel_clone));
+        let (_cleanup_tx, cleanup_rx) = mpsc::channel::<crate::subscription::CleanupEvent>(1);
+        let handle = tokio::spawn(engine.run(snap_rx, prob_tx, cancel_clone, cleanup_rx));
 
         // Send a futures instrument (not an option -- 3 parts, not 4)
         let snapshot = mock_deribit_option_snapshot("BTC-27JUN27", 0.08, 0.10, 100000.0);
@@ -701,7 +719,8 @@ mod tests {
         let cancel = CancellationToken::new();
 
         let cancel_clone = cancel.clone();
-        let handle = tokio::spawn(engine.run(snap_rx, prob_tx, cancel_clone));
+        let (_cleanup_tx, cleanup_rx) = mpsc::channel::<crate::subscription::CleanupEvent>(1);
+        let handle = tokio::spawn(engine.run(snap_rx, prob_tx, cancel_clone, cleanup_rx));
 
         // Send an option that will be within near-expiry window
         // Use far-future expiry but near_expiry_cutoff_hours is set to 2400h (100 days)
@@ -752,7 +771,8 @@ mod tests {
         let cancel = CancellationToken::new();
 
         let cancel_clone = cancel.clone();
-        let handle = tokio::spawn(engine.run(snap_rx, prob_tx, cancel_clone));
+        let (_cleanup_tx, cleanup_rx) = mpsc::channel::<crate::subscription::CleanupEvent>(1);
+        let handle = tokio::spawn(engine.run(snap_rx, prob_tx, cancel_clone, cleanup_rx));
 
         // Send a Polymarket snapshot (should be ignored by PricingEngine)
         let mut snapshot =

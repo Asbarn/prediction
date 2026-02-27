@@ -28,6 +28,7 @@ use crate::spread::book_walker::walk_the_book;
 use crate::spread::cost_model::{carry_cost, kalshi_taker_fee, polymarket_fee};
 use crate::spread::rolling_stats::RollingStats;
 use crate::spread::threshold::compute_threshold;
+use crate::subscription::CleanupEvent;
 use crate::types::{DualTimestamp, MarketSnapshot, Venue};
 
 /// Cross-asset arbitrage signal generation engine.
@@ -157,6 +158,7 @@ impl CrossAssetEngine {
         registry: Arc<RwLock<EventRegistry>>,
         cancel: CancellationToken,
         signal_tx: mpsc::Sender<ArbSignal>,
+        mut cleanup_rx: mpsc::Receiver<CleanupEvent>,
     ) {
         let mut stats_interval = tokio::time::interval(Duration::from_secs(
             self.config.summary_interval_secs,
@@ -181,6 +183,29 @@ impl CrossAssetEngine {
 
                 _ = stats_interval.tick() => {
                     self.emit_summary();
+                }
+
+                Some(_cleanup) = cleanup_rx.recv() => {
+                    // Evict stale entries for instruments no longer subscribed.
+                    // Use the registry to determine which event_ids are still active,
+                    // then retain only entries matching those active event_ids.
+                    let reg = registry.read().await;
+                    let active_ids: std::collections::HashSet<String> =
+                        reg.active_approved().map(|m| m.id.clone()).collect();
+                    drop(reg);
+
+                    let before_prob = self.latest_prob.len();
+                    self.latest_prob.retain(|eid, _| active_ids.contains(eid));
+                    let before_pred = self.latest_pred.len();
+                    self.latest_pred.retain(|&(ref eid, _), _| active_ids.contains(eid));
+                    let before_stats = self.stats.len();
+                    self.stats.retain(|eid, _| active_ids.contains(eid));
+                    tracing::info!(
+                        prob_removed = before_prob - self.latest_prob.len(),
+                        pred_removed = before_pred - self.latest_pred.len(),
+                        stats_removed = before_stats - self.stats.len(),
+                        "CrossAssetEngine: cleaned up stale entries"
+                    );
                 }
 
                 prob = prob_rx.recv() => {
