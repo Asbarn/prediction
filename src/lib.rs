@@ -13,5 +13,6 @@ pub mod replay;
 pub mod shutdown;
 pub mod settlement;
 pub mod signal;
+pub mod subscription;
 pub mod spread;
 pub mod types;
