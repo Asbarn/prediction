@@ -432,6 +432,177 @@ pub async fn discover_polymarket(
 }
 
 // ---------------------------------------------------------------------------
+// Polymarket structured discovery (question text parsing + event slug polling)
+// ---------------------------------------------------------------------------
+
+/// Gamma API event-level response wrapping multiple markets.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GammaEventResponse {
+    pub title: Option<String>,
+    pub markets: Vec<PolymarketMarketInfo>,
+}
+
+/// Normalize a Polymarket asset name to a standard ticker.
+///
+/// Maps known crypto asset names (case-insensitive) to their
+/// standard tickers. Returns None for unrecognized assets.
+pub fn normalize_polymarket_asset(name: &str) -> Option<&'static str> {
+    match name.to_lowercase().as_str() {
+        "bitcoin" => Some("BTC"),
+        "ethereum" | "ether" => Some("ETH"),
+        "solana" => Some("SOL"),
+        _ => None,
+    }
+}
+
+/// Parse a Polymarket question into structured fields.
+///
+/// Supports patterns:
+///   "Will {Asset} reach ${Strike} by {Date}?" -> Above
+///   "Will {Asset} dip to ${Strike} by {Date}?" -> Below
+///   "Will {Asset} hit ${Strike} by {Date}?" -> Above (treat "hit" as upward)
+///
+/// Returns `(asset_ticker, strike, direction)` on success, None for
+/// unparseable questions. Does NOT parse date from question text --
+/// `endDateIso` from the API is the authoritative expiry source.
+pub fn parse_polymarket_question(question: &str) -> Option<(String, Decimal, Direction)> {
+    // Strip leading "Will " and trailing "?"
+    let q = question.strip_prefix("Will ")?.strip_suffix('?')?.trim();
+
+    // Find the asset name (first word after "Will ")
+    let space_idx = q.find(' ')?;
+    let asset_name = &q[..space_idx];
+    let asset = normalize_polymarket_asset(asset_name)?.to_string();
+    let rest = &q[space_idx + 1..];
+
+    // Determine direction from verb
+    let (direction, after_verb) = if let Some(r) = rest.strip_prefix("reach $") {
+        (Direction::Above, r)
+    } else if let Some(r) = rest.strip_prefix("hit $") {
+        (Direction::Above, r)
+    } else if let Some(r) = rest.strip_prefix("dip to $") {
+        (Direction::Below, r)
+    } else {
+        return None;
+    };
+
+    // Extract strike: everything before " by "
+    let by_idx = after_verb.find(" by ")?;
+    let strike_str = &after_verb[..by_idx];
+    // Remove commas from strike (e.g., "150,000" -> "150000")
+    let strike_clean: String = strike_str.chars().filter(|c| *c != ',').collect();
+    let strike = Decimal::from_str_exact(&strike_clean).ok()?;
+
+    Some((asset, strike, direction))
+}
+
+/// Discover structured Polymarket instruments from Gamma API events.
+///
+/// Polls each configured event slug via `GET {gamma_api_url}/events?slug={slug}`,
+/// parses market questions for structured fields (asset, strike, direction),
+/// and returns `DiscoveredInstrument` entries for cross-venue matching.
+///
+/// Deduplicates by `conditionId` across slugs (Pitfall 4 from research).
+/// Unparseable questions are logged at WARN and counted via
+/// `polymarket_parse_failures` metric.
+pub async fn discover_polymarket_structured(
+    client: &reqwest::Client,
+    gamma_api_url: &str,
+    event_slugs: &[String],
+    rate_limiter: Option<&VenueRateLimiter>,
+) -> anyhow::Result<Vec<DiscoveredInstrument>> {
+    let mut all = Vec::new();
+    let mut seen_conditions: HashSet<String> = HashSet::new();
+
+    for slug in event_slugs {
+        if let Some(limiter) = rate_limiter {
+            limiter.wait().await;
+        }
+
+        let resp: Vec<GammaEventResponse> = client
+            .get(format!("{}/events", gamma_api_url))
+            .query(&[("slug", slug.as_str())])
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        for event in &resp {
+            for market in &event.markets {
+                // Deduplicate by conditionId across slugs
+                if seen_conditions.contains(&market.condition_id) {
+                    continue;
+                }
+                seen_conditions.insert(market.condition_id.clone());
+
+                // Skip inactive/closed markets
+                if !market.active || market.closed {
+                    continue;
+                }
+
+                // Parse question for structured fields
+                let (asset, strike, direction) = match parse_polymarket_question(&market.question) {
+                    Some(fields) => fields,
+                    None => {
+                        tracing::warn!(
+                            condition_id = %market.condition_id,
+                            question = %market.question,
+                            "unparseable Polymarket question, skipping"
+                        );
+                        metrics::counter!("polymarket_parse_failures").increment(1);
+                        continue;
+                    }
+                };
+
+                // Use endDateIso for expiry (authoritative source)
+                let expiry = match &market.end_date_iso {
+                    Some(d) => {
+                        // Try YYYY-MM-DD format first, then full ISO 8601
+                        if let Ok(date) = NaiveDate::parse_from_str(d, "%Y-%m-%d") {
+                            date
+                        } else if let Ok(dt) = DateTime::parse_from_rfc3339(d) {
+                            dt.date_naive()
+                        } else {
+                            continue;
+                        }
+                    }
+                    None => continue,
+                };
+
+                // Get token_id: prefer the "Yes" outcome token, fallback to first
+                let _token_id = market
+                    .tokens
+                    .iter()
+                    .find(|t| t.outcome == "Yes")
+                    .or_else(|| market.tokens.first())
+                    .map(|t| t.token_id.clone())
+                    .unwrap_or_default();
+
+                all.push(DiscoveredInstrument {
+                    venue: Venue::Polymarket,
+                    instrument_id: market.condition_id.clone(),
+                    asset,
+                    strike,
+                    expiry,
+                    direction,
+                    is_active: true,
+                    raw_expiry_timestamp: 0, // Polymarket uses date, not millisecond timestamp
+                });
+            }
+        }
+    }
+
+    tracing::info!(
+        venue = "polymarket",
+        slugs_polled = event_slugs.len(),
+        instruments_discovered = all.len(),
+        "Polymarket structured discovery complete"
+    );
+
+    Ok(all)
+}
+
+// ---------------------------------------------------------------------------
 // Cross-venue candidate matching
 // ---------------------------------------------------------------------------
 
@@ -1049,5 +1220,174 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(config.min_poll_interval_secs(), 300);
+    }
+
+    // --- parse_polymarket_question tests ---
+
+    #[test]
+    fn parse_question_reach_above() {
+        let result =
+            parse_polymarket_question("Will Bitcoin reach $150,000 by December 31, 2025?");
+        assert!(result.is_some());
+        let (asset, strike, direction) = result.unwrap();
+        assert_eq!(asset, "BTC");
+        assert_eq!(strike, Decimal::from_str("150000").unwrap());
+        assert_eq!(direction, Direction::Above);
+    }
+
+    #[test]
+    fn parse_question_hit_above() {
+        let result =
+            parse_polymarket_question("Will Bitcoin hit $100,000 by December 31, 2025?");
+        assert!(result.is_some());
+        let (asset, strike, direction) = result.unwrap();
+        assert_eq!(asset, "BTC");
+        assert_eq!(strike, Decimal::from_str("100000").unwrap());
+        assert_eq!(direction, Direction::Above);
+    }
+
+    #[test]
+    fn parse_question_dip_below() {
+        let result =
+            parse_polymarket_question("Will Bitcoin dip to $75,000 by February 28, 2025?");
+        assert!(result.is_some());
+        let (asset, strike, direction) = result.unwrap();
+        assert_eq!(asset, "BTC");
+        assert_eq!(strike, Decimal::from_str("75000").unwrap());
+        assert_eq!(direction, Direction::Below);
+    }
+
+    #[test]
+    fn parse_question_unknown_asset() {
+        let result =
+            parse_polymarket_question("Will Dogecoin reach $1 by December 31, 2025?");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_question_no_will_prefix() {
+        let result = parse_polymarket_question("Bitcoin reaches $100,000");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_question_ethereum() {
+        let result =
+            parse_polymarket_question("Will Ethereum reach $5,000 by June 30, 2025?");
+        assert!(result.is_some());
+        let (asset, strike, direction) = result.unwrap();
+        assert_eq!(asset, "ETH");
+        assert_eq!(strike, Decimal::from_str("5000").unwrap());
+        assert_eq!(direction, Direction::Above);
+    }
+
+    // --- normalize_polymarket_asset tests ---
+
+    #[test]
+    fn normalize_asset_cases() {
+        assert_eq!(normalize_polymarket_asset("Bitcoin"), Some("BTC"));
+        assert_eq!(normalize_polymarket_asset("BITCOIN"), Some("BTC"));
+        assert_eq!(normalize_polymarket_asset("bitcoin"), Some("BTC"));
+        assert_eq!(normalize_polymarket_asset("ethereum"), Some("ETH"));
+        assert_eq!(normalize_polymarket_asset("Ether"), Some("ETH"));
+        assert_eq!(normalize_polymarket_asset("solana"), Some("SOL"));
+        assert_eq!(normalize_polymarket_asset("Unknown"), None);
+    }
+
+    // --- compute_expiry_confidence tests ---
+
+    #[test]
+    fn compute_expiry_confidence_tests() {
+        // Single date -> High
+        let single = vec![NaiveDate::from_ymd_opt(2025, 6, 27).unwrap()];
+        assert_eq!(compute_expiry_confidence(&single), ExpiryConfidence::High);
+
+        // 1 day spread -> High
+        let high = vec![
+            NaiveDate::from_ymd_opt(2025, 6, 27).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 6, 28).unwrap(),
+        ];
+        assert_eq!(compute_expiry_confidence(&high), ExpiryConfidence::High);
+
+        // 5 day spread -> Medium
+        let medium = vec![
+            NaiveDate::from_ymd_opt(2025, 6, 25).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 6, 30).unwrap(),
+        ];
+        assert_eq!(compute_expiry_confidence(&medium), ExpiryConfidence::Medium);
+
+        // 10 day spread -> Low
+        let low = vec![
+            NaiveDate::from_ymd_opt(2025, 6, 20).unwrap(),
+            NaiveDate::from_ymd_opt(2025, 6, 30).unwrap(),
+        ];
+        assert_eq!(compute_expiry_confidence(&low), ExpiryConfidence::Low);
+    }
+
+    // --- generate_polymarket_slugs tests ---
+
+    #[test]
+    fn generate_slugs_test() {
+        let patterns = vec!["{month}".to_string(), "{year}".to_string()];
+        let slugs = generate_polymarket_slugs(&patterns);
+        assert_eq!(slugs.len(), 2);
+
+        // Should contain current month name (lowercase)
+        let now = chrono::Utc::now();
+        let expected_month = now.format("%B").to_string().to_lowercase();
+        let expected_year = now.format("%Y").to_string();
+
+        assert_eq!(slugs[0], expected_month);
+        assert_eq!(slugs[1], expected_year);
+    }
+
+    // --- ExpiryConfidence Display tests ---
+
+    #[test]
+    fn expiry_confidence_display() {
+        assert_eq!(ExpiryConfidence::High.to_string(), "HIGH");
+        assert_eq!(ExpiryConfidence::Medium.to_string(), "MEDIUM");
+        assert_eq!(ExpiryConfidence::Low.to_string(), "LOW");
+    }
+
+    // --- GammaEventResponse deserialization test ---
+
+    #[test]
+    fn parse_gamma_event_response_json() {
+        let json = r#"[{
+            "title": "What price will Bitcoin hit in February?",
+            "markets": [
+                {
+                    "conditionId": "0xabc123",
+                    "question": "Will Bitcoin reach $150,000 by February 28, 2025?",
+                    "endDateIso": "2025-02-28",
+                    "active": true,
+                    "closed": false,
+                    "tokens": [
+                        {"token_id": "tok1", "outcome": "Yes"},
+                        {"token_id": "tok2", "outcome": "No"}
+                    ],
+                    "category": "Crypto"
+                },
+                {
+                    "conditionId": "0xdef456",
+                    "question": "Will Bitcoin dip to $75,000 by February 28, 2025?",
+                    "endDateIso": "2025-02-28",
+                    "active": true,
+                    "closed": false,
+                    "tokens": [
+                        {"token_id": "tok3", "outcome": "Yes"},
+                        {"token_id": "tok4", "outcome": "No"}
+                    ],
+                    "category": "Crypto"
+                }
+            ]
+        }]"#;
+
+        let resp: Vec<GammaEventResponse> = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.len(), 1);
+        assert_eq!(resp[0].markets.len(), 2);
+        assert_eq!(resp[0].markets[0].condition_id, "0xabc123");
+        assert_eq!(resp[0].markets[1].condition_id, "0xdef456");
     }
 }
