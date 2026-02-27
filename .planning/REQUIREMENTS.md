@@ -13,7 +13,7 @@ Requirements for v1.3 Live Subscription Management. Each maps to roadmap phases.
 - [x] **SUB-02**: System unsubscribes from expired/retired instrument feeds without restart when events are archived
 - [x] **SUB-03**: Config change to events.toml triggers automatic reconciliation that computes per-venue instrument diffs and issues minimal subscribe/unsubscribe actions
 - [x] **SUB-04**: Registry refresh completes before subscription reconciliation reads registry state (ordering guarantee)
-- [ ] **SUB-05**: Stale internal state (order books, snapshots, rolling stats) is cleaned up after instruments are unsubscribed
+- [x] **SUB-05**: Stale internal state (order books, snapshots, rolling stats) is cleaned up after instruments are unsubscribed
 - [x] **SUB-06**: Reconnect-based subscription for all three venues uses latest instrument list from registry, not static startup config
 
 ### Observability
@@ -79,7 +79,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SUB-02 | Phase 23 | Complete |
 | SUB-03 | Phase 22 | Complete |
 | SUB-04 | Phase 22 | Complete |
-| SUB-05 | Phase 24 | Pending |
+| SUB-05 | Phase 24 | Complete |
 | SUB-06 | Phase 22 | Complete |
 | OBS-01 | Phase 24 | Complete |
 | OBS-02 | Phase 24 | Complete |

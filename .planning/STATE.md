@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 ## Current Position
 
 Phase: 24 of 25 (Hardening & Observability)
-Plan: 1 of 2 in current phase
-Status: Executing Phase 24
-Last activity: 2026-02-27 -- Completed 24-01 Subscription Metrics & Dry-Run Mode
+Plan: 2 of 2 in current phase
+Status: Phase 24 Complete
+Last activity: 2026-02-27 -- Completed 24-02 Stale State Cleanup
 
-Progress: [████████████████░░░░░░░░░░░░░░░░] 50% (Phase 24)
+Progress: [████████████████████████████████] 100% (Phase 24)
 
 ## Performance Metrics
 
@@ -59,6 +59,10 @@ Key v1.3 decisions:
 - [Phase 24]: Dry-run skips metrics emission (gauges/counters reflect actual state only)
 - [Phase 24]: cleanup_txs uses Vec<mpsc::Sender> not broadcast (fixed number of consumers)
 - [Phase 24]: try_send for cleanup events: best-effort non-blocking with warn log on failure
+- [Phase 24]: SpreadEngine/CrossAssetEngine use registry active_approved() for cleanup (authoritative source)
+- [Phase 24]: PricingEngine uses deribit_instruments from CleanupEvent directly (instrument-keyed, no registry needed)
+- [Phase 24]: smiles/smile_points NOT cleaned (Research Pitfall 5: shared expiry dates)
+- [Phase 24]: engine_cleanup_rxs returned via PipelineHandles tuple for main.rs-spawned engines
 
 ### Pending Todos
 
@@ -74,5 +78,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 24-01-PLAN.md (Subscription Metrics & Dry-Run Mode)
-Next action: Execute 24-02-PLAN.md (Stale State Cleanup)
+Stopped at: Completed 24-02-PLAN.md (Stale State Cleanup)
+Next action: Execute Phase 25 (Tech Debt Sweep)
