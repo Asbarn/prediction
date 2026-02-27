@@ -109,7 +109,10 @@ Plans:
   1. iv_spread field in spread computations is populated from the IV solver's actual bid/ask IV metadata instead of always being 0.0
   2. Options book_depth_levels is read from the [deribit] config section instead of being hardcoded to 0
   3. Kalshi is_stale is computed from the exchange_timestamp field instead of always returning false
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 25-01-PLAN.md — IV spread propagation (FIX-01) and config-driven book depth (FIX-02)
+- [ ] 25-02-PLAN.md — Kalshi staleness computation from exchange_timestamp (FIX-03)
 
 ## Progress
 
@@ -121,4 +124,4 @@ Plans:
 | 22 | v1.3 Subscription Mgmt | 2/2 | Complete | 2026-02-27 |
 | 23 | v1.3 Subscription Mgmt | Complete    | 2026-02-27 | 2026-02-27 |
 | 24 | 2/2 | Complete    | 2026-02-27 | - |
-| 25 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
+| 25 | v1.3 Subscription Mgmt | 0/2 | Not started | - |
