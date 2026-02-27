@@ -29,7 +29,12 @@ use crate::events::discovery::{
 };
 use crate::events::registry::EventRegistry;
 use crate::events::risk::{check_expiry_warning, inflate_risk_score, compute_risk_for_mapping, BasisRiskCache, CachedRiskInfo};
-use crate::events::toml_writer::{append_candidates_to_doc, mark_expired_batch_in_doc, CandidateMapping, CandidateVenues};
+use crate::events::toml_writer::{
+    append_candidates_to_doc, mark_expired_batch_in_doc,
+    collect_archivable_entries, collect_expired_unapproved_ids,
+    remove_entries_by_id, append_entries_to_archive_doc,
+    CandidateMapping, CandidateVenues,
+};
 use crate::feed::kalshi::auth::load_kalshi_private_key;
 use crate::feed::reliability::VenueRateLimiter;
 use crate::types::Venue;
@@ -790,6 +795,121 @@ impl ContractLifecycleManager {
 
         tokio::fs::rename(&tmp_path, &self.events_toml_path).await?;
         Ok(())
+    }
+
+    /// Archive expired events to events_archive.toml and remove unapproved
+    /// candidates past their expiry date. Runs as a separate read-modify-write
+    /// cycle after the existing batched_toml_write.
+    ///
+    /// Safety: archive file is written BEFORE entries are removed from events.toml.
+    /// If archive write fails, entries remain in events.toml until next cycle.
+    ///
+    /// Returns `true` if events.toml was modified (entries were removed).
+    async fn archive_and_cleanup(&self) -> anyhow::Result<bool> {
+        // 1. Read events.toml fresh (minimise race window with operator edits)
+        let content = tokio::fs::read_to_string(&self.events_toml_path).await?;
+        let mut doc: DocumentMut = content.parse()
+            .map_err(|e| anyhow::anyhow!("TOML parse error: {}", e))?;
+
+        // 2. Compute today
+        let today = Utc::now().date_naive();
+
+        // 3. Get retention_days
+        let retention_days = self.discovery_config.archive_retention_days;
+
+        // 4. Collect archivable entries (approved + expired/retired + past retention)
+        let archivable = collect_archivable_entries(&doc, retention_days, today);
+
+        // 5. Collect expired unapproved candidates
+        let expired_unapproved = collect_expired_unapproved_ids(&doc, today);
+
+        // 6. Early return if nothing to do
+        if archivable.is_empty() && expired_unapproved.is_empty() {
+            return Ok(false);
+        }
+
+        // 7. LIFE-01 archive step (only if archivable entries exist)
+        if !archivable.is_empty() {
+            // 7a. Derive archive path
+            let archive_path = self.events_toml_path.with_file_name("events_archive.toml");
+
+            // 7b. Read archive file content (or create default header if file does not exist)
+            let archive_content = match tokio::fs::read_to_string(&archive_path).await {
+                Ok(c) => c,
+                Err(_) => "# Archived event mappings\n".to_string(),
+            };
+
+            // 7c. Parse as DocumentMut
+            let mut archive_doc: DocumentMut = archive_content.parse()
+                .map_err(|e| anyhow::anyhow!("Archive TOML parse error: {}", e))?;
+
+            // 7d. Append entries to archive doc
+            let archived_ids: Vec<String> = archivable.iter().map(|(id, _)| id.clone()).collect();
+            let archive_count = archivable.len() as u64;
+            append_entries_to_archive_doc(&mut archive_doc, archivable, &Utc::now().to_rfc3339())?;
+
+            // 7e. Write archive file using atomic write pattern
+            let archive_tmp = archive_path.with_extension("toml.tmp");
+            tokio::fs::write(&archive_tmp, archive_doc.to_string()).await?;
+            #[cfg(target_os = "windows")]
+            {
+                let _ = tokio::fs::remove_file(&archive_path).await;
+            }
+            tokio::fs::rename(&archive_tmp, &archive_path).await?;
+
+            // 7f. Log at INFO level
+            tracing::info!(
+                count = archive_count,
+                ids = ?archived_ids,
+                "archived expired events"
+            );
+
+            // 7g. Increment Prometheus counter
+            metrics::counter!("lifecycle_events_archived").increment(archive_count);
+        }
+
+        // 8. LIFE-02 cleanup step -- combine both sets of IDs to remove
+        // 8a. Collect all IDs to remove: archive entry IDs + expired unapproved IDs
+        let archive_ids: Vec<String> = if !doc.to_string().is_empty() {
+            // Re-collect archive IDs from the original doc (before mutation)
+            collect_archivable_entries(
+                &content.parse::<DocumentMut>().unwrap(),
+                retention_days,
+                today,
+            )
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect()
+        } else {
+            Vec::new()
+        };
+
+        // 8b. Log each unapproved removal at WARN level
+        if !expired_unapproved.is_empty() {
+            for event_id in &expired_unapproved {
+                tracing::warn!(
+                    event_id = %event_id,
+                    "auto-removed expired unapproved candidate"
+                );
+            }
+            // 8c. Increment Prometheus counter for unapproved only
+            metrics::counter!("lifecycle_candidates_cleaned")
+                .increment(expired_unapproved.len() as u64);
+        }
+
+        // 8d. Combine all IDs to remove
+        let mut all_ids_to_remove = archive_ids;
+        all_ids_to_remove.extend(expired_unapproved);
+
+        if !all_ids_to_remove.is_empty() {
+            remove_entries_by_id(&mut doc, &all_ids_to_remove)?;
+
+            // 8e. Write updated events.toml
+            self.atomic_write(&doc.to_string()).await?;
+        }
+
+        // 9. Return true (events.toml was modified)
+        Ok(true)
     }
 
     /// Find a Deribit roll target: same asset+strike+direction but later expiry.
