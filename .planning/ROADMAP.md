@@ -54,7 +54,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 ### v1.3 Live Subscription Management (In Progress)
 
-- [ ] **Phase 22: Subscription Manager Core** - SubscriptionManager with reconciliation logic, registry ordering, and diff logging
+- [x] **Phase 22: Subscription Manager Core** - SubscriptionManager with reconciliation logic, registry ordering, and diff logging (completed 2026-02-27)
 - [ ] **Phase 23: Dynamic Supervisor Subscriptions** - Wire watch channels into all three venue supervisors for reconnect-based subscribe/unsubscribe
 - [ ] **Phase 24: Hardening and Observability** - Stale state cleanup, Prometheus subscription metrics, and dry-run reconciliation mode
 - [ ] **Phase 25: Tech Debt Sweep** - Fix iv_spread, options book depth, and Kalshi staleness computation
@@ -70,7 +70,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   2. Registry refresh always completes before subscription reconciliation reads registry state (ordering guaranteed via Notify)
   3. Only instruments from active_approved() event mappings appear in the computed subscription set
   4. When a supervisor reconnects (e.g., from network drop), it uses the latest instrument list from the registry, not the static startup config
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 22-01-PLAN.md — SubscriptionManager module with reconciliation logic, diff computation, and structured logging
 - [ ] 22-02-PLAN.md — Wire SubscriptionManager into main.rs with Notify ordering and watch channel lifecycle
@@ -113,7 +113,7 @@ Plans:
 | 1-13 | v1.0 MVP | 36/36 | Complete | 2026-02-24 |
 | 14-17 | v1.1 Paper Trading | 11/11 | Complete | 2026-02-26 |
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
-| 22 | 1/2 | In Progress|  | - |
+| 22 | 2/2 | Complete   | 2026-02-27 | - |
 | 23 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
 | 24 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
 | 25 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |

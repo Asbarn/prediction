@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.3 Live Subscription Management -- Phase 22 (Subscription Manager Core)
+**Current focus:** v1.3 Live Subscription Management -- Phase 23 (Supervisor Wiring)
 
 ## Current Position
 
-Phase: 22 of 25 (Subscription Manager Core)
-Plan: 1 of 2 in current phase
-Status: Executing
-Last activity: 2026-02-27 -- Completed 22-01 SubscriptionManager core reconciliation logic
+Phase: 23 of 25 (Supervisor Wiring)
+Plan: 0 of ? in current phase
+Status: Phase 22 complete, advancing to Phase 23
+Last activity: 2026-02-27 -- Completed 22-02 SubscriptionManager main.rs wiring
 
-Progress: [███████████████░░░░░░░░░░░░░░░░] 50%
+Progress: [████████████████████████████████] 100% (Phase 22)
 
 ## Performance Metrics
 
@@ -50,6 +50,8 @@ Key v1.3 decisions:
 - Zero new crate dependencies (continues v1.1/v1.2 pattern)
 - Tech debt sweep in separate final phase for clean bisectability
 - [Phase 22]: SubscriptionManager takes SubscriptionSenders struct for cleaner constructor API
+- [Phase 22]: Explicit drop(reg) before notify_one() to prevent deadlock with read lock acquisition
+- [Phase 22]: sub_senders/sub_receivers wrapped in Option for clean flow out of is_live block
 
 ### Pending Todos
 
@@ -65,5 +67,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 22-01-PLAN.md (SubscriptionManager core)
-Next action: Execute 22-02-PLAN.md (main.rs wiring)
+Stopped at: Completed 22-02-PLAN.md (SubscriptionManager main.rs wiring)
+Next action: Plan Phase 23 (Supervisor Wiring)
