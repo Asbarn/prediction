@@ -348,6 +348,8 @@ async fn main() -> anyhow::Result<()> {
                         registry_notify.clone(),
                         shutdown_token.child_token(),
                         senders,
+                        config.system.subscription.dry_run,
+                        Vec::new(), // Plan 02 will populate with actual cleanup channel senders
                     );
                     tokio::spawn(sub_manager.run());
                     tracing::info!("SubscriptionManager started");

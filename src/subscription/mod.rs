@@ -1,3 +1,3 @@
 pub mod manager;
 
-pub use manager::{PolymarketSubscription, SubscriptionManager, SubscriptionReceivers, SubscriptionSenders};
+pub use manager::{CleanupEvent, PolymarketSubscription, SubscriptionManager, SubscriptionReceivers, SubscriptionSenders};

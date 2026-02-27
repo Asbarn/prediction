@@ -52,6 +52,10 @@ pub struct SystemConfig {
     /// Uses `#[serde(default)]` so existing config files without `[analysis]` still load.
     #[serde(default)]
     pub analysis: AnalysisConfig,
+    /// Subscription management configuration (Phase 24).
+    /// Uses `#[serde(default)]` so existing config files without `[subscription]` still load.
+    #[serde(default)]
+    pub subscription: SubscriptionConfig,
 }
 
 /// State persistence configuration for checkpoint-based recovery.
@@ -199,5 +203,25 @@ impl Default for AnalysisConfig {
             enabled: true,
             max_leg_fill_gap_ms: 2000,
         }
+    }
+}
+
+/// Subscription management configuration (Phase 24).
+///
+/// Controls dry-run mode for subscription reconciliation. When dry-run is
+/// enabled, reconciliation logs diffs and updates internal state but does
+/// not send watch channel updates, cleanup events, or emit metrics.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SubscriptionConfig {
+    /// Whether dry-run mode is enabled for subscription reconciliation.
+    /// When true, diffs are logged and internal state is updated, but no
+    /// watch channel sends, cleanup events, or metrics are emitted.
+    pub dry_run: bool,
+}
+
+impl Default for SubscriptionConfig {
+    fn default() -> Self {
+        Self { dry_run: false }
     }
 }

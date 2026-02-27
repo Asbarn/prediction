@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use tokio::sync::{watch, Notify, RwLock};
+use tokio::sync::{mpsc, watch, Notify, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::events::registry::EventRegistry;
@@ -16,6 +16,19 @@ use crate::events::registry::EventRegistry;
 pub struct PolymarketSubscription {
     pub condition_id: String,
     pub token_id: String,
+}
+
+/// Instruments and event IDs to clean up after unsubscribe.
+///
+/// Sent via mpsc channel to downstream engines after reconciliation
+/// removes instruments from the desired subscription set. Processors
+/// use per-venue instrument lists; engines use event_ids.
+#[derive(Debug, Clone)]
+pub struct CleanupEvent {
+    pub deribit_instruments: Vec<String>,
+    pub kalshi_tickers: Vec<String>,
+    pub polymarket_token_ids: Vec<String>,
+    pub event_ids: Vec<String>,
 }
 
 /// Sender handles for per-venue instrument watch channels.
@@ -66,6 +79,8 @@ pub struct SubscriptionManager {
     current_deribit: HashSet<String>,
     current_polymarket: HashSet<PolymarketSubscription>,
     current_kalshi: HashSet<String>,
+    dry_run: bool,
+    cleanup_txs: Vec<mpsc::Sender<CleanupEvent>>,
 }
 
 impl SubscriptionManager {
@@ -78,6 +93,8 @@ impl SubscriptionManager {
         registry_notify: Arc<Notify>,
         cancel: CancellationToken,
         senders: SubscriptionSenders,
+        dry_run: bool,
+        cleanup_txs: Vec<mpsc::Sender<CleanupEvent>>,
     ) -> Self {
         Self {
             registry,
@@ -89,6 +106,8 @@ impl SubscriptionManager {
             current_deribit: HashSet::new(),
             current_polymarket: HashSet::new(),
             current_kalshi: HashSet::new(),
+            dry_run,
+            cleanup_txs,
         }
     }
 
