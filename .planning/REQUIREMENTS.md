@@ -11,7 +11,7 @@ Requirements for v1.3 Live Subscription Management. Each maps to roadmap phases.
 
 - [ ] **SUB-01**: System subscribes to newly approved instrument feeds without restart when operator sets `approved = true` in events.toml
 - [ ] **SUB-02**: System unsubscribes from expired/retired instrument feeds without restart when events are archived
-- [ ] **SUB-03**: Config change to events.toml triggers automatic reconciliation that computes per-venue instrument diffs and issues minimal subscribe/unsubscribe actions
+- [x] **SUB-03**: Config change to events.toml triggers automatic reconciliation that computes per-venue instrument diffs and issues minimal subscribe/unsubscribe actions
 - [ ] **SUB-04**: Registry refresh completes before subscription reconciliation reads registry state (ordering guarantee)
 - [ ] **SUB-05**: Stale internal state (order books, snapshots, rolling stats) is cleaned up after instruments are unsubscribed
 - [ ] **SUB-06**: Reconnect-based subscription for all three venues uses latest instrument list from registry, not static startup config
@@ -20,12 +20,12 @@ Requirements for v1.3 Live Subscription Management. Each maps to roadmap phases.
 
 - [ ] **OBS-01**: Prometheus gauges show per-venue active subscription count
 - [ ] **OBS-02**: Prometheus counters track subscription activations and removals per venue
-- [ ] **OBS-03**: Structured tracing logs emit subscription diffs on each reconciliation (instruments added/removed per venue)
+- [x] **OBS-03**: Structured tracing logs emit subscription diffs on each reconciliation (instruments added/removed per venue)
 
 ### Operational Safety
 
 - [ ] **OPS-01**: Dry-run reconciliation mode (config flag) logs what actions would be taken without sending subscribe/unsubscribe commands
-- [ ] **OPS-02**: Only instruments from `active_approved()` event mappings are subscribed (safety gate preserved)
+- [x] **OPS-02**: Only instruments from `active_approved()` event mappings are subscribed (safety gate preserved)
 
 ### Tech Debt (Behavior-Changing)
 
@@ -77,15 +77,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | SUB-01 | Phase 23 | Pending |
 | SUB-02 | Phase 23 | Pending |
-| SUB-03 | Phase 22 | Pending |
+| SUB-03 | Phase 22 | Complete |
 | SUB-04 | Phase 22 | Pending |
 | SUB-05 | Phase 24 | Pending |
 | SUB-06 | Phase 22 | Pending |
 | OBS-01 | Phase 24 | Pending |
 | OBS-02 | Phase 24 | Pending |
-| OBS-03 | Phase 22 | Pending |
+| OBS-03 | Phase 22 | Complete |
 | OPS-01 | Phase 24 | Pending |
-| OPS-02 | Phase 22 | Pending |
+| OPS-02 | Phase 22 | Complete |
 | FIX-01 | Phase 25 | Pending |
 | FIX-02 | Phase 25 | Pending |
 | FIX-03 | Phase 25 | Pending |

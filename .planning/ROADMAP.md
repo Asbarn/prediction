@@ -70,7 +70,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   2. Registry refresh always completes before subscription reconciliation reads registry state (ordering guaranteed via Notify)
   3. Only instruments from active_approved() event mappings appear in the computed subscription set
   4. When a supervisor reconnects (e.g., from network drop), it uses the latest instrument list from the registry, not the static startup config
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 22-01-PLAN.md — SubscriptionManager module with reconciliation logic, diff computation, and structured logging
 - [ ] 22-02-PLAN.md — Wire SubscriptionManager into main.rs with Notify ordering and watch channel lifecycle
@@ -113,7 +113,7 @@ Plans:
 | 1-13 | v1.0 MVP | 36/36 | Complete | 2026-02-24 |
 | 14-17 | v1.1 Paper Trading | 11/11 | Complete | 2026-02-26 |
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
-| 22 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
+| 22 | 1/2 | In Progress|  | - |
 | 23 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
 | 24 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
 | 25 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
