@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use chrono::{NaiveDate, NaiveTime, TimeZone};
 use clap::{Parser, Subcommand};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Notify, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use prediction::alert::{AlertMonitor, PipelineLiveness};
@@ -13,6 +13,7 @@ use prediction::events::registry::EventRegistry;
 use prediction::events::new_basis_risk_cache;
 use prediction::events::risk::{compute_risk_for_mapping, check_expiry_warning, inflate_risk_score, CachedRiskInfo};
 use prediction::feed::pipeline::{self, DataMode};
+use prediction::subscription::SubscriptionManager;
 use prediction::health::{HealthState, start_health_server};
 use prediction::paper_trade::tracker::PaperTradeTracker;
 use prediction::pricing::engine::PricingEngine;
@@ -202,9 +203,23 @@ async fn main() -> anyhow::Result<()> {
                 drop(reg);
             }
 
+            // Create subscription management infrastructure (live mode only).
+            // Channels are seeded with initial instrument lists from the registry
+            // to avoid empty initial state (Pitfall 2). Notify provides ordering
+            // guarantee: registry.refresh() completes before reconciliation reads.
+            let registry_notify = Arc::new(Notify::new());
+            let (sub_senders, sub_receivers) = if is_live {
+                let reg = event_registry.read().await;
+                let (senders, receivers) = SubscriptionManager::create_channels(&reg);
+                drop(reg);
+                (Some(senders), Some(receivers))
+            } else {
+                (None, None)
+            };
+
             // Start the multi-venue pipeline
             let recording_dir = PathBuf::from("recordings");
-            let pipeline_handles = pipeline::run_multi_venue_pipeline(
+            let mut pipeline_handles = pipeline::run_multi_venue_pipeline(
                 mode,
                 &config.venues,
                 &config.credentials,
@@ -213,6 +228,12 @@ async fn main() -> anyhow::Result<()> {
                 Some(event_registry.clone()),
             )
             .await?;
+
+            // Attach subscription receivers to PipelineHandles for Phase 23 consumption
+            if let Some(receivers) = sub_receivers {
+                pipeline_handles.subscription_rx = Some(receivers);
+            }
+
             let snapshot_rx = pipeline_handles.snapshot_rx;
 
             // Clone venue_health before health_state takes ownership (needed for AlertMonitor)
@@ -286,6 +307,7 @@ async fn main() -> anyhow::Result<()> {
             if is_live {
                 let config_cancel = shutdown_token.child_token();
                 let config_registry = event_registry.clone();
+                let config_notify = registry_notify.clone();
                 tokio::spawn(async move {
                     let mut config_rx = config_rx;
                     loop {
@@ -305,6 +327,11 @@ async fn main() -> anyhow::Result<()> {
                                             mappings = reg.mapping_count(),
                                             "EventRegistry refreshed from config hot-reload"
                                         );
+                                        // Release write lock before notifying SubscriptionManager.
+                                        // CRITICAL: If the write lock is held when Notify fires and
+                                        // SubscriptionManager tries to acquire a read lock, deadlock.
+                                        drop(reg);
+                                        config_notify.notify_one();
                                     }
                                     Err(_) => {
                                         tracing::debug!("config watch channel closed");
@@ -316,6 +343,19 @@ async fn main() -> anyhow::Result<()> {
                     }
                 });
                 tracing::info!("config hot-reload subscriber started");
+
+                // Spawn SubscriptionManager for reconciliation on config changes.
+                // Takes ownership of senders; receivers were already attached to PipelineHandles.
+                if let Some(senders) = sub_senders {
+                    let sub_manager = SubscriptionManager::new(
+                        event_registry.clone(),
+                        registry_notify.clone(),
+                        shutdown_token.child_token(),
+                        senders,
+                    );
+                    tokio::spawn(sub_manager.run());
+                    tracing::info!("SubscriptionManager started");
+                }
             }
 
             // -- Phase 8 Pipeline: 3-way Fan-out -> SpreadEngine + PricingEngine + CrossAssetEngine --
