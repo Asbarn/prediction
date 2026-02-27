@@ -23,6 +23,7 @@ kalshi_poll_interval_secs = 600      # Poll Kalshi every 10 minutes
 polymarket_poll_interval_secs = 600  # Poll Polymarket every 10 minutes
 deribit_currencies = ["BTC"]         # Currencies to discover
 kalshi_series_tickers = ["KXBTC"]    # Kalshi series to monitor
+archive_retention_days = 30          # Days after expiry before archiving to events_archive.toml
 
 # Expiry warning thresholds
 [[expiry_thresholds]]

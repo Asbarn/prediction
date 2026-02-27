@@ -97,6 +97,7 @@ pub enum LifecycleStatus {
     Active,
     Expiring,
     Expired,
+    Retired,
 }
 
 impl Default for LifecycleStatus {
@@ -111,6 +112,7 @@ impl std::fmt::Display for LifecycleStatus {
             LifecycleStatus::Active => write!(f, "active"),
             LifecycleStatus::Expiring => write!(f, "expiring"),
             LifecycleStatus::Expired => write!(f, "expired"),
+            LifecycleStatus::Retired => write!(f, "retired"),
         }
     }
 }
@@ -239,6 +241,10 @@ pub struct DiscoveryConfig {
     /// Supports {month} and {year} placeholders that are expanded at runtime.
     #[serde(default = "default_polymarket_event_slugs")]
     pub polymarket_event_slugs: Vec<String>,
+    /// Number of days after expiry before an event is archived from events.toml
+    /// to events_archive.toml. Default 30 days.
+    #[serde(default = "default_archive_retention_days")]
+    pub archive_retention_days: u32,
 }
 
 impl DiscoveryConfig {
@@ -265,6 +271,7 @@ impl Default for DiscoveryConfig {
             partial_response_threshold: default_partial_response_threshold(),
             expiry_tolerance_days: default_expiry_tolerance_days(),
             polymarket_event_slugs: default_polymarket_event_slugs(),
+            archive_retention_days: default_archive_retention_days(),
         }
     }
 }
@@ -283,6 +290,7 @@ fn default_polymarket_event_slugs() -> Vec<String> {
         "what-price-will-bitcoin-hit-in-{year}".to_string(),
     ]
 }
+fn default_archive_retention_days() -> u32 { 30 }
 
 /// Expiry warning threshold configuration.
 ///
