@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 
 ## Current Position
 
-Phase: 20 of 21 (Proposal Workflow and Operator Interface) -- IN PROGRESS
-Plan: 01 of 02 complete
+Phase: 20 of 21 (Proposal Workflow and Operator Interface) -- COMPLETE
+Plan: 02 of 02 complete
 Status: Executing
-Last activity: 2026-02-27 -- Completed 20-01 (Proposal Logging and Metrics)
+Last activity: 2026-02-27 -- Completed 20-02 (Approved-Mapping Validation and Instrument Activity Warnings)
 
-Progress: [###########                   ] 38% (v1.2: phase 20 plan 01 complete)
+Progress: [############                  ] 41% (v1.2: phase 20 complete)
 
 ## Performance Metrics
 
@@ -38,6 +38,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Full decision history in .planning/milestones/v1.0-ROADMAP.md and .planning/milestones/v1.1-ROADMAP.md
 
 Recent decisions:
+- 20-02: Strict less-than for expiry check (events expiring today still valid for Deribit 08:00 UTC settlement)
+- 20-02: Venue activity check gated behind non-empty discovery data per venue to avoid false warnings
+- 20-02: Updated example events.toml to far-future dates to pass approved-mapping validation
 - 20-01: Kept lifecycle_candidates_discovered counter alongside proposals_total for backward compatibility
 - 20-01: proposals_pending gauge set unconditionally at end of every poll cycle for external-approval consistency
 - v1.2: Live subscription management deferred to v1.3 -- restart-on-approval is acceptable
@@ -70,5 +73,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 20-01-PLAN.md (Proposal Logging and Metrics)
-Next action: Execute Phase 20 Plan 02 (Operator Interface)
+Stopped at: Completed 20-02-PLAN.md (Approved-Mapping Validation and Instrument Activity Warnings)
+Next action: Execute Phase 21 (End-to-End Integration Testing)

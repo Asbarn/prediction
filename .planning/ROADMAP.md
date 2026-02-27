@@ -47,7 +47,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 - [x] **Phase 18: Discovery Infrastructure Hardening** - Production-safe venue polling with shared rate limiters, consecutive-absence guards, and batched TOML writes (completed 2026-02-26)
 - [x] **Phase 19: Polymarket Discovery and Cross-Venue Matching** - Three-venue structured discovery with expiry tolerance matching and confidence-scored candidate proposals (completed 2026-02-27)
-- [ ] **Phase 20: Proposal Workflow and Operator Interface** - Atomic TOML proposal writing, structured logging, Prometheus metrics, and approval validation
+- [x] **Phase 20: Proposal Workflow and Operator Interface** - Atomic TOML proposal writing, structured logging, Prometheus metrics, and approval validation (completed 2026-02-27)
 - [ ] **Phase 21: Lifecycle Management and Integration** - Event archival, unapproved candidate cleanup, Retired status, and background task wiring into ContractLifecycleManager
 
 ## Phase Details
@@ -89,7 +89,7 @@ Plans:
   2. Each new proposal emits a structured WARN-level tracing log containing event_id, matched venues, instrument identifiers, expiry dates, and confidence score
   3. Prometheus gauges expose current pending (unapproved) proposal count and a total proposals counter increments on each new proposal
   4. On config reload (SIGHUP), approved mappings are validated: at least 2 venue instruments present, instruments still active on their venues, and expiry date not already passed -- invalid mappings are rejected with a warning log
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 20-01-PLAN.md — Proposal logging (WARN-level structured tracing), Prometheus metrics (proposals_pending gauge, proposals_total counter), PROP-01 verification
 - [ ] 20-02-PLAN.md — Approved-mapping validation on config reload (venue count >= 2, expiry not past) and async instrument-activity warnings
@@ -114,5 +114,5 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 18. Discovery Infrastructure Hardening | 2/2 | Complete    | 2026-02-26 | - |
 | 19. Polymarket Discovery and Cross-Venue Matching | 2/2 | Complete    | 2026-02-27 | - |
-| 20. Proposal Workflow and Operator Interface | 1/2 | In Progress|  | - |
+| 20. Proposal Workflow and Operator Interface | 2/2 | Complete   | 2026-02-27 | - |
 | 21. Lifecycle Management and Integration | v1.2 | 0/TBD | Not started | - |
