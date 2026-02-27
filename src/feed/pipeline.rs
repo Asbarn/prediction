@@ -37,7 +37,7 @@ use crate::feed::polymarket::supervisor::PolymarketSupervisor;
 use crate::feed::recording::RecordingService;
 use crate::feed::reliability::VenueRateLimiter;
 use crate::feed::traits::{RawDataSource, RawMessage};
-use crate::subscription::{PolymarketSubscription, SubscriptionReceivers};
+use crate::subscription::{CleanupEvent, PolymarketSubscription, SubscriptionReceivers};
 use crate::types::{EventId, MarketSnapshot, Venue};
 
 /// Pipeline output handles containing the snapshot receiver and per-venue health trackers.
@@ -56,6 +56,17 @@ pub struct PipelineHandles {
     /// Consumed by supervisors in live mode. Retained for potential future introspection.
     /// None in Mock/Replay modes where subscriptions are static.
     pub subscription_rx: Option<SubscriptionReceivers>,
+    /// Cleanup channel senders for downstream engine state eviction.
+    /// Passed to SubscriptionManager for broadcasting cleanup events.
+    /// Contains senders for: [spread, signal, pricing, deribit, kalshi].
+    pub cleanup_txs: Vec<mpsc::Sender<CleanupEvent>>,
+    /// Cleanup receivers for engines spawned in main.rs.
+    /// Order: [spread, signal, pricing]. None in Mock/Replay modes.
+    pub engine_cleanup_rxs: Option<(
+        mpsc::Receiver<CleanupEvent>,
+        mpsc::Receiver<CleanupEvent>,
+        mpsc::Receiver<CleanupEvent>,
+    )>,
 }
 
 /// Selects how the pipeline receives raw market data.
@@ -109,6 +120,8 @@ pub async fn run_multi_venue_pipeline(
                 venue_health: vec![],
                 venue_rate_limiters: std::collections::HashMap::new(),
                 subscription_rx: None,
+                cleanup_txs: Vec::new(),
+                engine_cleanup_rxs: None,
             })
         }
     }
@@ -127,6 +140,14 @@ async fn run_live_multi_venue(
     let mut venue_health_handles: Vec<Arc<VenueHealth>> = Vec::new();
     let mut rate_limiters: std::collections::HashMap<Venue, VenueRateLimiter> =
         std::collections::HashMap::new();
+
+    // Create cleanup channels for all 5 stateful engines.
+    // Senders go to SubscriptionManager (via PipelineHandles), receivers go to engines.
+    let (spread_cleanup_tx, spread_cleanup_rx) = mpsc::channel::<CleanupEvent>(8);
+    let (signal_cleanup_tx, signal_cleanup_rx) = mpsc::channel::<CleanupEvent>(8);
+    let (pricing_cleanup_tx, pricing_cleanup_rx) = mpsc::channel::<CleanupEvent>(8);
+    let (deribit_cleanup_tx, deribit_cleanup_rx) = mpsc::channel::<CleanupEvent>(8);
+    let (kalshi_cleanup_tx, kalshi_cleanup_rx) = mpsc::channel::<CleanupEvent>(8);
 
     // Destructure per-venue subscription receivers.
     // When SubscriptionManager provides receivers (live mode with subscription management),
@@ -179,6 +200,7 @@ async fn run_live_multi_venue(
             Some(deribit_recording.sender()),
             venue_cancel.clone(),
             config.deribit.staleness_threshold_ms,
+            deribit_cleanup_rx,
         );
         tokio::spawn(processor.run());
 
@@ -304,6 +326,7 @@ async fn run_live_multi_venue(
                             Some(kalshi_recording.sender()),
                             venue_cancel.clone(),
                             config.kalshi.staleness_threshold_ms,
+                            kalshi_cleanup_rx,
                         );
                         tokio::spawn(processor.run());
 
@@ -343,12 +366,27 @@ async fn run_live_multi_venue(
     // Drop the original sender so the channel closes when all venue tasks complete
     drop(snapshot_tx);
 
+    // Collect all cleanup senders for SubscriptionManager.
+    let cleanup_txs = vec![
+        spread_cleanup_tx,
+        signal_cleanup_tx,
+        pricing_cleanup_tx,
+        deribit_cleanup_tx,
+        kalshi_cleanup_tx,
+    ];
+
     tracing::info!("multi-venue pipeline started");
     Ok(PipelineHandles {
         snapshot_rx,
         venue_health: venue_health_handles,
         venue_rate_limiters: rate_limiters,
         subscription_rx: None,
+        cleanup_txs,
+        engine_cleanup_rxs: Some((
+            spread_cleanup_rx,
+            signal_cleanup_rx,
+            pricing_cleanup_rx,
+        )),
     })
 }
 
@@ -486,11 +524,14 @@ pub async fn run_pipeline(
     };
 
     // 3. Create processor with recording sender
+    // Mock/Replay: cleanup sender is dropped immediately so receiver returns None.
+    let (_cleanup_tx, cleanup_rx) = mpsc::channel::<CleanupEvent>(1);
     let (processor, snapshot_rx) = DeribitProcessor::new(
         raw_rx,
         Some(recording_svc.sender()),
         cancel.clone(),
         config.staleness_threshold_ms,
+        cleanup_rx,
     );
 
     // 4. Spawn processor task

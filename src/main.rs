@@ -231,6 +231,8 @@ async fn main() -> anyhow::Result<()> {
             .await?;
 
             let snapshot_rx = pipeline_handles.snapshot_rx;
+            let cleanup_txs = pipeline_handles.cleanup_txs;
+            let engine_cleanup_rxs = pipeline_handles.engine_cleanup_rxs;
 
             // Clone venue_health before health_state takes ownership (needed for AlertMonitor)
             let venue_health_for_alerts = pipeline_handles.venue_health.clone();
@@ -349,7 +351,7 @@ async fn main() -> anyhow::Result<()> {
                         shutdown_token.child_token(),
                         senders,
                         config.system.subscription.dry_run,
-                        Vec::new(), // Plan 02 will populate with actual cleanup channel senders
+                        cleanup_txs,
                     );
                     tokio::spawn(sub_manager.run());
                     tracing::info!("SubscriptionManager started");
@@ -432,6 +434,19 @@ async fn main() -> anyhow::Result<()> {
             // Paper trade tracker needs snapshots to fill pending positions and update MTM.
             let (ptrade_snap_tx, ptrade_snap_rx) = mpsc::channel::<MarketSnapshot>(1024);
 
+            // Destructure engine cleanup receivers (live mode has actual channels,
+            // Mock/Replay create dummy channels whose senders are immediately dropped).
+            let (spread_cleanup_rx, signal_cleanup_rx, pricing_cleanup_rx) =
+                match engine_cleanup_rxs {
+                    Some(rxs) => rxs,
+                    None => {
+                        let (_tx1, rx1) = mpsc::channel::<prediction::subscription::CleanupEvent>(1);
+                        let (_tx2, rx2) = mpsc::channel::<prediction::subscription::CleanupEvent>(1);
+                        let (_tx3, rx3) = mpsc::channel::<prediction::subscription::CleanupEvent>(1);
+                        (rx1, rx2, rx3)
+                    }
+                };
+
             // Spawn SpreadEngine (receives from fan-out, not directly from pipeline)
             let spread_config = config.system.spread.clone();
             let spread_engine = SpreadEngine::new(spread_config)
@@ -446,6 +461,7 @@ async fn main() -> anyhow::Result<()> {
                 spread_cancel,
                 signal_tx,
                 Some(ptrade_snap_tx),
+                spread_cleanup_rx,
             ));
 
             // -- State Persistence Recovery (Phase 15) --
@@ -759,7 +775,7 @@ async fn main() -> anyhow::Result<()> {
             let pricing_cancel = shutdown_token.child_token();
             // Probability channel: PricingEngine -> CrossAssetEngine
             let (probability_tx, probability_rx) = mpsc::channel::<ImpliedProbability>(1024);
-            tokio::spawn(pricing_engine.run(pricing_snap_rx, probability_tx, pricing_cancel));
+            tokio::spawn(pricing_engine.run(pricing_snap_rx, probability_tx, pricing_cancel, pricing_cleanup_rx));
 
             // ArbSignal output channel: CrossAssetEngine -> downstream consumer
             let (arb_signal_tx, arb_signal_rx) = mpsc::channel::<ArbSignal>(1024);
@@ -777,6 +793,7 @@ async fn main() -> anyhow::Result<()> {
                 event_registry.clone(),
                 signal_cancel,
                 arb_signal_tx,
+                signal_cleanup_rx,
             ));
 
             // ArbSignal consumer: log and meter signals (execution is v2)

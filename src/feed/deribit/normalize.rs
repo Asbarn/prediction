@@ -24,6 +24,7 @@ use crate::feed::deribit::messages::{
     BookData, DeribitMessage, PriceIndexData, TickerData, TradeData,
 };
 use crate::feed::traits::{RawMessage, RecordLine};
+use crate::subscription::CleanupEvent;
 use crate::types::{
     DualTimestamp, InstrumentId, MarketSnapshot, Notional, Price, SnapshotGreeks,
     TraceId, Venue,
@@ -83,6 +84,9 @@ pub struct DeribitProcessor {
     /// Staleness threshold in milliseconds. Exchange data older than this is
     /// marked `is_stale = true` on the MarketSnapshot (RELY-03).
     staleness_threshold_ms: u64,
+    /// Cleanup channel: receives events when instruments are unsubscribed,
+    /// triggering eviction of stale books and tickers.
+    cleanup_rx: mpsc::Receiver<CleanupEvent>,
 }
 
 impl DeribitProcessor {
@@ -95,6 +99,7 @@ impl DeribitProcessor {
         record_tx: Option<mpsc::Sender<RecordLine>>,
         cancel: CancellationToken,
         staleness_threshold_ms: u64,
+        cleanup_rx: mpsc::Receiver<CleanupEvent>,
     ) -> (Self, mpsc::Receiver<MarketSnapshot>) {
         let (snapshot_tx, snapshot_rx) = mpsc::channel(SNAPSHOT_BUFFER);
         let processor = Self {
@@ -106,6 +111,7 @@ impl DeribitProcessor {
             tickers: HashMap::new(),
             sequence: AtomicU64::new(1),
             staleness_threshold_ms,
+            cleanup_rx,
         };
         (processor, snapshot_rx)
     }
@@ -121,6 +127,20 @@ impl DeribitProcessor {
                 _ = self.cancel.cancelled() => {
                     tracing::info!("DeribitProcessor cancelled");
                     break;
+                }
+
+                Some(cleanup) = self.cleanup_rx.recv() => {
+                    let to_remove: std::collections::HashSet<&str> =
+                        cleanup.deribit_instruments.iter().map(|s| s.as_str()).collect();
+                    let before_books = self.books.len();
+                    self.books.retain(|k, _| !to_remove.contains(k.to_string().as_str()));
+                    let before_tickers = self.tickers.len();
+                    self.tickers.retain(|k, _| !to_remove.contains(k.to_string().as_str()));
+                    tracing::info!(
+                        books_removed = before_books - self.books.len(),
+                        tickers_removed = before_tickers - self.tickers.len(),
+                        "DeribitProcessor: cleaned up stale entries"
+                    );
                 }
 
                 msg = self.raw_rx.recv() => {
@@ -794,7 +814,8 @@ mod tests {
     async fn processor_handles_book_message() {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
-        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS);
+        let (_cleanup_tx, cleanup_rx) = mpsc::channel::<CleanupEvent>(1);
+        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS, cleanup_rx);
 
         // Spawn processor
         let handle = tokio::spawn(processor.run());
@@ -852,7 +873,8 @@ mod tests {
     async fn processor_handles_ticker_message() {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
-        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS);
+        let (_cleanup_tx, cleanup_rx) = mpsc::channel::<CleanupEvent>(1);
+        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS, cleanup_rx);
 
         let handle = tokio::spawn(processor.run());
 
@@ -912,7 +934,8 @@ mod tests {
     async fn processor_handles_trades_without_snapshot() {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
-        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS);
+        let (_cleanup_tx, cleanup_rx) = mpsc::channel::<CleanupEvent>(1);
+        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS, cleanup_rx);
 
         let handle = tokio::spawn(processor.run());
 
@@ -960,7 +983,8 @@ mod tests {
     async fn processor_handles_parse_error_gracefully() {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
-        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS);
+        let (_cleanup_tx, cleanup_rx) = mpsc::channel::<CleanupEvent>(1);
+        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS, cleanup_rx);
 
         let handle = tokio::spawn(processor.run());
 
@@ -1016,7 +1040,8 @@ mod tests {
     async fn processor_handles_rpc_response() {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
-        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS);
+        let (_cleanup_tx, cleanup_rx) = mpsc::channel::<CleanupEvent>(1);
+        let (processor, mut snapshot_rx) = DeribitProcessor::new(raw_rx, None, cancel.clone(), DEFAULT_STALENESS_THRESHOLD_MS, cleanup_rx);
 
         let handle = tokio::spawn(processor.run());
 

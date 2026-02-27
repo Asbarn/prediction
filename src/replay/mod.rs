@@ -31,6 +31,7 @@ use crate::feed::pipeline::{forward_snapshots, PipelineHandles};
 use crate::feed::polymarket::normalize::PolymarketProcessor;
 use crate::feed::kalshi::normalize::KalshiProcessor;
 use crate::feed::traits::{RawDataSource, RecordLine};
+use crate::subscription::CleanupEvent;
 use crate::types::{MarketSnapshot, Venue};
 
 /// Fan-in buffer size for the shared multi-venue replay channel.
@@ -172,6 +173,8 @@ pub async fn run_replay_pipeline(
             venue_health: vec![],
             venue_rate_limiters: std::collections::HashMap::new(),
             subscription_rx: None,
+            cleanup_txs: Vec::new(),
+            engine_cleanup_rxs: None,
         });
     }
 
@@ -194,11 +197,15 @@ pub async fn run_replay_pipeline(
         // Create the appropriate per-venue processor
         let (venue_snapshot_rx, processor_task) = match venue {
             Venue::Deribit => {
+                // Create cleanup channel; sender is dropped immediately so
+                // receiver returns None in the select branch (no cleanup in replay).
+                let (_tx, cleanup_rx) = mpsc::channel::<CleanupEvent>(1);
                 let (processor, rx) = DeribitProcessor::new(
                     raw_rx,
                     None, // no recording during replay
                     venue_cancel.clone(),
                     config.deribit.staleness_threshold_ms,
+                    cleanup_rx,
                 );
                 (rx, tokio::spawn(processor.run()))
             }
@@ -212,11 +219,14 @@ pub async fn run_replay_pipeline(
                 (rx, tokio::spawn(processor.run()))
             }
             Venue::Kalshi => {
+                // Create cleanup channel; sender is dropped immediately.
+                let (_tx, cleanup_rx) = mpsc::channel::<CleanupEvent>(1);
                 let (processor, rx) = KalshiProcessor::new(
                     raw_rx,
                     None,
                     venue_cancel.clone(),
                     config.kalshi.staleness_threshold_ms,
+                    cleanup_rx,
                 );
                 (rx, tokio::spawn(processor.run()))
             }
@@ -252,6 +262,8 @@ pub async fn run_replay_pipeline(
         venue_health: vec![],
         venue_rate_limiters: std::collections::HashMap::new(),
         subscription_rx: None,
+        cleanup_txs: Vec::new(),
+        engine_cleanup_rxs: None,
     })
 }
 

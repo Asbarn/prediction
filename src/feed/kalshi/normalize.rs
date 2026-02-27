@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use crate::feed::kalshi::book::KalshiBook;
 use crate::feed::kalshi::messages::KalshiMessage;
 use crate::feed::traits::{RawMessage, RecordLine};
+use crate::subscription::CleanupEvent;
 use crate::types::{
     DualTimestamp, InstrumentId, MarketSnapshot, Notional, Price, Probability, TraceId, Venue,
 };
@@ -46,6 +47,9 @@ pub struct KalshiProcessor {
     /// Last exchange timestamp (ISO 8601) seen from orderbook_delta messages, per market.
     /// Used for best-effort exchange_timestamp on MarketSnapshot.
     last_exchange_ts: HashMap<String, String>,
+    /// Cleanup channel: receives events when instruments are unsubscribed,
+    /// triggering eviction of stale books and last_exchange_ts.
+    cleanup_rx: mpsc::Receiver<CleanupEvent>,
 }
 
 impl KalshiProcessor {
@@ -57,6 +61,7 @@ impl KalshiProcessor {
         record_tx: Option<mpsc::Sender<RecordLine>>,
         cancel: CancellationToken,
         staleness_threshold_ms: u64,
+        cleanup_rx: mpsc::Receiver<CleanupEvent>,
     ) -> (Self, mpsc::Receiver<MarketSnapshot>) {
         let (snapshot_tx, snapshot_rx) = mpsc::channel(SNAPSHOT_BUFFER);
         let processor = Self {
@@ -68,6 +73,7 @@ impl KalshiProcessor {
             books: HashMap::new(),
             sequence: AtomicU64::new(1),
             last_exchange_ts: HashMap::new(),
+            cleanup_rx,
         };
         (processor, snapshot_rx)
     }
@@ -83,6 +89,20 @@ impl KalshiProcessor {
                 _ = self.cancel.cancelled() => {
                     tracing::info!("KalshiProcessor cancelled");
                     break;
+                }
+
+                Some(cleanup) = self.cleanup_rx.recv() => {
+                    let to_remove: std::collections::HashSet<&str> =
+                        cleanup.kalshi_tickers.iter().map(|s| s.as_str()).collect();
+                    let before_books = self.books.len();
+                    self.books.retain(|k, _| !to_remove.contains(k.as_str()));
+                    let before_ts = self.last_exchange_ts.len();
+                    self.last_exchange_ts.retain(|k, _| !to_remove.contains(k.as_str()));
+                    tracing::info!(
+                        books_removed = before_books - self.books.len(),
+                        ts_removed = before_ts - self.last_exchange_ts.len(),
+                        "KalshiProcessor: cleaned up stale entries"
+                    );
                 }
 
                 msg = self.raw_rx.recv() => {
@@ -318,7 +338,10 @@ mod tests {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
         let (processor, mut snapshot_rx) =
-            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000);
+            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000, {
+                let (_tx, rx) = mpsc::channel::<CleanupEvent>(1);
+                rx
+            });
 
         let handle = tokio::spawn(processor.run());
 
@@ -371,7 +394,10 @@ mod tests {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
         let (processor, mut snapshot_rx) =
-            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000);
+            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000, {
+                let (_tx, rx) = mpsc::channel::<CleanupEvent>(1);
+                rx
+            });
 
         let handle = tokio::spawn(processor.run());
 
@@ -437,7 +463,10 @@ mod tests {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
         let (processor, mut snapshot_rx) =
-            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000);
+            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000, {
+                let (_tx, rx) = mpsc::channel::<CleanupEvent>(1);
+                rx
+            });
 
         let handle = tokio::spawn(processor.run());
 
@@ -477,7 +506,10 @@ mod tests {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
         let (processor, mut snapshot_rx) =
-            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000);
+            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000, {
+                let (_tx, rx) = mpsc::channel::<CleanupEvent>(1);
+                rx
+            });
 
         let handle = tokio::spawn(processor.run());
 
@@ -547,7 +579,10 @@ mod tests {
         let (raw_tx, raw_rx) = mpsc::channel::<RawMessage>(16);
         let cancel = CancellationToken::new();
         let (processor, mut snapshot_rx) =
-            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000);
+            KalshiProcessor::new(raw_rx, None, cancel.clone(), 5000, {
+                let (_tx, rx) = mpsc::channel::<CleanupEvent>(1);
+                rx
+            });
 
         let handle = tokio::spawn(processor.run());
 
