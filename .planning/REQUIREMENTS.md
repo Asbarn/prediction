@@ -23,9 +23,9 @@ Requirements for Automated Event Management milestone. Each maps to roadmap phas
 
 ### Lifecycle
 
-- [ ] **LIFE-01**: System archives expired events older than configurable retention period (default 30 days) from events.toml to events_archive.toml
-- [ ] **LIFE-02**: System auto-cleans unapproved candidates past their expiry date
-- [ ] **LIFE-03**: System adds Retired status to LifecycleStatus for fully settled and archived events
+- [x] **LIFE-01**: System archives expired events older than configurable retention period (default 30 days) from events.toml to events_archive.toml
+- [x] **LIFE-02**: System auto-cleans unapproved candidates past their expiry date
+- [x] **LIFE-03**: System adds Retired status to LifecycleStatus for fully settled and archived events
 - [x] **LIFE-04**: System requires N consecutive absence polls before marking an instrument as expired (prevents false expirations from partial API responses)
 
 ### Integration
@@ -94,9 +94,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROP-02 | Phase 20 | Complete |
 | PROP-03 | Phase 20 | Complete |
 | PROP-04 | Phase 20 | Complete |
-| LIFE-01 | Phase 21 | Pending |
-| LIFE-02 | Phase 21 | Pending |
-| LIFE-03 | Phase 21 | Pending |
+| LIFE-01 | Phase 21 | Complete |
+| LIFE-02 | Phase 21 | Complete |
+| LIFE-03 | Phase 21 | Complete |
 | LIFE-04 | Phase 18 | Complete |
 | INTG-01 | Phase 21 | Pending |
 | INTG-02 | Phase 19 | Complete |

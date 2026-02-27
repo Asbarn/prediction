@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.2 Automated Event Management -- Phase 20 (Proposal Workflow and Operator Interface)
+**Current focus:** v1.2 Automated Event Management -- Phase 21 (Lifecycle Management and Integration)
 
 ## Current Position
 
-Phase: 20 of 21 (Proposal Workflow and Operator Interface) -- COMPLETE
-Plan: 02 of 02 complete
+Phase: 21 of 21 (Lifecycle Management and Integration)
+Plan: 01 of 02 complete
 Status: Executing
-Last activity: 2026-02-27 -- Completed 20-02 (Approved-Mapping Validation and Instrument Activity Warnings)
+Last activity: 2026-02-27 -- Completed 21-01 (Lifecycle Foundation: Retired Status, Retention Config, Archive Helpers)
 
-Progress: [############                  ] 41% (v1.2: phase 20 complete)
+Progress: [##############                ] 46% (v1.2: phase 21 plan 01 complete)
 
 ## Performance Metrics
 
@@ -38,6 +38,10 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Full decision history in .planning/milestones/v1.0-ROADMAP.md and .planning/milestones/v1.1-ROADMAP.md
 
 Recent decisions:
+- 21-01: Retired variant after Expired in enum for logical lifecycle progression
+- 21-01: Archive retention default 30 days for financial data retention
+- 21-01: Defensive TOML parsing with unwrap_or defaults for missing fields
+- 21-01: Strict less-than for expired unapproved check, consistent with validation.rs
 - 20-02: Strict less-than for expiry check (events expiring today still valid for Deribit 08:00 UTC settlement)
 - 20-02: Venue activity check gated behind non-empty discovery data per venue to avoid false warnings
 - 20-02: Updated example events.toml to far-future dates to pass approved-mapping validation
@@ -73,5 +77,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 20-02-PLAN.md (Approved-Mapping Validation and Instrument Activity Warnings)
-Next action: Execute Phase 21 (End-to-End Integration Testing)
+Stopped at: Completed 21-01-PLAN.md (Lifecycle Foundation: Retired Status, Retention Config, Archive Helpers)
+Next action: Execute 21-02-PLAN.md (Archive-and-Cleanup Poll Cycle Integration)
