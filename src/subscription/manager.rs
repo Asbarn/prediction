@@ -160,6 +160,10 @@ impl SubscriptionManager {
     /// drops the lock (critical -- avoids holding lock during watch send),
     /// computes per-venue diffs, logs structured output, and sends
     /// updated instrument lists via watch channels if any venue has changes.
+    ///
+    /// When `dry_run` is true, diffs are logged and internal state is updated
+    /// (so subsequent diffs are meaningful), but watch channel sends, cleanup
+    /// events, and metrics are all skipped.
     async fn reconcile(&mut self) {
         // Acquire registry read lock and compute desired instruments.
         let reg = self.registry.read().await;
@@ -235,6 +239,25 @@ impl SubscriptionManager {
             );
         }
 
+        // Dry-run guard: update internal state so subsequent diffs are meaningful
+        // (Pitfall 3), but skip watch sends, cleanup sends, and metrics.
+        if self.dry_run {
+            tracing::info!(
+                deribit_add = added_d.len(),
+                deribit_remove = removed_d.len(),
+                polymarket_add = added_p.len(),
+                polymarket_remove = removed_p.len(),
+                kalshi_add = added_k.len(),
+                kalshi_remove = removed_k.len(),
+                "DRY RUN: reconciliation would apply these changes"
+            );
+            // Update internal state so subsequent diffs are meaningful (Pitfall 3)
+            self.current_deribit = desired_d;
+            self.current_polymarket = desired_p;
+            self.current_kalshi = desired_k;
+            return;
+        }
+
         // Send updated instrument lists via watch channels only if there are changes.
         if deribit_changed {
             let mut instruments: Vec<String> = desired_d.iter().cloned().collect();
@@ -260,10 +283,67 @@ impl SubscriptionManager {
             tracing::debug!("subscription reconciliation: no changes across all venues");
         }
 
+        // Capture diff lengths before cleanup event consumes the removed vectors.
+        let added_d_len = added_d.len();
+        let removed_d_len = removed_d.len();
+        let added_p_len = added_p.len();
+        let removed_p_len = removed_p.len();
+        let added_k_len = added_k.len();
+        let removed_k_len = removed_k.len();
+
+        // Send cleanup events for removed instruments (SUB-05).
+        let has_removals = !removed_d.is_empty() || !removed_p.is_empty() || !removed_k.is_empty();
+        if has_removals {
+            let cleanup = CleanupEvent {
+                deribit_instruments: removed_d,
+                kalshi_tickers: removed_k,
+                polymarket_token_ids: removed_p.iter().map(|s| s.token_id.clone()).collect(),
+                event_ids: Vec::new(), // Populated by Plan 02 when wiring is complete
+            };
+            for tx in &self.cleanup_txs {
+                if let Err(e) = tx.try_send(cleanup.clone()) {
+                    tracing::warn!(error = %e, "cleanup channel send failed (best-effort)");
+                }
+            }
+        }
+
         // Update current state to the new desired sets.
         self.current_deribit = desired_d;
         self.current_polymarket = desired_p;
         self.current_kalshi = desired_k;
+
+        // Emit subscription metrics (OBS-01: gauges, OBS-02: counters).
+        metrics::gauge!("subscription_active", "venue" => "deribit")
+            .set(self.current_deribit.len() as f64);
+        metrics::gauge!("subscription_active", "venue" => "polymarket")
+            .set(self.current_polymarket.len() as f64);
+        metrics::gauge!("subscription_active", "venue" => "kalshi")
+            .set(self.current_kalshi.len() as f64);
+
+        if deribit_changed {
+            metrics::counter!("subscription_activations_total", "venue" => "deribit")
+                .increment(added_d_len as u64);
+            if removed_d_len > 0 {
+                metrics::counter!("subscription_removals_total", "venue" => "deribit")
+                    .increment(removed_d_len as u64);
+            }
+        }
+        if polymarket_changed {
+            metrics::counter!("subscription_activations_total", "venue" => "polymarket")
+                .increment(added_p_len as u64);
+            if removed_p_len > 0 {
+                metrics::counter!("subscription_removals_total", "venue" => "polymarket")
+                    .increment(removed_p_len as u64);
+            }
+        }
+        if kalshi_changed {
+            metrics::counter!("subscription_activations_total", "venue" => "kalshi")
+                .increment(added_k_len as u64);
+            if removed_k_len > 0 {
+                metrics::counter!("subscription_removals_total", "venue" => "kalshi")
+                    .increment(removed_k_len as u64);
+            }
+        }
     }
 
     /// Run the subscription manager event loop.
