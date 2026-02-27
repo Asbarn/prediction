@@ -104,7 +104,10 @@ Plans:
   3. LifecycleStatus includes a Retired variant for fully settled and archived events, distinguishing them from merely expired events
   4. The discovery manager runs as a periodic background task within the ContractLifecycleManager poll cycle, executing the full discover-match-propose pipeline each cycle
   5. After one complete poll cycle, the operator can observe new candidate entries in events.toml (approved=false) for any newly detected cross-venue instrument matches
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 21-01-PLAN.md — Retired lifecycle status, archive_retention_days config, and toml_writer archive/cleanup helper functions
+- [ ] 21-02-PLAN.md — Poll cycle archive_and_cleanup integration and INTG-01 background task verification
 
 ## Progress
 
@@ -115,4 +118,4 @@ Plans:
 | 18. Discovery Infrastructure Hardening | 2/2 | Complete    | 2026-02-26 | - |
 | 19. Polymarket Discovery and Cross-Venue Matching | 2/2 | Complete    | 2026-02-27 | - |
 | 20. Proposal Workflow and Operator Interface | 2/2 | Complete    | 2026-02-27 | - |
-| 21. Lifecycle Management and Integration | v1.2 | 0/TBD | Not started | - |
+| 21. Lifecycle Management and Integration | v1.2 | 0/2 | Planning complete | - |
