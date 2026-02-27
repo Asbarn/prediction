@@ -419,6 +419,67 @@ impl ContractLifecycleManager {
             }
         }
 
+        // 1b. Check approved mapping instrument activity against latest discovery data.
+        // Only check venues that actually returned data this cycle to avoid false warnings.
+        {
+            let deribit_has_data = deribit_polled
+                && all_discovered.iter().any(|d| d.venue == Venue::Deribit);
+            let kalshi_has_data = kalshi_polled
+                && all_discovered.iter().any(|d| d.venue == Venue::Kalshi);
+            let polymarket_has_data = polymarket_polled
+                && all_discovered.iter().any(|d| d.venue == Venue::Polymarket);
+
+            let registry = self.registry.read().await;
+            for mapping in registry.all_mappings() {
+                if !mapping.approved || mapping.status != LifecycleStatus::Active {
+                    continue;
+                }
+
+                if let Some(ref deribit) = mapping.venues.deribit {
+                    if deribit_has_data
+                        && !all_discovered
+                            .iter()
+                            .any(|d| d.venue == Venue::Deribit && d.instrument_id == deribit.instrument)
+                    {
+                        tracing::warn!(
+                            event_id = %mapping.id,
+                            venue = "deribit",
+                            instrument = %deribit.instrument,
+                            "approved mapping instrument not found in latest discovery data"
+                        );
+                    }
+                }
+                if let Some(ref kalshi) = mapping.venues.kalshi {
+                    if kalshi_has_data
+                        && !all_discovered
+                            .iter()
+                            .any(|d| d.venue == Venue::Kalshi && d.instrument_id == kalshi.ticker)
+                    {
+                        tracing::warn!(
+                            event_id = %mapping.id,
+                            venue = "kalshi",
+                            instrument = %kalshi.ticker,
+                            "approved mapping instrument not found in latest discovery data"
+                        );
+                    }
+                }
+                if let Some(ref polymarket) = mapping.venues.polymarket {
+                    if polymarket_has_data
+                        && !all_discovered
+                            .iter()
+                            .any(|d| d.venue == Venue::Polymarket && d.instrument_id == polymarket.condition_id)
+                    {
+                        tracing::warn!(
+                            event_id = %mapping.id,
+                            venue = "polymarket",
+                            instrument = %polymarket.condition_id,
+                            "approved mapping instrument not found in latest discovery data"
+                        );
+                    }
+                }
+            }
+        }
+
         // 2. Find new cross-venue candidates (all three venues via fuzzy matching)
         let registry = self.registry.read().await;
         let candidates = find_cross_venue_candidates_fuzzy(

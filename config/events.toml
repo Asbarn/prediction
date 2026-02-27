@@ -46,41 +46,41 @@ risk_inflation_factor = 2.0
 # --- Event Mappings ---
 
 [[events]]
-id = "BTC-100K-2025-06-27"
+id = "BTC-100K-2030-06-27"
 asset = "BTC"
 strike = "100000"
 direction = "above"
-expiry = "2025-06-27"
+expiry = "2030-06-27"
 approved = true
 status = "active"
 
 # Settlement metadata for risk scoring
 [events.settlement]
-deribit_settlement_time = "2025-06-27T08:00:00Z"
+deribit_settlement_time = "2030-06-27T08:00:00Z"
 deribit_settlement_source = "deribit_index"
 polymarket_resolution_source = "oracle"
 kalshi_resolution_source = "index"
 
 [events.venues.deribit]
-instrument = "BTC-27JUN25-100000-C"
+instrument = "BTC-27JUN30-100000-C"
 
 [events.venues.polymarket]
 condition_id = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 token_id = "12345"
 
 [events.venues.kalshi]
-ticker = "KXBTCD-25JUN30-T100000"
+ticker = "KXBTCD-30JUN30-T100000"
 
 # Auto-discovered candidate (not yet approved)
 [[events]]
-id = "BTC-120K-2025-07-25"
+id = "BTC-120K-2030-07-25"
 asset = "BTC"
 strike = "120000"
 direction = "above"
-expiry = "2025-07-25"
+expiry = "2030-07-25"
 approved = false
 status = "active"
 discovered_at = "2026-02-22T14:30:00Z"
 
 [events.venues.deribit]
-instrument = "BTC-25JUL25-120000-C"
+instrument = "BTC-25JUL30-120000-C"

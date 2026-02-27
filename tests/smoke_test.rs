@@ -210,7 +210,7 @@ fn config_loads_from_example_dir() {
     assert_eq!(config.system.staleness.threshold_ms, 5000);
     assert_eq!(config.system.signals.min_spread_bps, 100);
     assert_eq!(config.events.events.len(), 2);
-    assert_eq!(config.events.events[0].id, "BTC-100K-2025-06-27");
+    assert_eq!(config.events.events[0].id, "BTC-100K-2030-06-27");
     assert_eq!(config.venues.deribit.ws_url, "wss://test.deribit.com/ws/api/v2");
     assert_eq!(config.venues.polymarket.chain_id, 137);
 }
