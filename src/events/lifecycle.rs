@@ -183,7 +183,19 @@ impl ContractLifecycleManager {
         }
     }
 
-    /// Single poll cycle: discover, match, expire, roll, warn, refresh.
+    /// Single poll cycle: discover, match, expire, roll, warn, archive, cleanup, refresh.
+    ///
+    /// INTG-01: This method implements the complete periodic background pipeline:
+    /// 1. Discover instruments from each venue (Deribit, Kalshi, Polymarket)
+    /// 2. Find cross-venue candidates via fuzzy matching
+    /// 3. Filter novel/unmatched instruments
+    /// 4. Detect expired instruments (consecutive-absence tracking)
+    /// 5. Handle Deribit expiry rolls
+    /// 6. Batched TOML write (candidates + expirations)
+    /// 7. Apply expiry warnings + populate BasisRiskCache
+    /// 7c. Archive expired events + clean unapproved candidates (LIFE-01, LIFE-02)
+    /// 8. Refresh runtime registry
+    /// 9. Update pending proposals gauge
     async fn poll_cycle(
         &mut self,
         last_deribit_poll: &mut Instant,
@@ -750,8 +762,19 @@ impl ContractLifecycleManager {
             );
         }
 
+        // 7c. Archive expired events and clean up unapproved candidates
+        let mut needs_refresh = needs_write;
+        match self.archive_and_cleanup().await {
+            Ok(modified) => {
+                needs_refresh = needs_refresh || modified;
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "archive and cleanup failed, will retry next cycle");
+            }
+        }
+
         // 8. Refresh runtime registry if TOML was modified
-        if needs_write {
+        if needs_refresh {
             self.refresh_registry().await;
         }
 
@@ -1215,5 +1238,108 @@ mod tests {
         assert!((inflated.source_risk - base_score.source_risk).abs() < 1e-10);
         // composite should be larger
         assert!(inflated.composite > base_score.composite);
+    }
+
+    // --- Archive and cleanup integration test ---
+
+    #[test]
+    fn archive_cleanup_integration_sequence() {
+        use crate::events::toml_writer::{
+            collect_archivable_entries, collect_expired_unapproved_ids,
+            remove_entries_by_id, append_entries_to_archive_doc,
+        };
+        use toml_edit::DocumentMut;
+
+        // events.toml with three entries:
+        // 1. Expired+approved with old expiry (archivable, retention 30d, today 2026-02-27)
+        // 2. Unapproved with past expiry (cleanable)
+        // 3. Active+approved (should remain)
+        let events_toml = r#"
+[[events]]
+id = "OLD-ARCHIVABLE"
+asset = "BTC"
+strike = "100000"
+direction = "above"
+expiry = "2025-06-01"
+approved = true
+status = "expired"
+
+[events.venues.deribit]
+instrument = "BTC-01JUN25-100000-C"
+
+[[events]]
+id = "EXPIRED-UNAPPROVED"
+asset = "BTC"
+strike = "110000"
+direction = "above"
+expiry = "2025-12-01"
+approved = false
+status = "active"
+
+[events.venues.deribit]
+instrument = "BTC-01DEC25-110000-C"
+
+[[events]]
+id = "ACTIVE-APPROVED"
+asset = "BTC"
+strike = "120000"
+direction = "above"
+expiry = "2027-06-01"
+approved = true
+status = "active"
+
+[events.venues.deribit]
+instrument = "BTC-01JUN27-120000-C"
+"#;
+
+        let today = NaiveDate::from_ymd_opt(2026, 2, 27).unwrap();
+        let retention_days: u32 = 30;
+
+        // Step 1: Collect archivable entries
+        let doc: DocumentMut = events_toml.parse().unwrap();
+        let archivable = collect_archivable_entries(&doc, retention_days, today);
+        assert_eq!(archivable.len(), 1, "only OLD-ARCHIVABLE should be archivable");
+        assert_eq!(archivable[0].0, "OLD-ARCHIVABLE");
+
+        // Step 2: Collect expired unapproved
+        let expired_unapproved = collect_expired_unapproved_ids(&doc, today);
+        assert_eq!(expired_unapproved.len(), 1, "only EXPIRED-UNAPPROVED should be cleanable");
+        assert_eq!(expired_unapproved[0], "EXPIRED-UNAPPROVED");
+
+        // Step 3: Write to archive doc (simulates archive file creation)
+        let mut archive_doc: DocumentMut = "# Archived events\n".parse().unwrap();
+        append_entries_to_archive_doc(
+            &mut archive_doc,
+            archivable,
+            "2026-02-27T09:00:00Z",
+        )
+        .unwrap();
+
+        // Verify archive doc has the archived entry
+        let archive_events = archive_doc["events"].as_array_of_tables().unwrap();
+        assert_eq!(archive_events.len(), 1);
+        let archived = archive_events.get(0).unwrap();
+        assert_eq!(archived["id"].as_str().unwrap(), "OLD-ARCHIVABLE");
+        assert_eq!(archived["status"].as_str().unwrap(), "retired");
+        assert_eq!(
+            archived["archived_at"].as_str().unwrap(),
+            "2026-02-27T09:00:00Z"
+        );
+
+        // Step 4: Remove both archived and unapproved from events.toml
+        let mut doc: DocumentMut = events_toml.parse().unwrap();
+        let all_ids_to_remove = vec![
+            "OLD-ARCHIVABLE".to_string(),
+            "EXPIRED-UNAPPROVED".to_string(),
+        ];
+        remove_entries_by_id(&mut doc, &all_ids_to_remove).unwrap();
+
+        // Step 5: Verify events.toml only contains the active+approved entry
+        let remaining = doc["events"].as_array_of_tables().unwrap();
+        assert_eq!(remaining.len(), 1, "only ACTIVE-APPROVED should remain");
+        assert_eq!(
+            remaining.get(0).unwrap()["id"].as_str().unwrap(),
+            "ACTIVE-APPROVED"
+        );
     }
 }
