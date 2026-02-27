@@ -120,5 +120,5 @@ Plans:
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
 | 22 | v1.3 Subscription Mgmt | 2/2 | Complete | 2026-02-27 |
 | 23 | v1.3 Subscription Mgmt | Complete    | 2026-02-27 | 2026-02-27 |
-| 24 | 2/2 | Complete   | 2026-02-27 | - |
+| 24 | 2/2 | Complete    | 2026-02-27 | - |
 | 25 | v1.3 Subscription Mgmt | 0/TBD | Not started | - |
