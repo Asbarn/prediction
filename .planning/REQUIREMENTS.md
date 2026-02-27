@@ -18,13 +18,13 @@ Requirements for v1.3 Live Subscription Management. Each maps to roadmap phases.
 
 ### Observability
 
-- [ ] **OBS-01**: Prometheus gauges show per-venue active subscription count
-- [ ] **OBS-02**: Prometheus counters track subscription activations and removals per venue
+- [x] **OBS-01**: Prometheus gauges show per-venue active subscription count
+- [x] **OBS-02**: Prometheus counters track subscription activations and removals per venue
 - [x] **OBS-03**: Structured tracing logs emit subscription diffs on each reconciliation (instruments added/removed per venue)
 
 ### Operational Safety
 
-- [ ] **OPS-01**: Dry-run reconciliation mode (config flag) logs what actions would be taken without sending subscribe/unsubscribe commands
+- [x] **OPS-01**: Dry-run reconciliation mode (config flag) logs what actions would be taken without sending subscribe/unsubscribe commands
 - [x] **OPS-02**: Only instruments from `active_approved()` event mappings are subscribed (safety gate preserved)
 
 ### Tech Debt (Behavior-Changing)
@@ -81,10 +81,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SUB-04 | Phase 22 | Complete |
 | SUB-05 | Phase 24 | Pending |
 | SUB-06 | Phase 22 | Complete |
-| OBS-01 | Phase 24 | Pending |
-| OBS-02 | Phase 24 | Pending |
+| OBS-01 | Phase 24 | Complete |
+| OBS-02 | Phase 24 | Complete |
 | OBS-03 | Phase 22 | Complete |
-| OPS-01 | Phase 24 | Pending |
+| OPS-01 | Phase 24 | Complete |
 | OPS-02 | Phase 22 | Complete |
 | FIX-01 | Phase 25 | Pending |
 | FIX-02 | Phase 25 | Pending |

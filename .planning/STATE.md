@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.3 Live Subscription Management -- Phase 23 (Supervisor Wiring)
+**Current focus:** v1.3 Live Subscription Management -- Phase 24 (Hardening & Observability)
 
 ## Current Position
 
-Phase: 23 of 25 (Supervisor Wiring)
-Plan: 1 of 1 in current phase
-Status: Phase 23 complete
-Last activity: 2026-02-27 -- Completed 23-01 Dynamic Supervisor Subscriptions
+Phase: 24 of 25 (Hardening & Observability)
+Plan: 1 of 2 in current phase
+Status: Executing Phase 24
+Last activity: 2026-02-27 -- Completed 24-01 Subscription Metrics & Dry-Run Mode
 
-Progress: [████████████████████████████████] 100% (Phase 23)
+Progress: [████████████████░░░░░░░░░░░░░░░░] 50% (Phase 24)
 
 ## Performance Metrics
 
@@ -55,6 +55,10 @@ Key v1.3 decisions:
 - [Phase 23]: PolymarketAsset re-exported from config/mod.rs for supervisor import
 - [Phase 23]: One-shot watch channels with immediate sender drop for Mock/Replay modes
 - [Phase 23]: Subscription receivers consumed by pipeline function, not post-hoc attached
+- [Phase 24]: Metrics emitted after state update so gauges reflect actual current subscription counts
+- [Phase 24]: Dry-run skips metrics emission (gauges/counters reflect actual state only)
+- [Phase 24]: cleanup_txs uses Vec<mpsc::Sender> not broadcast (fixed number of consumers)
+- [Phase 24]: try_send for cleanup events: best-effort non-blocking with warn log on failure
 
 ### Pending Todos
 
@@ -70,5 +74,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed 23-01-PLAN.md (Dynamic Supervisor Subscriptions)
-Next action: Plan Phase 24 (Stale State Cleanup)
+Stopped at: Completed 24-01-PLAN.md (Subscription Metrics & Dry-Run Mode)
+Next action: Execute 24-02-PLAN.md (Stale State Cleanup)
