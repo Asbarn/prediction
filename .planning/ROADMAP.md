@@ -85,8 +85,8 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   4. User can pass `--output json` and receive valid JSON that parses without error, containing the same data as the table output
 **Plans**: 2 plans
 Plans:
-- [ ] 26-01-PLAN.md -- Shared analysis module foundation (stats.rs + io.rs)
-- [ ] 26-02-PLAN.md -- Output formatting and CLI binary entry points
+- [x] 26-01-PLAN.md -- Shared analysis module foundation (stats.rs + io.rs)
+- [x] 26-02-PLAN.md -- Output formatting and CLI binary entry points
 
 ### Phase 27: Spread Analytics CLI
 **Goal**: User can analyze spread distribution patterns, hourly opportunity clustering, and venue-pair performance from recorded spread data
@@ -97,7 +97,9 @@ Plans:
   2. User can see a 24-row hourly breakdown showing per-UTC-hour spread statistics that reveals when arbitrage opportunities cluster
   3. User can see spread statistics grouped by venue pair (Polymarket-Kalshi, Deribit-Polymarket, Deribit-Kalshi) with directional detail, never mixed into a single aggregate
   4. User can pass `--by-event` and see all three analyses additionally broken down per event_id
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 27-01-PLAN.md -- Spread analytics computation module and CLI binary wiring
 
 ### Phase 28: Signal Scoring CLI
 **Goal**: User can make a statistically rigorous go/no-go decision for v2 execution based on hit rate confidence intervals, edge significance, risk-adjusted returns, and drawdown analysis
@@ -134,6 +136,6 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
 | 26. Analysis Infrastructure | 2/2 | Complete    | 2026-02-28 | - |
-| 27. Spread Analytics CLI | v1.4 Analysis Tooling | 0/? | Not started | - |
+| 27. Spread Analytics CLI | v1.4 Analysis Tooling | 0/1 | Not started | - |
 | 28. Signal Scoring CLI | v1.4 Analysis Tooling | 0/? | Not started | - |
 | 29. Verification | v1.4 Analysis Tooling | 0/? | Not started | - |
