@@ -496,20 +496,7 @@ impl CrossAssetEngine {
             };
 
             // --- Build ArbSignal ---
-            let iv_spread = match (prob.prob_bid, prob.prob_ask) {
-                (Some(_bid), Some(_ask)) => {
-                    // Use solver meta IV spread if available, else 0.0
-                    prob.solver_meta
-                        .as_ref()
-                        .map(|_| {
-                            // IV spread derived from the probability extraction bid/ask IVs
-                            // The actual IV spread is in the pricing engine, here we use skew_adjustment as proxy
-                            0.0_f64
-                        })
-                        .unwrap_or(0.0)
-                }
-                _ => 0.0,
-            };
+            let iv_spread = prob.iv_spread;
 
             // Prediction leg info
             let pred_book_depth = match direction {
@@ -709,6 +696,7 @@ mod tests {
             underlying_price,
             timestamp: ts,
             near_expiry: false,
+            iv_spread: 0.0,
         }
     }
 

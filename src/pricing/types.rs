@@ -172,4 +172,8 @@ pub struct ImpliedProbability {
 
     /// True if below near-expiry cutoff, using intrinsic pricing.
     pub near_expiry: bool,
+
+    /// IV bid-ask spread (ask_iv - bid_iv) from IV solver.
+    /// Zero for near-expiry intrinsic pricing (no IV solver runs).
+    pub iv_spread: f64,
 }
