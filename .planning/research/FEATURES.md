@@ -1,325 +1,490 @@
-# Feature Landscape: v1.3 Live Subscription Management & Tech Debt Cleanup
+# Feature Research: v1.4 Analysis Tooling (Spread Analytics CLI + Signal Scoring CLI)
 
-**Domain:** Dynamic WebSocket feed subscription/unsubscription management for cross-venue prediction market arbitrage system
-**Researched:** 2026-02-27
-**Confidence:** HIGH (venue API subscription capabilities verified via official docs) / MEDIUM (reconciliation patterns, edge cases)
+**Domain:** CLI-based statistical analysis tooling for cross-venue prediction market arbitrage
+**Researched:** 2026-02-28
+**Confidence:** HIGH (statistical methods well-established; data formats already defined in codebase; no external API dependencies)
 
-**Scope note:** This research covers ONLY the new features for v1.3: dynamic feed subscription management and tech debt cleanup. Existing v1.0-v1.2 features (feeds, pricing, spread engines, paper trading, settlement, signal analysis, persistence, alerting, automated event discovery, fuzzy matching, proposal workflow, archive/cleanup) are already built and operational at 34,753 LOC Rust.
+**Scope note:** This research covers ONLY the new features for v1.4: two CLI tools that analyze soak test data offline. These tools READ existing JSONL log files and checkpoint state -- they do NOT modify the live system, connect to exchanges, or require new external dependencies beyond terminal table formatting.
 
-**Critical existing architecture context:**
-- **Supervisors are fire-and-forget.** Each venue supervisor (`DeribitSupervisor`, `PolymarketSupervisor`, `KalshiSupervisor`) takes a fixed instrument list at construction time and owns the reconnection loop. There is NO command channel into the supervisor -- it cannot receive subscribe/unsubscribe instructions after spawning.
-- **Clients subscribe once at startup.** `DeribitClient::start()` sends a single batch `public/subscribe` with all instruments. `PolymarketClient::start()` sends one subscribe message with all `assets_ids`. `KalshiClient::start()` iterates `market_tickers` and sends individual subscribe commands per ticker.
-- **Config reload updates EventRegistry but NOT feeds.** The config watch subscriber in `main.rs` calls `registry.refresh()` on TOML file changes. The feed supervisors and clients are unaware that the set of active instruments changed.
-- **The pipeline is static.** `run_live_multi_venue()` builds all three venue pipelines at startup with fixed instrument lists cloned from config. No mechanism exists to inject new instruments or remove expired ones without restarting.
+**Existing infrastructure this builds on:**
+- `spread_logs/{YYYY-MM-DD}.jsonl` -- SpreadResult JSONL files with net_spread, gross_spread, pattern, venue pair, timestamp_ms, threshold data, exchange timestamps, fill ratios, and cost breakdowns
+- `signal_logs/{YYYY-MM-DD}.jsonl` -- ArbSignal JSONL files with net_edge, raw_spread, confidence, cost_breakdown, threshold_status, prediction/options legs, IV spread, skew adjustment
+- `state/checkpoint.json` -- PaperPosition lifecycle state with settlement P&L, settled legs, divergence annotations, adverse selection, MTM history
+- `AccumulatorBucket` -- existing runtime hit rate, edge, convergence, false positive rate tracking (keyed by venue_pair + event_id + threshold_status)
+- `DailyRollup` -- existing per-day trade count, P&L totals, win/loss counts
+- `clap` 4.5 already in Cargo.toml with `derive` feature and existing subcommand infrastructure (`Commands` enum)
+- `statrs` 0.18 already in Cargo.toml -- provides Normal distribution with inverse CDF needed for Wilson score intervals
+- `chrono` 0.4 already in Cargo.toml -- timestamp parsing and hour-of-day extraction
+- `rust_decimal` 1.40 already in Cargo.toml -- all arithmetic
 
 ---
 
 ## Table Stakes
 
-Features the system must have for v1.3 to deliver its stated goal. Without these, the operator must still restart the process when event mappings change.
+Features the CLI tools must have to answer the "go/no-go" question for v2 execution. Without these, the soak test data cannot be evaluated with statistical rigor.
 
-### TS-1: Command Channel into Supervisors
-
-| Attribute | Detail |
-|-----------|--------|
-| Why Expected | Supervisors currently have zero communication channel after spawn. Dynamic subscription requires a way to send subscribe/unsubscribe commands to a running supervisor. |
-| Complexity | Medium |
-| Dependencies | Existing supervisor pattern (all three venues) |
-
-**What it is:** An `mpsc` or `watch` command channel that each supervisor monitors in its `select!` loop alongside the existing forwarding and cancellation branches. Commands would include `Subscribe(Vec<String>)`, `Unsubscribe(Vec<String>)`, and potentially `Reconcile(HashSet<String>)` (full desired-state replacement).
-
-**Why it matters:** This is the architectural prerequisite for every other subscription feature. Without it, nothing downstream can trigger subscription changes.
-
-**Venue-specific considerations:**
-- **Deribit:** Supervisor creates fresh `DeribitClient` per reconnect. The command must be buffered so it survives reconnects -- the supervisor must replay the current desired subscription set on each new connection.
-- **Polymarket:** Supervisor creates fresh `PolymarketClient` per reconnect. Same buffering requirement.
-- **Kalshi:** Supervisor creates fresh `KalshiClient` per reconnect. Same pattern, but Kalshi also supports `update_subscription` with `add_markets`/`delete_markets` actions on a live connection via subscription IDs (sids).
-
-**Design consideration:** The simplest correct approach is to maintain a `desired_instruments: HashSet<String>` inside each supervisor that is the authoritative source of truth. Commands mutate this set. On reconnect, the client subscribes to the full desired set. On a live connection, incremental subscribe/unsubscribe messages are sent.
-
-
-### TS-2: Dynamic Subscribe for Newly Approved Instruments
+### TS-1: Spread Distribution Summary Statistics
 
 | Attribute | Detail |
 |-----------|--------|
-| Why Expected | When an operator approves a proposed event mapping in `events.toml`, the system must start subscribing to the new venue instruments without restart. This is the primary stated goal of v1.3. |
-| Complexity | Medium |
-| Dependencies | TS-1 (command channel), existing config reload + EventRegistry refresh |
+| Why Expected | The first question any trader asks about spread data is "what does the distribution look like?" -- mean, median, standard deviation, min, max, percentiles (p5, p25, p75, p95). Without this, the data is just a wall of JSONL. |
+| Complexity | LOW |
+| Dependencies | Reads `spread_logs/*.jsonl`, deserializes `SpreadResult` |
 
-**What it is:** When `events.toml` changes (operator sets `approved = true` on a candidate mapping), the config reload detects the change, refreshes the EventRegistry, and a new component computes the diff between currently-subscribed instruments and the new desired set. For each venue, newly needed instruments are sent as Subscribe commands to the appropriate supervisor.
+**What it is:** For a given date range, compute summary statistics over net_spread and gross_spread values. Output as a formatted terminal table showing count, mean, median, stddev, min, max, p5/p25/p75/p95 percentiles.
 
-**Flow:**
+**Why it matters for go/no-go:** Establishes the baseline spread distribution. If mean net spread is consistently negative or near zero, there is no edge to exploit. If the distribution is highly skewed, it tells the trader whether rare large opportunities compensate for frequent small losses.
+
+**Implementation note:** Sorting a `Vec<Decimal>` of all spreads to extract percentiles is O(n log n) and perfectly fine for days-to-weeks of data at ~1 record per second throughput (~86K records/day max). No streaming percentile algorithms needed.
+
+
+### TS-2: Hourly Time-Bucket Spread Analysis
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | Spread opportunities in cross-venue arbitrage are heavily time-of-day dependent. Crypto options markets (Deribit) have different activity patterns than prediction markets (Polymarket, Kalshi). Knowing which hours produce the best spreads is essential for timing execution in v2. |
+| Complexity | LOW-MEDIUM |
+| Dependencies | TS-1 (summary statistics computation), `timestamp_ms` field in SpreadResult |
+
+**What it is:** Group spread records into 24 hourly buckets (UTC). For each bucket, compute: record count, mean net_spread, median net_spread, stddev, percentage of positive spreads, and best/worst spread. Present as a 24-row table.
+
+**Why it matters for go/no-go:** If actionable spreads cluster in specific hours (e.g., overlapping US/EU session), v2 execution can be scheduled for those windows only, reducing operational complexity and capital requirements. If spreads are uniformly distributed, the system needs to run 24/7.
+
+**Implementation:** Extract hour from `timestamp_ms` via `chrono::DateTime::from_timestamp_millis()`. Bucket into `[0..24]` array of `Vec<Decimal>`. Compute per-bucket stats using the same functions as TS-1.
+
+
+### TS-3: Venue-Pair Spread Breakdown
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | The system tracks 4 directional spread patterns across venue pairs (Polymarket-Kalshi, Deribit-Polymarket, Deribit-Kalshi). Aggregating across all pairs hides which venue combination actually produces edge. A per-pair breakdown is necessary to decide which venue pairs to execute on. |
+| Complexity | LOW |
+| Dependencies | TS-1 (summary statistics), `pattern` field in SpreadResult (has `venue_pair_label()` method) |
+
+**What it is:** Group spread records by venue pair label. For each pair, compute the same summary statistics as TS-1 plus directional breakdown (by SpreadPattern variant). Present as a multi-section table.
+
+**Why it matters for go/no-go:** If only kalshi_polymarket spreads show positive mean net_spread but deribit_polymarket does not, v2 execution should focus on the Kalshi-Polymarket pair. This directly informs capital allocation strategy.
+
+**Implementation:** Group by `SpreadResult.pattern.venue_pair_label()`. For each group, compute stats. Also break down by `SpreadPattern` variant within each group to show directional skew.
+
+
+### TS-4: Hit Rate with Confidence Intervals
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | Raw hit rate (e.g., "60% of signals were profitable") is meaningless without a confidence interval. With small sample sizes (dozens to low hundreds of settled positions in early soak testing), the true hit rate could easily be 40-80%. Statistical significance determines whether the observed edge is real or noise. |
+| Complexity | MEDIUM |
+| Dependencies | Reads `state/checkpoint.json` (settled PaperPositions) or recomputes from signal/spread logs |
+
+**What it is:** Compute gross hit rate and net hit rate (post-fee) with Wilson score confidence intervals at 95% and 99% levels. Wilson score is preferred over Wald (normal approximation) because it performs well with small samples and proportions near 0 or 1 -- both common in early soak testing.
+
+**Formula (Wilson score interval):**
 ```
-events.toml change detected
-  -> ConfigReloader fires new AppConfig
-  -> EventRegistry refreshes
-  -> SubscriptionReconciler computes diff:
-       desired = registry.active_approved() instruments per venue
-       current = tracked set of currently-subscribed instruments
-       to_add = desired - current
-       to_remove = current - desired
-  -> For each venue: send Subscribe(to_add) and Unsubscribe(to_remove)
+p_hat = successes / n
+z = normal_inverse_cdf(1 - alpha/2)   # 1.96 for 95%, 2.576 for 99%
+denominator = 1 + z^2/n
+center = (p_hat + z^2/(2*n)) / denominator
+margin = (z * sqrt(p_hat*(1-p_hat)/n + z^2/(4*n^2))) / denominator
+CI = [center - margin, center + margin]
 ```
 
-**Venue API capabilities (verified):**
-- **Deribit:** `public/subscribe` adds channels to existing subscriptions on the same connection. Up to 500 channels per subscribe message. Rate limited at ~3.3 req/s sustained. [Deribit docs](https://docs.deribit.com/)
-- **Polymarket:** Supports `"operation": "subscribe"` with new `assets_ids` on existing connection. [Polymarket WSS docs](https://docs.polymarket.com/developers/CLOB/websocket/wss-overview)
-- **Kalshi:** `subscribe` command adds new market tickers. Also supports `update_subscription` with `"action": "add_markets"` on existing subscription IDs. [Kalshi docs](https://docs.kalshi.com/websockets/websocket-connection)
+**Why it matters for go/no-go:** If the 95% CI lower bound for net hit rate is below 50%, the trader cannot conclude with confidence that the strategy is profitable. This is the single most important statistical test for the go/no-go decision.
+
+**Implementation:** `statrs::distribution::Normal::new(0.0, 1.0).inverse_cdf(0.975)` gives z=1.96. All arithmetic in `rust_decimal` for precision. Report sample size alongside CI to highlight when more data is needed.
 
 
-### TS-3: Dynamic Unsubscribe for Expired/Retired Instruments
-
-| Attribute | Detail |
-|-----------|--------|
-| Why Expected | When events expire and are archived to `events_archive.toml` (v1.2 archival flow), their instruments should be unsubscribed to stop wasting bandwidth and processing on stale data. |
-| Complexity | Medium |
-| Dependencies | TS-1 (command channel), TS-2 (reconciliation infrastructure) |
-
-**What it is:** The reverse of TS-2. When the lifecycle manager marks events as Expired/Retired and archives them, the reconciler detects that instruments are no longer needed and sends Unsubscribe commands.
-
-**Venue API capabilities (verified):**
-- **Deribit:** `public/unsubscribe` removes specific channels from subscription. Also `public/unsubscribe_all` to clear everything (useful during reconnect for clean slate). [Deribit docs](https://docs.deribit.com/)
-- **Polymarket:** Supports `"operation": "unsubscribe"` with `assets_ids` to remove. [Polymarket WSS docs](https://docs.polymarket.com/developers/CLOB/websocket/wss-overview)
-- **Kalshi:** `unsubscribe` command using `sids` (subscription IDs), and `update_subscription` with `"action": "delete_markets"` on a specific subscription. [Kalshi docs](https://docs.kalshi.com/getting_started/quick_start_websockets)
-
-**Important nuance:** Unsubscribing does not need to be instant. It is acceptable for there to be a brief period where stale data continues arriving after an instrument is marked expired. The processor already handles unknown instruments gracefully (they just do not match any event in the registry). The downstream impact of delayed unsubscription is wasted bandwidth, not incorrect behavior.
-
-
-### TS-4: Config-Change-Driven Subscription Reconciliation
+### TS-5: Cost-Adjusted Edge with Statistical Significance
 
 | Attribute | Detail |
 |-----------|--------|
-| Why Expected | This is the orchestration layer that ties TS-1 through TS-3 together. A single reconciliation function compares desired state (EventRegistry active+approved instruments) with current state (what supervisors are actually subscribed to) and issues the minimal set of subscribe/unsubscribe commands. |
-| Complexity | Medium-High |
-| Dependencies | TS-1, TS-2, TS-3, existing ConfigReloader + EventRegistry |
+| Why Expected | Hit rate alone does not capture profitability. A 90% hit rate with tiny wins and occasional large losses can be worse than a 40% hit rate with large wins. The mean net edge (profit per trade after all costs) and its statistical significance (is it distinguishable from zero?) are required. |
+| Complexity | MEDIUM |
+| Dependencies | Settled positions from checkpoint or signal logs, cost_breakdown data |
 
-**What it is:** A `SubscriptionReconciler` component that:
-1. Listens to `watch::Receiver<AppConfig>` for config changes (same channel the EventRegistry subscriber uses)
-2. Extracts the desired per-venue instrument sets from the new EventRegistry state
-3. Diffs against currently-tracked subscription state
-4. Sends targeted Subscribe/Unsubscribe commands per venue
-5. Updates its tracked state on successful subscription changes
+**What it is:** Compute mean net edge across settled positions with a one-sample t-test against H0: mean_edge = 0. Report:
+- Mean net edge (per trade)
+- Standard error of the mean
+- t-statistic = mean / (stddev / sqrt(n))
+- p-value (two-tailed)
+- 95% confidence interval for mean edge
+- Cost breakdown: mean total cost, mean fee impact, mean slippage
 
-**Why "reconciliation" and not just "diff":** On reconnect, the client subscribes to the full desired set (not just the diff). The reconciler must handle the case where a reconnect happened between config changes, meaning the supervisor already subscribed to the new set. The reconciler's tracked state must be resynchronized on reconnect events. This is the "reconcile" operation: assert the full desired state regardless of what the current state might be.
+**Why it matters for go/no-go:** Even if hit rate is above 50%, if the mean net edge is not statistically significantly different from zero (p > 0.05), the trader cannot conclude the strategy generates profit after costs. This catches strategies that appear profitable due to random variation.
 
-**Edge cases the reconciler must handle:**
-- Config change while a venue is disconnected (supervisor in backoff) -- must queue and apply on reconnect
-- Multiple rapid config changes -- must coalesce into a single reconciliation pass
-- Partial subscription failures -- Deribit returns only successfully subscribed channels; must track partial state
-- Venue connection drops after subscribe command sent but before confirmation -- must re-reconcile on reconnect
+**Implementation:** t-distribution not in `statrs`? The `statrs` crate includes `StudentsT` distribution. Use `StudentsT::new(0.0, 1.0, df).cdf(t_stat)` for p-value computation. All values from `PaperPosition.settlement_pnl` and cost data from the originating signals.
 
 
-### TS-5: Tech Debt Sweep (v1.0-v1.2 Accumulated Items)
+### TS-6: Sharpe Ratio Calculation
 
 | Attribute | Detail |
 |-----------|--------|
-| Why Expected | 15 accumulated tech debt items (13 from v1.0, 2 from v1.2) have been carried forward for 3 milestones. This milestone explicitly includes a tech debt cleanup. |
-| Complexity | Low-Medium (individually simple, but there are 15 items) |
-| Dependencies | None (can be done independently of subscription features) |
+| Why Expected | The Sharpe ratio is the universal metric for risk-adjusted return in quantitative trading. Any trader evaluating a strategy will compute it. A Sharpe below 1.0 (annualized) is generally insufficient to justify live capital deployment. |
+| Complexity | LOW-MEDIUM |
+| Dependencies | Time series of per-trade P&L (settled positions) |
 
-**The full tech debt inventory:**
+**What it is:** Compute the Sharpe ratio from the sequence of per-trade returns:
+```
+Sharpe = mean(returns) / stddev(returns) * sqrt(annualization_factor)
+```
 
-**From v1.0 (13 items):**
-1. `RecordLine.channel` set to empty String for all recorded messages (info)
-2. Gamma omitted from Greeks calculator (accepted user decision -- leave as-is)
-3. `pricing_brent_fallbacks_total` Prometheus counter specified but not implemented (info)
-4. `iv_spread` field always 0.0 in `ArbSignal` (warning -- metadata incomplete)
-5. `options book_depth_levels` hardcoded to 0 (info)
-6. Replay processor JoinHandle silently dropped in `replay/mod.rs:221` (info)
-7. Kalshi `is_stale` always false -- staleness gate not computed from exchange_timestamp (info)
-8. 10 stale `REQUIREMENTS.md` checkboxes marked `[ ] Pending` for satisfied requirements (medium)
-9. Expired instrument `BTC-27JUN25-100000-C` in events.toml (medium)
-10. Kalshi `market_tickers = []` -- no markets in default config (medium)
-11. `[health]` and `[signal_generation]` sections absent from config.toml (low)
-12. Mock mode lacks event_id annotation (accepted limitation)
-13. Polymarket condition_id not used at runtime (info)
+For binary event arbitrage with irregular trade timing, the annualization factor must be derived from the actual trading frequency, not a fixed 252 (trading days) assumption.
 
-**From v1.2 (2 items):**
-14. Old exact-match functions (`find_cross_venue_candidates`, `filter_new_candidates`) preserved but unused (low)
-15. `expiry_confidence` TOML field is write-only -- not round-tripped via EventMapping struct (low)
+**Key consideration for this system:** Trades are not daily -- they correspond to binary event settlements that may be days or weeks apart. The annualization factor should be computed as: `sqrt(365.25 * 24 * 3600 / avg_trade_interval_seconds)` to normalize by actual trading frequency.
 
-**Recommendation for which to fix:**
-- **Fix:** Items 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14 (straightforward, meaningful improvements)
-- **Leave as-is:** Items 2 (user decision), 12 (accepted), 13 (informational, no harm), 15 (write-only is acceptable for human-readable annotation)
-- **Total fixable:** 11 items, mostly trivial individual changes
+**Output:** Report raw (non-annualized) Sharpe, annualized Sharpe, number of trades, average trade interval, and a note on the annualization methodology.
+
+**Why it matters for go/no-go:** Industry consensus is that annualized Sharpe > 1.0 is acceptable for retail algorithmic trading, > 2.0 is strong. Below 1.0 after costs suggests the strategy does not compensate for the risk taken.
+
+
+### TS-7: Maximum Drawdown Computation
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | Max drawdown measures the worst peak-to-trough decline. Even a profitable strategy with high Sharpe can have a drawdown that exceeds the trader's risk tolerance or available capital. |
+| Complexity | LOW |
+| Dependencies | Time-ordered series of cumulative P&L (from settled positions) |
+
+**What it is:** From the cumulative P&L curve of settled trades:
+1. Compute running peak (high-water mark)
+2. At each point, compute drawdown = (current - peak) / peak (or absolute drawdown in dollar terms)
+3. Report maximum drawdown in both absolute terms and as percentage of peak equity
+4. Report drawdown duration (time from peak to recovery, or ongoing if still in drawdown)
+
+**Output:** Max drawdown amount, max drawdown percentage, drawdown start date, trough date, recovery date (or "ongoing"), current drawdown.
+
+**Why it matters for go/no-go:** If max drawdown exceeds the trader's risk budget (e.g., 20% of capital), the strategy cannot be deployed even if its expected return is positive. Max drawdown directly informs position sizing and capital requirements for v2.
+
+
+### TS-8: Date-Range Filtering and Multi-Day Aggregation
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | Soak testing produces data over days or weeks. The trader needs to analyze specific date ranges (e.g., last 7 days, last 3 days, specific date) and compare different periods. Without date filtering, every analysis covers all available data with no ability to isolate trends or regime changes. |
+| Complexity | LOW |
+| Dependencies | All other features (this is a filter applied before analysis) |
+
+**What it is:** CLI flags for `--from YYYY-MM-DD`, `--to YYYY-MM-DD`, and `--last N` (last N days). Applied at the JSONL file loading stage -- only load files within the date range, then filter records by timestamp within those files.
+
+**Implementation:** Since files are already named `{YYYY-MM-DD}.jsonl`, date filtering at the file level is trivial. Combine with per-record timestamp filtering for intra-day boundaries.
+
+
+### TS-9: Terminal Table Output
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | Raw numbers dumped to stdout are unusable. Formatted tables with aligned columns, headers, and section separators are the minimum for a CLI analysis tool. The trader reads this output in a terminal to make decisions. |
+| Complexity | LOW |
+| Dependencies | All other features (this is the presentation layer) |
+
+**What it is:** Use a terminal table library to format all output. Requirements:
+- Aligned numeric columns (right-justified)
+- Decimal precision appropriate to the values (spreads to 4dp, percentages to 1dp, counts as integers)
+- Section headers separating different analysis views
+- Color highlighting for key values (green for positive, red for negative) -- optional but standard
+
+**Library recommendation:** `comfy-table` -- well-tested, no unsafe, handles dynamic-width content, already used in Rust CLI ecosystem. Single dependency addition (consistent with project's conservative dependency philosophy, but justified because terminal formatting is genuinely hard to do well from scratch).
+
+**Alternative considered:** Manual `println!` with format strings. Rejected because alignment breaks with variable-width numbers and the code becomes a maintenance burden.
 
 ---
 
 ## Differentiators
 
-Features that go beyond the stated v1.3 goals but would add significant operational value. Not expected for the milestone but worth documenting.
+Features that go beyond the stated v1.4 goals but would add significant value to the go/no-go decision. Not required for the milestone, but worth considering.
 
-### DIFF-1: Subscription State Observability
-
-| Attribute | Detail |
-|-----------|--------|
-| Value Proposition | Prometheus gauges showing per-venue active subscription count, subscribe/unsubscribe event counters, and reconciliation timing. Gives operator visibility into dynamic subscription behavior. |
-| Complexity | Low |
-| Dependencies | TS-4 (reconciler) |
-
-**What it is:** Metrics like `feed_subscriptions_active{venue="deribit"}`, `feed_subscription_changes_total{venue="deribit", action="subscribe"}`, `feed_reconciliation_duration_seconds`. These are cheap to implement (a few `metrics::counter!` / `metrics::gauge!` calls) and provide essential operational visibility.
-
-**Recommendation:** Include. The system already has comprehensive Prometheus metrics across all components. Adding subscription metrics is consistent with the existing observability philosophy and costs almost nothing.
-
-
-### DIFF-2: Subscription Health Validation
+### DIFF-1: Probabilistic Sharpe Ratio (PSR)
 
 | Attribute | Detail |
 |-----------|--------|
-| Value Proposition | Periodic check that expected instruments are actually producing data. Detects silent subscription failures where the subscribe command succeeded but the venue stopped sending data for that instrument. |
-| Complexity | Medium |
-| Dependencies | TS-4, existing VenueHealth infrastructure |
+| Value Proposition | The standard Sharpe ratio is a point estimate. With small samples, its distribution is wide. The Probabilistic Sharpe Ratio (developed by Marcos Lopez de Prado) answers: "What is the probability that the true Sharpe ratio exceeds a benchmark (e.g., 0)?" This directly quantifies confidence in the strategy's risk-adjusted performance. |
+| Complexity | MEDIUM |
+| Dependencies | TS-6 (Sharpe ratio), `statrs` for Normal CDF |
 
-**What it is:** A watchdog that checks each subscribed instrument against the last-seen timestamp in the snapshot pipeline. If an instrument that should be producing data has not been seen for N seconds, emit a warning. This catches cases where:
-- The venue accepted the subscribe but quietly dropped it
-- The instrument became inactive (no trading activity)
-- A partial subscription failure was not detected
+**Formula:**
+```
+PSR = Normal_CDF((SR_hat - SR_benchmark) * sqrt(n-1) / sqrt(1 - skew*SR_hat + (kurtosis-1)/4 * SR_hat^2))
+```
+Where `SR_hat` is observed Sharpe, `SR_benchmark` is the target (usually 0), `n` is number of trades, `skew` and `kurtosis` are of the return distribution.
 
-**Recommendation:** Defer to future milestone. The existing staleness detection (`is_stale` on MarketSnapshot) and alerting (`AlertMonitor` with feed silence detection) already cover most of this. The marginal value is low for a paper trading system.
+**Why valuable:** With 50 trades, a Sharpe of 1.5 might have only 80% probability of being truly above 0 if returns are skewed. PSR makes this explicit.
 
-
-### DIFF-3: Graceful Subscription Transition (Overlap Period)
-
-| Attribute | Detail |
-|-----------|--------|
-| Value Proposition | When rolling from an expiring instrument to its replacement (e.g., BTC-27JUN25 -> BTC-26SEP25), subscribe to the new instrument before unsubscribing the old one. Ensures continuous coverage during the transition window. |
-| Complexity | Medium-High |
-| Dependencies | TS-2, TS-3, lifecycle status awareness |
-
-**What it is:** Instead of unsubscribing expired instruments immediately, maintain a brief overlap period where both old and new instruments are subscribed. This is relevant for the Deribit expiry roll scenario where the lifecycle manager detects a roll candidate.
-
-**Recommendation:** Defer. The current lifecycle manager already handles `Expiring` -> `Expired` -> `Retired` state transitions with configurable thresholds. The overlap period would add complexity without meaningful benefit for paper trading. Subscriptions bandwidth is not a bottleneck at the current scale (dozens of instruments, not thousands).
+**Recommendation:** Include if time permits. The additional computation is trivial once Sharpe is computed. High value for small-sample go/no-go decisions.
 
 
-### DIFF-4: Dry-Run Reconciliation Mode
+### DIFF-2: Threshold Effectiveness Analysis
 
 | Attribute | Detail |
 |-----------|--------|
-| Value Proposition | Log what subscribe/unsubscribe actions WOULD be taken without actually sending them. Useful for validating reconciliation logic before enabling it. |
-| Complexity | Low |
-| Dependencies | TS-4 |
+| Value Proposition | The system already tracks signals that were filtered by the dynamic threshold (PassedStaticOnly, Filtered) and correlates them with settlement outcomes. The CLI should surface this data: "How many profitable trades did the threshold filter out? Is the threshold too aggressive or too permissive?" |
+| Complexity | MEDIUM |
+| Dependencies | `FilteredSignalTracker` data from runtime, threshold_status field on SpreadResult and ArbSignal |
 
-**Recommendation:** Include as a config flag. Trivial to implement (wrap the send calls in an `if !dry_run` check and log the actions regardless). Provides a safety net during initial deployment. Can be removed once the feature is validated.
+**What it is:** For each threshold_status category (PassedBoth, PassedStaticOnly, Filtered):
+- Count of signals
+- Hit rate (for PassedBoth: from settlements; for filtered: hypothetical based on outcome)
+- Mean edge
+- Optimal threshold backtesting: what threshold would have maximized net P&L?
+
+**Why valuable:** Directly informs threshold tuning before v2 deployment. If the threshold is filtering out 30% of would-be profitable trades, it needs adjustment.
+
+**Recommendation:** Include the basic breakdown (count and hit rate per threshold status). Defer optimal threshold backtesting to a future milestone -- it requires replaying all spread data with different thresholds, which is a larger effort.
+
+
+### DIFF-3: Per-Event Breakdown
+
+| Attribute | Detail |
+|-----------|--------|
+| Value Proposition | Aggregate statistics can hide that all profit comes from one event while other events lose money. Breaking down by event_id shows if the edge is concentrated or distributed. |
+| Complexity | LOW |
+| Dependencies | TS-1 through TS-7 (same computations, different grouping key) |
+
+**What it is:** Run all spread and signal scoring analyses grouped by `event_id` in addition to the aggregate view. Present as a table sorted by net P&L per event.
+
+**Why valuable:** If only 1 of 5 events shows positive edge, the strategy may not generalize. If all events show positive edge, the signal is robust.
+
+**Recommendation:** Include. Very low marginal cost (add a group-by to existing computations).
+
+
+### DIFF-4: Spread Autocorrelation
+
+| Attribute | Detail |
+|-----------|--------|
+| Value Proposition | If spreads are autocorrelated (today's spread predicts tomorrow's), it means the arb opportunity is persistent and execution timing is less critical. If spreads are mean-reverting quickly, execution speed matters more. This informs v2 latency requirements. |
+| Complexity | MEDIUM |
+| Dependencies | TS-1 (spread time series) |
+
+**What it is:** Compute lag-1 through lag-N autocorrelation of the net_spread time series. Report correlation coefficients and whether they are statistically significant.
+
+**Recommendation:** Defer. Interesting but not essential for the go/no-go decision. The primary question is "is there edge?" not "how persistent is the edge?" Persistence analysis is a v2 optimization concern.
+
+
+### DIFF-5: JSON Output Mode
+
+| Attribute | Detail |
+|-----------|--------|
+| Value Proposition | Machine-readable output for piping to other tools, storing analysis snapshots, or feeding into a future dashboard. |
+| Complexity | LOW |
+| Dependencies | All features (alternative serialization of the same data) |
+
+**What it is:** `--output json` flag that outputs all analysis results as JSON instead of terminal tables. Uses the same `serde::Serialize` structs that back the table rendering.
+
+**Recommendation:** Include. Trivial to implement (derive `Serialize` on all output structs, `serde_json::to_string_pretty`). Enables `jq` piping and analysis snapshots saved to files.
+
+
+### DIFF-6: Comparative Period Analysis
+
+| Attribute | Detail |
+|-----------|--------|
+| Value Proposition | Compare two time periods side by side (e.g., "last 7 days" vs "previous 7 days") to detect if spread patterns are stable or deteriorating. |
+| Complexity | MEDIUM |
+| Dependencies | TS-8 (date filtering), all analysis features |
+
+**What it is:** `--compare-from YYYY-MM-DD --compare-to YYYY-MM-DD` flags that run the same analysis on two date ranges and present results side by side with delta columns.
+
+**Recommendation:** Defer. The trader can run the tool twice with different date ranges and compare manually. The side-by-side presentation is nice-to-have but adds CLI complexity.
 
 ---
 
 ## Anti-Features
 
-Features to explicitly NOT build in v1.3.
+Features to explicitly NOT build in v1.4.
 
-### AF-1: Per-Instrument Connection Isolation
+### AF-1: Real-Time Dashboard / TUI
 
-| Anti-Feature | One WebSocket connection per instrument per venue |
-|--------------|--------------------------------------------------|
-| Why Avoid | Deribit can handle 500 channels on a single connection. Kalshi supports multiple market subscriptions per connection. One-connection-per-instrument would create hundreds of connections, violating rate limits and consuming excessive resources. |
-| What to Do Instead | Use the existing single-connection-per-venue architecture. Add/remove instruments on the existing connection. |
-
-
-### AF-2: Full Pipeline Restart on Subscription Change
-
-| Anti-Feature | Tear down and rebuild the entire venue pipeline (supervisor + processor + forwarder) when instruments change |
-|--------------|---------------------------------------------|
-| Why Avoid | This is the current workaround (restart the process). It is disruptive, loses in-flight state, and defeats the purpose of v1.3. The whole point is to add/remove subscriptions without disrupting the existing pipeline. |
-| What to Do Instead | Send incremental subscribe/unsubscribe commands on the existing WebSocket connection within the running supervisor. |
+| Anti-Feature | ncurses/ratatui-based live-updating terminal dashboard |
+|--------------|-------------------------------------------------------|
+| Why Requested | "It would be cool to watch stats update in real time" |
+| Why Problematic | Massive scope increase (event loop, widget layout, state management). The analysis tools are for offline post-hoc analysis of soak test data, not live monitoring. Live monitoring is already covered by Prometheus metrics + Grafana (standard approach for this system). A TUI would duplicate existing capability with a worse interface. |
+| Alternative | Run the CLI periodically during soak testing. Use `watch -n 60 prediction analyze-spreads --last 1` for pseudo-live updates. |
 
 
-### AF-3: Automatic Approval of Subscription Changes
+### AF-2: Database Backend for Analysis Data
 
-| Anti-Feature | System automatically subscribes to newly discovered (unapproved) instrument candidates |
-|--------------|----------------------------------------------------------------------------------------|
-| Why Avoid | Violates the `approved = false` safety gate that is a "non-negotiable safety mechanism" (per PROJECT.md Key Decisions). Subscribing to unapproved instruments would generate signals on unvalidated cross-venue mappings, potentially leading to false arbitrage signals. |
-| What to Do Instead | Only subscribe to instruments from `active_approved()` event mappings. The operator must explicitly set `approved = true` in events.toml before the system will subscribe. |
-
-
-### AF-4: WebSocket Multiplexing / Connection Pooling
-
-| Anti-Feature | Generic WebSocket connection pool with dynamic routing |
-|--------------|--------------------------------------------------------|
-| Why Avoid | Over-engineered for the current scale. Three venues with one connection each is perfectly adequate. Connection pooling adds complexity (connection affinity, subscription routing, failover) with zero benefit at dozens-of-instruments scale. |
-| What to Do Instead | Keep the existing one-supervisor-per-venue architecture. |
+| Anti-Feature | SQLite/DuckDB backend replacing JSONL files |
+|--------------|----------------------------------------------|
+| Why Requested | "SQL queries would make analysis more flexible" |
+| Why Problematic | Violates the project's explicit "no database" philosophy (TOML/JSONL sufficient at current scale). Adds a major new dependency. JSONL files are human-readable, git-trackable, and `grep`-able. The analysis volume (thousands to tens of thousands of records) is trivially handled by in-memory Rust `Vec<T>`. Loading 100K SpreadResult records from JSONL into memory takes under 1 second in Rust. |
+| Alternative | Load JSONL into `Vec<SpreadResult>`, filter/group/aggregate in-memory with iterators. This is faster than SQLite for the expected data volumes and has zero infrastructure requirements. |
 
 
-### AF-5: Bidirectional Subscription Sync (Venue -> System)
+### AF-3: Backtesting Engine
 
-| Anti-Feature | Query the venue to discover what we are currently subscribed to, and sync our internal state from the venue's response |
-|--------------|--------------------------------------------------------|
-| Why Avoid | Only Kalshi supports `list_subscriptions`. Deribit and Polymarket have no equivalent. Building this for one venue creates an inconsistent abstraction. The system's own tracked state should be authoritative. |
-| What to Do Instead | Track desired and confirmed subscription state internally. On reconnect, subscribe to the full desired set (clean slate). |
+| Anti-Feature | Full replay-based backtesting with hypothetical execution simulation |
+|--------------|---------------------------------------------------------------------|
+| Why Requested | "What if we had used different thresholds?" |
+| Why Problematic | A backtesting engine is a v2+ feature that requires simulating fill prices, order book state, latency, and partial fills. The v1.4 CLI tools analyze what actually happened, not what might have happened. Backtesting with look-ahead bias is worse than useless -- it creates false confidence. |
+| Alternative | TS-4/TS-5 with Wilson score CIs on actual settled positions. If the actual data shows edge, that is stronger evidence than any backtest. |
+
+
+### AF-4: Charting / Plotting
+
+| Anti-Feature | In-terminal or image-based charts (histograms, scatter plots, time series) |
+|--------------|----------------------------------------------------------------------------|
+| Why Requested | "Visualize the spread distribution" |
+| Why Problematic | Terminal plotting is low-fidelity and adds dependencies (plotters, textplots). Image generation requires a render backend. The trader can export JSON (DIFF-5) and use external tools (Python/matplotlib, gnuplot, Excel) for visualization if needed. Tables convey the same information more precisely for statistical analysis. |
+| Alternative | JSON output + external plotting tools. Tables with percentile breakdowns serve the analytical purpose. |
+
+
+### AF-5: Automated Go/No-Go Decision
+
+| Anti-Feature | CLI outputs "GO" or "NO-GO" based on programmatic thresholds |
+|--------------|--------------------------------------------------------------|
+| Why Requested | "Automate the decision" |
+| Why Problematic | The go/no-go decision is a human judgment that weighs statistical evidence alongside risk tolerance, capital availability, market conditions, and operational readiness. No algorithm can capture all these factors. Presenting false precision ("the system says GO") creates unjustified confidence. |
+| Alternative | Present the statistics clearly with confidence intervals. Let the trader decide. Flag when sample sizes are insufficient for reliable conclusions (e.g., "n=12 settled trades -- confidence intervals are wide"). |
 
 ---
 
 ## Feature Dependencies
 
 ```
-TS-1: Command Channel into Supervisors
-  |
-  +-- TS-2: Dynamic Subscribe (needs command channel to send subscribe commands)
-  |     |
-  |     +-- TS-4: Reconciliation (needs subscribe capability)
-  |
-  +-- TS-3: Dynamic Unsubscribe (needs command channel to send unsubscribe commands)
-        |
-        +-- TS-4: Reconciliation (needs unsubscribe capability)
+TS-8: Date-Range Filtering
+    |
+    +-- TS-1: Spread Distribution Stats (needs loaded, filtered data)
+    |     |
+    |     +-- TS-2: Hourly Time-Bucket Analysis (reuses stat functions)
+    |     |
+    |     +-- TS-3: Venue-Pair Breakdown (reuses stat functions)
+    |
+    +-- TS-4: Hit Rate with CIs (needs loaded position data)
+    |     |
+    |     +-- TS-5: Cost-Adjusted Edge (builds on position analysis)
+    |     |
+    |     +-- TS-6: Sharpe Ratio (builds on P&L series)
+    |           |
+    |           +-- TS-7: Max Drawdown (needs cumulative P&L series)
+    |           |
+    |           +-- DIFF-1: Probabilistic Sharpe (extends Sharpe)
 
-TS-4: Reconciliation
-  |
-  +-- DIFF-1: Subscription Observability (add metrics to reconciler)
-  |
-  +-- DIFF-4: Dry-Run Mode (add config flag to reconciler)
+TS-9: Terminal Table Output (parallel -- presentation layer for all features)
 
-TS-5: Tech Debt Sweep (independent -- no dependencies on subscription features)
+DIFF-5: JSON Output (parallel -- alternative presentation)
+
+DIFF-2: Threshold Effectiveness (parallel -- independent data source)
+
+DIFF-3: Per-Event Breakdown (parallel -- adds group-by to existing analyses)
 ```
 
-**Critical path:** TS-1 -> TS-2 + TS-3 -> TS-4 -> DIFF-1 + DIFF-4
+### Dependency Notes
 
-**Parallel work:** TS-5 can be done at any point, including before or alongside the subscription features.
+- **TS-8 (date filtering) is the foundation** -- every analysis needs to load and filter JSONL data. Build the data loading layer first.
+- **TS-1 (spread stats) and TS-4 (hit rate) are independent branches** -- spread analytics CLI and signal scoring CLI can be built in parallel once the data loading layer exists.
+- **TS-9 (table output) is needed by everything** -- but can be stubbed initially with `println!` and upgraded to `comfy-table` as a separate step.
+- **DIFF-2 (threshold effectiveness) reads different data** (FilteredSignalTracker state) than the main analyses, so it is independent.
+- **Two natural CLI subcommands emerge:** `analyze-spreads` (TS-1, TS-2, TS-3) and `score-signals` (TS-4, TS-5, TS-6, TS-7). Shared infrastructure: TS-8 (loading), TS-9/DIFF-5 (output).
 
 ---
 
 ## MVP Recommendation
 
-**Prioritize (must ship for v1.3):**
-1. **TS-1:** Command channel into supervisors -- architectural prerequisite
-2. **TS-2:** Dynamic subscribe for newly approved instruments -- primary user-facing feature
-3. **TS-3:** Dynamic unsubscribe for expired instruments -- completes the lifecycle
-4. **TS-4:** Config-change-driven reconciliation -- ties it all together
-5. **TS-5:** Tech debt sweep -- explicit milestone goal, 11 fixable items
-6. **DIFF-1:** Subscription observability metrics -- cheap, high operational value
-7. **DIFF-4:** Dry-run reconciliation mode -- cheap safety net
+### Must Have (v1.4 ship criteria)
 
-**Defer:**
-- **DIFF-2:** Subscription health validation -- existing alerting covers most cases
-- **DIFF-3:** Graceful subscription transition with overlap -- paper trading does not need this level of continuity
+- [x] **TS-8:** Date-range filtering -- foundation for all analysis
+- [x] **TS-9:** Terminal table output -- presentation layer
+- [x] **TS-1:** Spread distribution summary statistics -- "what does the data look like?"
+- [x] **TS-2:** Hourly time-bucket analysis -- "when do opportunities appear?"
+- [x] **TS-3:** Venue-pair breakdown -- "which venue pairs have edge?"
+- [x] **TS-4:** Hit rate with Wilson score confidence intervals -- "is the win rate real?"
+- [x] **TS-5:** Cost-adjusted edge with t-test significance -- "is the edge real after costs?"
+- [x] **TS-6:** Sharpe ratio -- "is the risk-adjusted return acceptable?"
+- [x] **TS-7:** Maximum drawdown -- "can I survive the worst case?"
+
+### Should Have (include if time permits)
+
+- [ ] **DIFF-1:** Probabilistic Sharpe Ratio -- small marginal cost, high value for small samples
+- [ ] **DIFF-3:** Per-event breakdown -- low cost, reveals concentration risk
+- [ ] **DIFF-5:** JSON output mode -- trivial to implement, enables external tooling
+
+### Future Consideration (defer)
+
+- [ ] **DIFF-2:** Threshold effectiveness analysis -- valuable but requires additional data pipeline work
+- [ ] **DIFF-4:** Spread autocorrelation -- optimization concern, not go/no-go
+- [ ] **DIFF-6:** Comparative period analysis -- manual comparison is sufficient initially
 
 ---
 
-## Venue API Subscription Capabilities Summary
+## Feature Prioritization Matrix
 
-| Capability | Deribit | Polymarket | Kalshi |
-|-----------|---------|------------|--------|
-| Subscribe on existing connection | `public/subscribe` with channels array | `subscribe` operation with `assets_ids` | `subscribe` cmd with `channels` + `market_ticker` |
-| Unsubscribe on existing connection | `public/unsubscribe` with channels array | `unsubscribe` operation with `assets_ids` | `unsubscribe` cmd with `sids` |
-| Unsubscribe all | `public/unsubscribe_all` (no params) | Not documented | Not documented |
-| Update existing subscription | N/A (subscribe is additive) | N/A | `update_subscription` with `add_markets`/`delete_markets` |
-| List current subscriptions | Not available | Not available | `list_subscriptions` |
-| Max channels per message | 500 | Not documented | Not documented |
-| Subscribe rate limit | ~3.3 req/s sustained | Not documented | Not documented |
-| Subscription ID tracking | Not used | Not used | Required (`sids` for unsubscribe) |
+| Feature | User Value | Implementation Cost | Priority |
+|---------|------------|---------------------|----------|
+| TS-8: Date filtering | HIGH | LOW | P1 |
+| TS-9: Table output | HIGH | LOW | P1 |
+| TS-1: Spread stats | HIGH | LOW | P1 |
+| TS-2: Hourly buckets | HIGH | LOW | P1 |
+| TS-3: Venue-pair breakdown | HIGH | LOW | P1 |
+| TS-4: Hit rate + CIs | HIGH | MEDIUM | P1 |
+| TS-5: Edge significance | HIGH | MEDIUM | P1 |
+| TS-6: Sharpe ratio | HIGH | LOW-MEDIUM | P1 |
+| TS-7: Max drawdown | MEDIUM | LOW | P1 |
+| DIFF-1: PSR | MEDIUM | LOW | P2 |
+| DIFF-3: Per-event | MEDIUM | LOW | P2 |
+| DIFF-5: JSON output | MEDIUM | LOW | P2 |
+| DIFF-2: Threshold analysis | MEDIUM | MEDIUM | P3 |
+| DIFF-4: Autocorrelation | LOW | MEDIUM | P3 |
+| DIFF-6: Period comparison | LOW | MEDIUM | P3 |
 
-**Key architectural implication:** Kalshi's subscription ID (`sid`) model requires the system to track subscription IDs returned from subscribe responses. Deribit and Polymarket are channel-name-based (subscribe/unsubscribe by channel name). This means the supervisor command channel abstraction must be venue-aware, or each supervisor must handle the venue-specific protocol internally (recommended: keep venue specifics inside each supervisor, expose a uniform command interface).
+**Priority key:**
+- P1: Must have for v1.4 -- required for go/no-go decision
+- P2: Should have, add if time permits -- improves quality of analysis
+- P3: Future consideration -- optimization and extended analysis
 
-**Confidence levels:**
-- Deribit subscribe/unsubscribe: HIGH (verified via official docs at docs.deribit.com)
-- Polymarket subscribe/unsubscribe: MEDIUM (verified via WSS overview docs; unsubscribe documented but less commonly used in community examples)
-- Kalshi subscribe/unsubscribe/update: MEDIUM (verified via quick start docs; update_subscription with sids verified via search results but exact response format not confirmed from official docs)
+---
+
+## Data Sources and Schemas
+
+### Spread Analytics CLI (`analyze-spreads`) reads:
+
+**Source:** `spread_logs/{YYYY-MM-DD}.jsonl`
+**Schema:** `SpreadResult` struct with fields:
+| Field | Type | Use in Analysis |
+|-------|------|-----------------|
+| `net_spread` | Decimal (string) | Primary metric for distribution analysis |
+| `gross_spread` | Decimal (string) | Pre-cost spread for gross edge |
+| `pattern` | SpreadPattern enum | Venue pair grouping, directional analysis |
+| `event_id` | String | Per-event breakdown |
+| `timestamp_ms` | i64 | Time-of-day bucketing, date filtering |
+| `threshold` | Decimal or null | Threshold at computation time |
+| `threshold_status` | ThresholdStatus or null | Threshold effectiveness |
+| `total_cost` | Decimal (string) | Cost analysis |
+| `buy_fill_ratio` / `sell_fill_ratio` | Decimal | Liquidity analysis |
+
+### Signal Scoring CLI (`score-signals`) reads:
+
+**Source 1:** `signal_logs/{YYYY-MM-DD}.jsonl`
+**Schema:** `ArbSignal` struct with fields:
+| Field | Type | Use in Analysis |
+|-------|------|-----------------|
+| `net_edge` | Decimal (string) | Edge after costs |
+| `raw_spread` | Decimal (string) | Pre-cost edge |
+| `confidence` | f64 | Confidence score analysis |
+| `cost_breakdown` | CostBreakdown | Fee/slippage analysis |
+| `threshold_status` | ThresholdStatus | Threshold effectiveness |
+| `prediction_venue` | Venue | Venue breakdown |
+
+**Source 2:** `state/checkpoint.json`
+**Schema:** Checkpoint with `open` and `daily_rollups` fields, containing `PaperPosition` data with:
+| Field | Type | Use in Analysis |
+|-------|------|-----------------|
+| `settlement_pnl` | Decimal or null | P&L for Sharpe, drawdown, hit rate |
+| `status` | PositionStatus | Filter to "Settled" only |
+| `settled_legs` | Vec<SettledLeg> | Per-venue P&L breakdown |
+| `adverse_selection` | Decimal or null | Fill quality analysis |
+| `threshold_status` | ThresholdStatus or null | Threshold analysis |
 
 ---
 
 ## Sources
 
-- [Deribit API Documentation](https://docs.deribit.com/) -- subscribe/unsubscribe methods, 500-channel limit, rate limits
-- [Deribit Market Data Collection Best Practices](https://docs.deribit.com/articles/market-data-collection-best-practices) -- batch subscription, instrument.state lifecycle feed
-- [Polymarket WSS Overview](https://docs.polymarket.com/developers/CLOB/websocket/wss-overview) -- subscribe/unsubscribe operations, dynamic modification
-- [Kalshi WebSocket Connection](https://docs.kalshi.com/websockets/websocket-connection) -- subscribe/unsubscribe/update_subscription commands
-- [Kalshi Quick Start WebSockets](https://docs.kalshi.com/getting_started/quick_start_websockets) -- message formats, subscription IDs
-- [Tokio Channels Tutorial](https://tokio.rs/tokio/tutorial/channels) -- command channel pattern for async task management
+- [Binomial proportion confidence interval (Wilson score)](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval) -- Wilson score formula, comparison with Wald and Clopper-Pearson methods
+- [statrs::distribution::Normal](https://docs.rs/statrs/latest/statrs/distribution/struct.Normal.html) -- Rust Normal distribution with inverse CDF for z-scores
+- [statrs::distribution::Binomial](https://docs.rs/statrs/latest/statrs/distribution/struct.Binomial.html) -- Binomial distribution in statrs
+- [Sharpe Ratio for Algorithmic Trading Performance Measurement](https://www.quantstart.com/articles/Sharpe-Ratio-for-Algorithmic-Trading-Performance-Measurement/) -- Annualization methodology, interpretation thresholds
+- [Advanced Trading Metrics: Sharpe, Sortino, Calmar, SQN & K-Ratio](https://algostrategyanalyzer.com/en/blog/advanced-trading-metrics/) -- Comprehensive trading metric overview (2026)
+- [How to measure the quality of a trading signal](https://macrosynergy.com/research/how-to-measure-the-quality-of-a-trading-signal/) -- Signal quality metrics, classification-based evaluation, Probabilistic Sharpe Ratio
+- [comfy-table](https://github.com/Nukesor/comfy-table) -- Terminal table formatting library for Rust
+- [Intraday Patterns in Bid/Ask Spreads](https://digitalcommons.memphis.edu/facpubs/11507/) -- Academic evidence for time-of-day spread patterns (McInish & Wood)
+- [5 Key Metrics to Evaluate Trading Algorithms](https://www.utradealgos.com/blog/5-key-metrics-to-evaluate-the-performance-of-your-trading-algorithms/) -- Industry standard performance evaluation metrics (2025)
+
+---
+*Feature research for: v1.4 Analysis Tooling (Spread Analytics CLI + Signal Scoring CLI)*
+*Researched: 2026-02-28*

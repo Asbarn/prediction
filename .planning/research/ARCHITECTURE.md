@@ -1,735 +1,568 @@
-# Architecture Research: Dynamic Subscription Management
+# Architecture Research: CLI Analysis Tooling Integration
 
-**Domain:** Live feed subscription/unsubscription for prediction market arbitrage system
-**Researched:** 2026-02-27
-**Confidence:** HIGH (based on direct analysis of 34,753 LOC codebase + prior v1.2 architecture research)
+**Domain:** Spread analytics and signal scoring CLI tools for prediction market arbitrage system
+**Researched:** 2026-02-28
+**Confidence:** HIGH (based on direct analysis of 35,580 LOC codebase, existing serde types, JSONL schema inspection, Cargo.toml dependency audit)
 
 ## Executive Summary
 
-The v1.3 milestone bridges the gap between the existing automated event discovery pipeline (v1.2) and the live feed supervisors (v1.0). Today, when a newly discovered mapping is approved in `events.toml`, the EventRegistry correctly picks it up via config hot-reload -- but no venue supervisor subscribes to the new instrument's WebSocket channel. Data for the new instrument never arrives. The system must be restarted to activate new subscriptions.
+The v1.4 milestone adds two CLI-based analysis tools -- a spread analytics CLI and a signal scoring CLI -- that read existing JSONL log data offline and produce statistical summaries. These tools are pure consumers of data already produced by the running service. They share no runtime state with the main binary; they only share serde types for deserialization and computation logic for statistical analysis.
 
-This research documents the exact current architecture, identifies the precise integration seams, defines the new SubscriptionManager component, specifies per-venue subscription mechanics, and recommends a build order that respects dependency chains and preserves hot-path integrity.
+This research resolves five architectural questions: binary structure, JSONL parsing strategy, data access patterns, shared computation, and output format flexibility. The core recommendation is: **add two new `[[bin]]` targets in Cargo.toml that import the `prediction` library crate for serde types, place new analysis computation in a shared `src/analysis/` module, and use streaming line-by-line JSONL parsing with date-range filtering to handle arbitrarily large log files.**
 
-**Key architectural principle: the hot path (feeds -> SpreadEngine -> SignalEngine) must never be blocked or disrupted by subscription management activity.** All subscription changes happen in background tasks, communicating via `tokio::sync::watch` channels to supervisors that already handle reconnection.
+The existing codebase is perfectly structured for this. The `lib.rs` already exposes all modules publicly. The `SpreadResult` and `ArbSignal` types already derive `Serialize + Deserialize`. The `clap` crate (4.5, derive feature) is already a dependency. Zero new crate dependencies are required, continuing the v1.1/v1.2/v1.3 pattern.
 
 ## Current Architecture (Verified Against Source)
 
-### System Topology
+### Data Flow Producing JSONL Logs
 
 ```
-                    +----------------------------+
-                    |     ConfigReloader          |
-                    |  (OS thread, notify crate)  |
-                    |  watches config/*.toml      |
-                    +-------+--------------------+
-                            |
-                       watch::channel<AppConfig>
-                            |
-                            v
-              +---------------------------+
-              | Config Hot-Reload Sub     |
-              | (tokio task in main.rs)   |
-              | - registry.write().await  |
-              | - registry.refresh()      |
-              +---------------------------+
-                            |
-                    Arc<RwLock<EventRegistry>>
-                            |
-      +---------------------+---------------------+
-      |                     |                     |
-      v                     v                     v
-[DeribitSupervisor]  [PolySupervisor]    [KalshiSupervisor]
- instruments:         config.assets:      config.market_tickers:
- Vec<String>          Vec<PolyAsset>      Vec<String>
- (fixed at init)      (fixed at init)     (fixed at init)
-      |                     |                     |
-      v                     v                     v
-[DeribitClient]      [PolyClient]         [KalshiClient]
-  WS subscribe         WS subscribe        WS subscribe
-  batch channels       assets_ids          per-ticker
-      |                     |                     |
-      v                     v                     v
-[DeribitProcessor]   [PolyProcessor]      [KalshiProcessor]
-      |                     |                     |
-      +----------+----------+----------+----------+
-                 |                     |
-            forward_snapshots()   forward_snapshots()
-            (event_id annotation) (event_id annotation)
-                 |                     |
-                 +----------+----------+
-                            |
-                       fan-in mpsc
-                            |
-                     [SnapshotFanOut]
-                    /       |        \
-            SpreadEngine PricingEngine CrossAssetEngine
-                |                          |
-          SignalEngine              PaperTradeTracker
+MarketSnapshots (3 venues)
+       |
+       v
+  SpreadEngine -----> SpreadLogger -----> spread_logs/{YYYY-MM-DD}.jsonl
+       |                                  (SpreadResult serde)
+       |
+  forward to signal engine
+       |
+       v
+  CrossAssetEngine -> SignalLogger -----> signal_logs/{YYYY-MM-DD}.jsonl
+       |                                  (ArbSignal serde)
+       |
+  forward to paper trade tracker
+       |
+       v
+  PaperTradeTracker -> TradeLogger -----> paper_trades/trades-{YYYY-MM-DD}.jsonl
+       |
+       +-----------> SettlementLogger --> settlement_logs/settlements-{YYYY-MM-DD}.jsonl
+                                          (AnalysisSettlementRecord serde)
 ```
 
-### The Gap: Subscription List is Static
+### Existing Log Locations and Schemas
 
-Each supervisor receives its instrument list at construction time and never updates it:
+| Log Directory | Filename Pattern | Serde Type | Size (observed) |
+|---------------|-----------------|------------|-----------------|
+| `spread_logs/` | `{YYYY-MM-DD}.jsonl` | `SpreadResult` | Not yet in production (default config) |
+| `signal_logs/` | `{YYYY-MM-DD}.jsonl` | `ArbSignal` | ~30-160 KB/day (6 days of soak data) |
+| `paper_trades/` | `trades-{YYYY-MM-DD}.jsonl` | `TradeEvent` (internal) | Not yet produced |
+| `settlement_logs/` | `settlements-{YYYY-MM-DD}.jsonl` | `AnalysisSettlementRecord` | Not yet produced |
 
-| Venue | Supervisor Field | How Instruments Arrive | Client Usage |
-|-------|-----------------|----------------------|--------------|
-| Deribit | `instruments: Vec<String>` (constructor param) | `config.deribit.instruments.clone()` from `venues.toml` | `DeribitClient::new(config, instruments, ...)` builds channel list |
-| Polymarket | `config: PolymarketConfig` (contains `assets`) | `config.polymarket.clone()` from `venues.toml` | `PolymarketClient` reads `self.config.assets` for token IDs |
-| Kalshi | `config: KalshiConfig` (contains `market_tickers`) | `config.kalshi.clone()` from `venues.toml` | `KalshiClient` iterates `self.config.market_tickers` |
+### Key Serde Types Already Available
 
-**Critical observation:** Deribit takes instruments as a separate parameter; Polymarket and Kalshi embed them in their config structs. The subscription manager must account for these structural differences.
+All types in `prediction::spread::patterns` and `prediction::signal::types` derive both `Serialize` and `Deserialize`, meaning CLI tools can deserialize directly into the exact same structs. Verified types:
 
-### What Already Works for Dynamic Updates
+- `SpreadResult` -- 18 fields, all with `serde(with = "rust_decimal::serde::str")` for decimal fields
+- `ThresholdComponents` -- 7 fields for threshold breakdown analysis
+- `ArbSignal` -- 24 fields including nested `LegInfo`, `CostBreakdown`, `ConfidenceComponents`
+- `ThresholdStatus` -- enum with `PassedBoth`, `PassedStaticOnly`, `Filtered` variants
+- `SpreadPattern` -- enum with 4 directional patterns
+- `ArbDirection` -- enum with `BuyPredictionSellOptions`, `SellPredictionBuyOptions`
 
-| Component | Capability | Verified |
-|-----------|-----------|----------|
-| `ConfigReloader` | Detects `events.toml` changes, re-parses, distributes `AppConfig` via `watch::channel` | Yes -- `reload.rs:62-117` |
-| Config hot-reload subscriber | Receives `AppConfig`, calls `registry.write().refresh()` | Yes -- `main.rs:286-319` |
-| `EventRegistry::refresh()` | Full rebuild: clears indexes, replaces mappings, rebuilds dual-index | Yes -- `registry.rs:75-80` |
-| `EventRegistry::active_approved()` | Iterates only `approved == true && status == Active` | Yes -- `registry.rs:60-64` |
-| `forward_snapshots()` | Annotates event_id via `registry.read().lookup_by_instrument()` | Yes -- `pipeline.rs:338-387` |
-| Supervisor reconnect loop | Each supervisor reconnects with exponential backoff on connection loss | Yes -- all three supervisors |
+### Existing Statistical Building Blocks
 
-**What is missing:** Nothing tells the supervisors to reconnect with an updated instrument list when the registry changes.
+In `paper_trade::analyzer`:
+- `AccumulatorBucket` -- running counters for hit rate, edge, convergence, false positive rate
+- `LifetimeSummary` -- aggregate across all accumulator keys
+- `FilteredSignalTracker` -- threshold effectiveness analysis
 
-### Subscription Semantics Per Venue
+In `paper_trade::aggregator`:
+- `DailyRollup` -- per-day P&L statistics (trade count, win rate, max win/loss)
 
-| Venue | WS Subscribe Format | Supports In-Connection Subscribe/Unsubscribe? | Reconnect Cost |
-|-------|--------------------|--------------------------------------------|----------------|
-| Deribit | Batch `public/subscribe` with channel array | **YES** -- `public/subscribe` and `public/unsubscribe` JSON-RPC | ~2-5s (connect + subscribe + first heartbeat) |
-| Polymarket | Single JSON `{"assets_ids": [...], "type": "market"}` | **Unknown** -- not documented; likely requires reconnect | ~2-3s (connect + subscribe) |
-| Kalshi | Per-ticker `{"cmd": "subscribe", "params": {"channels": ["orderbook_delta"], "market_ticker": ticker}}` | **Likely YES** -- subscribe command is per-ticker | ~2-3s (connect + auth sign + subscribe) |
+These are runtime accumulators (receive data via channels). The CLI tools need batch equivalents that operate on JSONL files, but the statistical logic can be extracted and reused.
 
-**Architectural decision:** Use reconnect-based subscription management for all venues. Deribit supports in-connection subscribe/unsubscribe, but using reconnect for all three keeps the code paths uniform and avoids venue-specific dynamic subscription complexity. The 2-5 second reconnect gap is irrelevant for minute-to-hour arbitrage windows.
+## Architectural Decisions
 
-**Future optimization (not v1.3):** For Deribit, send incremental `public/subscribe`/`public/unsubscribe` on the existing connection to avoid any data gap. This can be added later if the reconnect gap proves problematic.
+### Decision 1: Binary Structure -- Separate `[[bin]]` Targets
 
-## Recommended Architecture
+**Decision:** Add `src/bin/spread_analytics.rs` and `src/bin/signal_scoring.rs` as separate `[[bin]]` targets in Cargo.toml, not subcommands of the main binary.
 
-### New Component: SubscriptionManager
+**Rationale:**
 
-A single new tokio background task that bridges config changes to supervisor instrument lists.
+1. **Separation of concerns.** The main binary is a long-running service with tokio runtime, WebSocket connections, and channel plumbing. CLI tools are short-lived batch processors. Mixing them as subcommands would pull the entire service dependency graph into the CLI path.
 
-```
-                    +----------------------------+
-                    |     ConfigReloader          |
-                    |  (OS thread, notify crate)  |
-                    +-------+--------------------+
-                            |
-                       watch::channel<AppConfig>
-                            |
-              +-------------+------------------+
-              |                                |
-              v                                v
-+---------------------------+   +----------------------------+
-| Config Hot-Reload Sub     |   | SubscriptionManager        |  <-- NEW
-| (existing task)           |   | (new tokio task)           |
-| - registry.refresh()     |   | - reads registry after     |
-+---------------------------+   |   refresh notification     |
-                                | - diffs per-venue sets     |
-                                | - pushes via watch channels|
-                                +------+-----+-----+---------+
-                                       |     |     |
-                          watch<Vec>   |     |     |  watch<Vec>
-                          (Deribit)    |     |     |  (Kalshi)
-                                       |     |     |
-                                       v     |     v
-                       [DeribitSupervisor]    |  [KalshiSupervisor]
-                         +instruments_rx     |    +tickers_rx
-                         select! branch:     |    select! branch:
-                         changed() -> break  |    changed() -> break
-                         -> reconnect with   |    -> reconnect with
-                            new list         |       new list
-                                             |
-                                   watch<Vec>|
-                                   (Polymarket)
-                                             |
-                                             v
-                                  [PolymarketSupervisor]
-                                    +assets_rx
-                                    select! branch:
-                                    changed() -> break
-                                    -> reconnect with
-                                       new list
+2. **Build time isolation.** A `prediction-spread-analytics` binary compiles only what it imports from the library crate. The main binary's `main.rs` (40,839 lines of orchestration) stays untouched.
+
+3. **Deployment simplicity.** `cargo build --release` produces three binaries. The analysis tools can be copied to any machine with the JSONL files -- no config.toml, no API credentials, no WebSocket setup required.
+
+4. **Existing pattern.** The codebase already uses `clap` (4.5, derive feature) with `#[derive(Parser)]` and `#[command(subcommand)]` in `main.rs`. The same pattern applies to each CLI binary with its own `Cli` struct.
+
+**Why not subcommands of main:** The main binary requires `AppConfig` loading, logging init, Prometheus setup, and credential loading. A `prediction check-config` subcommand exists but it still loads config. Analysis CLIs should work with zero configuration -- just point at JSONL files.
+
+**Cargo.toml additions:**
+
+```toml
+[[bin]]
+name = "prediction"
+path = "src/main.rs"
+
+[[bin]]
+name = "spread-analytics"
+path = "src/bin/spread_analytics.rs"
+
+[[bin]]
+name = "signal-scoring"
+path = "src/bin/signal_scoring.rs"
 ```
 
-### Component Boundaries
+### Decision 2: JSONL Parsing -- Reuse Existing Serde Types Directly
 
-| Component | Responsibility | New/Modified | Communicates With |
-|-----------|---------------|-------------|-------------------|
-| `SubscriptionManager` | Watches config changes, reads registry, diffs per-venue instrument sets, pushes updated lists to supervisors, emits metrics and structured logs | **NEW** | ConfigReloader (via `watch::Receiver<AppConfig>`), EventRegistry (`Arc<RwLock<>>` read), venue supervisors (via `watch::Sender<Vec<_>>`) |
-| `DeribitSupervisor` | Accept `watch::Receiver<Vec<String>>` for instruments, add `changed()` branch to inner `select!`, break to reconnect loop on change | **MODIFIED** (minor) | SubscriptionManager (watch channel), DeribitClient |
-| `PolymarketSupervisor` | Accept `watch::Receiver<Vec<PolymarketAsset>>` for assets, add `changed()` branch | **MODIFIED** (minor) | SubscriptionManager (watch channel), PolymarketClient |
-| `KalshiSupervisor` | Accept `watch::Receiver<Vec<String>>` for tickers, add `changed()` branch | **MODIFIED** (minor) | SubscriptionManager (watch channel), KalshiClient |
-| `pipeline.rs` (`run_live_multi_venue`) | Accept watch receivers from main, pass to supervisors; derive initial lists from registry instead of config | **MODIFIED** (moderate) | main.rs, supervisors |
-| `main.rs` | Create SubscriptionManager, watch channels, wire between config subscriber and pipeline | **MODIFIED** (moderate) | SubscriptionManager, pipeline |
-| `EventRegistry` | No changes needed | **UNCHANGED** | All readers |
-| `ContractLifecycleManager` | No changes needed (already writes to events.toml and refreshes registry) | **UNCHANGED** | EventRegistry, events.toml |
-| `ConfigReloader` | No changes needed | **UNCHANGED** | Config subscribers |
-| `forward_snapshots()` | No changes needed (already annotates event_id from registry) | **UNCHANGED** | EventRegistry (read lock) |
-| Hot-path engines | No changes needed | **UNCHANGED** | Snapshot fan-in |
+**Decision:** Deserialize JSONL lines directly into `prediction::spread::patterns::SpreadResult` and `prediction::signal::types::ArbSignal`. No CLI-specific read types.
 
-### Data Flow: Full Lifecycle of a New Event (with v1.3)
+**Rationale:**
 
-```
-Phase 1: Discovery (automated -- unchanged from v1.2)
-================================================================
-ContractLifecycleManager.poll_cycle()
-  --> discover_deribit() / discover_kalshi() / discover_polymarket_structured()
-  --> find_cross_venue_candidates_fuzzy()
-  --> filter_new_candidates_fuzzy()
-  --> append_candidates_to_doc() --> events.toml (approved = false)
-  --> refresh_registry()
-  --> log "discovered new candidate mapping"
-  --> metric: lifecycle_candidates_discovered++
+1. **Types already roundtrip.** Both types have tests proving `serde_json::to_string` then `serde_json::from_str` roundtrips. The JSONL files are written by `serde_json::to_string`, so deserialization into the same types is guaranteed correct.
 
+2. **Schema stability.** The JSONL schema has been stable since v1.0 (spread) and v1.0 (signals). Both types use `#[serde(default)]` on newer fields (`basis_risk_premium`, `threshold_status`) ensuring forward compatibility with older log files.
 
-Phase 2: Operator Review (manual -- unchanged)
-================================================================
-Operator sees log, reviews events.toml
-  --> Sets approved = true
-  --> Saves file
+3. **Zero duplication.** Defining separate "read" types would duplicate 40+ field definitions and diverge over time. The existing types are the canonical schema definition.
 
+4. **Field-level access.** The CLI needs to slice by `event_id`, `pattern`/`direction`, `timestamp_ms`/`timestamp`, `threshold_status`, and compute on `net_spread`/`net_edge`, `gross_spread`/`raw_spread`, `confidence`, and `cost_breakdown` fields. All are directly accessible on the existing types.
 
-Phase 3: Config Reload (automated -- existing mechanism)
-================================================================
-ConfigReloader detects events.toml change (notify debounce 500ms)
-  --> Parses TOML --> new AppConfig
-  --> watch::channel.send(new_config)
+**One concern addressed: `rust_decimal::serde::str`.** Both read and write use the same serde annotation. The JSONL stores decimals as JSON strings (e.g., `"0.05"`). The `serde(with = "rust_decimal::serde::str")` attribute handles deserialization from strings correctly. Verified in existing tests.
 
+### Decision 3: Data Access Pattern -- Streaming Line-by-Line with Date-Range Filtering
 
-Phase 4: Registry Refresh (existing mechanism)
-================================================================
-Config Hot-Reload Subscriber receives new AppConfig
-  --> registry.write().await
-  --> registry.refresh(&new_config.events)
-  --> log "EventRegistry refreshed, N mappings"
+**Decision:** Use `BufReader::lines()` with line-by-line `serde_json::from_str` and filter by date range at the file level. Do not load all data into memory.
 
+**Rationale:**
 
-Phase 5: Subscription Reconciliation (NEW -- v1.3)
-================================================================
-SubscriptionManager receives same AppConfig notification
-  --> tokio::task::yield_now() (ensure registry refresh completed)
-  --> registry.read().await
-  --> Collect per-venue instrument sets from active_approved()
-  --> Diff against last-known sets:
-        added_deribit = new_deribit - last_deribit
-        removed_deribit = last_deribit - new_deribit
-        (same for kalshi, polymarket)
-  --> For each venue with changes:
-        watch::Sender.send(new_instrument_list)
-        log "subscription change: {venue} +{added} -{removed}"
-        metric: subscription_activations / subscription_removals
-  --> Update last-known sets
+1. **File sizes are manageable but growing.** Current signal logs are 30-160 KB/day. A month-long soak test would produce ~5 MB. But spread logs (every computation, not just signals) will be significantly larger -- the Deribit recording alone hit 39 MB in one day. Streaming handles any size.
 
+2. **Date-range filtering is free.** JSONL files are named `{YYYY-MM-DD}.jsonl`. To analyze a date range, just iterate matching filenames. No need to parse every line to check timestamps.
 
-Phase 6: Supervisor Reconnect (modified supervisors)
-================================================================
-DeribitSupervisor detects instruments_rx.changed()
-  --> break inner message loop
-  --> borrow_and_update() to get new instruments
-  --> Back to outer loop: create fresh DeribitClient with updated list
-  --> Connect + subscribe + forward messages
-  --> log "instrument list updated, reconnecting with N instruments"
-  --> metric: feed_subscription_reconnects++
+3. **Two-pass pattern for statistics requiring full data.** Some metrics (e.g., percentiles, standard deviation) require all values. For these, a first pass collects values into a `Vec<Decimal>`, then a second pass computes statistics. This is bounded by the date range, not total history.
 
+4. **No async needed.** File I/O in a CLI tool does not benefit from async. Use `std::io::BufReader` with `std::io::BufRead::lines()`. No tokio runtime required in CLI binaries. This simplifies the binary significantly -- no `#[tokio::main]`, just plain `fn main()`.
 
-Phase 7: Data Flows (unchanged hot path)
-================================================================
-DeribitClient receives data for new instrument
-  --> DeribitProcessor normalizes to MarketSnapshot
-  --> forward_snapshots() annotates event_id (registry already has mapping)
-  --> Snapshot enters fan-in channel
-  --> SpreadEngine calculates spreads for new event
-  --> Signal generation begins
-
-
-Phase 8: Retirement (triggered by lifecycle manager, enhanced by v1.3)
-================================================================
-ContractLifecycleManager detects instrument absent N consecutive polls
-  --> mark_expired_batch_in_doc() --> events.toml status = "expired"
-  --> archive_and_cleanup() --> events_archive.toml
-  --> refresh_registry() --> expired mapping removed from active set
-  --> ConfigReloader also detects file change --> triggers Phase 3-6
-  --> SubscriptionManager sees instrument removed from active set
-  --> Pushes updated list WITHOUT the expired instrument
-  --> Supervisor reconnects with pruned list
-  --> No more data for retired instrument
-```
-
-### Ordering Constraint: Registry Refresh Before Subscription Diff
-
-The SubscriptionManager and the config hot-reload subscriber both subscribe to the same `watch::channel<AppConfig>`. The refresh must complete before the diff reads the registry.
-
-**Problem:** `tokio::sync::watch` delivers the latest value, but does not guarantee ordering between two subscribers.
-
-**Solution options (in order of recommendation):**
-
-1. **Explicit Notify signal (recommended):** The config hot-reload subscriber sends a `tokio::sync::Notify::notify_one()` after `registry.refresh()` completes. The SubscriptionManager awaits `notify.notified()` instead of watching the config channel directly. This guarantees the registry is refreshed before the diff runs.
-
-2. **Small delay:** SubscriptionManager adds `tokio::time::sleep(Duration::from_millis(100))` after receiving config change before reading registry. Simple but brittle.
-
-3. **Single combined task:** Merge the config subscriber and SubscriptionManager into one task that first refreshes the registry, then computes the diff. Simplest, but conflates two concerns.
-
-**Recommendation:** Option 1 (Notify). It is explicit, zero-latency, and separates concerns cleanly.
+**Pattern:**
 
 ```rust
-// In main.rs setup:
-let registry_refreshed = Arc::new(tokio::sync::Notify::new());
-
-// Config hot-reload subscriber:
-reg.refresh(&new_config.events);
-registry_refreshed.notify_one();  // Signal subscription manager
-
-// SubscriptionManager:
-loop {
-    registry_refreshed.notified().await;
-    // Registry is guaranteed to be refreshed at this point
-    let reg = self.registry.read().await;
-    self.reconcile_subscriptions(&reg);
-}
-```
-
-## SubscriptionManager Internal Design
-
-### State
-
-```rust
-pub struct SubscriptionManager {
-    /// Shared event registry (read-only access)
-    registry: Arc<RwLock<EventRegistry>>,
-
-    /// Notification that registry has been refreshed
-    registry_refreshed: Arc<Notify>,
-
-    /// Per-venue instrument list senders
-    deribit_tx: watch::Sender<Vec<String>>,
-    kalshi_tx: watch::Sender<Vec<String>>,
-    polymarket_tx: watch::Sender<Vec<PolymarketSubscription>>,
-
-    /// Last-known instrument sets for diffing
-    last_deribit: HashSet<String>,
-    last_kalshi: HashSet<String>,
-    last_polymarket: HashSet<String>,
-
-    /// Cancellation token
-    cancel: CancellationToken,
-}
-
-/// Polymarket needs both condition_id and token_id for subscription
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct PolymarketSubscription {
-    pub condition_id: String,
-    pub token_id: String,
-}
-```
-
-### Core Loop
-
-```rust
-impl SubscriptionManager {
-    pub async fn run(mut self) {
-        // Initial reconciliation on startup
-        self.reconcile().await;
-
-        loop {
-            tokio::select! {
-                biased;
-                _ = self.cancel.cancelled() => {
-                    tracing::info!("SubscriptionManager shutting down");
-                    break;
-                }
-                _ = self.registry_refreshed.notified() => {
-                    self.reconcile().await;
+fn load_spread_results(dir: &Path, from: NaiveDate, to: NaiveDate) -> Vec<SpreadResult> {
+    let mut results = Vec::new();
+    let mut date = from;
+    while date <= to {
+        let path = dir.join(format!("{}.jsonl", date.format("%Y-%m-%d")));
+        if path.exists() {
+            let file = File::open(&path).expect("open JSONL file");
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                let line = line.expect("read line");
+                match serde_json::from_str::<SpreadResult>(&line) {
+                    Ok(result) => results.push(result),
+                    Err(e) => eprintln!("WARN: skip malformed line: {e}"),
                 }
             }
         }
+        date += chrono::Duration::days(1);
     }
-
-    async fn reconcile(&mut self) {
-        let reg = self.registry.read().await;
-
-        let mut new_deribit = HashSet::new();
-        let mut new_kalshi = HashSet::new();
-        let mut new_polymarket = HashSet::new();
-
-        for mapping in reg.active_approved() {
-            if let Some(ref d) = mapping.venues.deribit {
-                new_deribit.insert(d.instrument.clone());
-            }
-            if let Some(ref k) = mapping.venues.kalshi {
-                new_kalshi.insert(k.ticker.clone());
-            }
-            if let Some(ref p) = mapping.venues.polymarket {
-                new_polymarket.insert(p.token_id.clone());
-            }
-        }
-        drop(reg);
-
-        // Deribit diff
-        if new_deribit != self.last_deribit {
-            let added: Vec<_> = new_deribit.difference(&self.last_deribit).collect();
-            let removed: Vec<_> = self.last_deribit.difference(&new_deribit).collect();
-            tracing::info!(?added, ?removed, "Deribit subscription change");
-            metrics::counter!("subscription_activations", "venue" => "deribit")
-                .increment(added.len() as u64);
-            metrics::counter!("subscription_removals", "venue" => "deribit")
-                .increment(removed.len() as u64);
-            let _ = self.deribit_tx.send(new_deribit.iter().cloned().collect());
-            self.last_deribit = new_deribit;
-        }
-        // ... same pattern for kalshi, polymarket
-    }
+    results
 }
 ```
 
-### Startup Behavior
+**Error handling:** Malformed lines are warned and skipped. A corrupted line (e.g., incomplete write from crash) should not abort analysis of the entire dataset.
 
-On startup, the SubscriptionManager performs its first `reconcile()` call to populate all venue channels with the initial instrument lists derived from `EventRegistry::active_approved()`. This replaces the current pattern where instrument lists come from `venues.toml` static config.
+### Decision 4: Shared Computation -- New `src/analysis/` Module in Library Crate
 
-**Migration path:** The `DeribitConfig.instruments`, `PolymarketConfig.assets`, and `KalshiConfig.market_tickers` fields in `venues.toml` become fallback/override only. The primary instrument list source shifts to `events.toml` via the registry.
+**Decision:** Create `src/analysis/` module in the library crate with pure computation functions. Both CLI binaries import from `prediction::analysis`. Do not inline computation in each binary.
 
-## Supervisor Modifications (Per Venue)
+**Rationale:**
 
-### DeribitSupervisor Changes
+1. **Reuse between CLIs.** Both CLIs need time bucketing, statistical aggregation, confidence interval calculation, and output formatting. These are shared concerns.
 
-**Current signature:**
-```rust
-pub fn new(config, instruments: Vec<String>, cancel, rate_limiter, health) -> Self
+2. **Testability.** Pure functions that take `&[SpreadResult]` or `&[ArbSignal]` and return computed metrics are trivially unit-testable without file I/O.
+
+3. **Future reuse.** When (if) a dashboard or API endpoint wants the same analysis, the computation is already factored out.
+
+4. **Existing precedent.** The `paper_trade::analyzer` module already contains accumulator logic. The new `analysis` module can reference (or extract from) that logic, but tuned for batch operation rather than streaming accumulation.
+
+**Module structure:**
+
+```
+src/analysis/
+    mod.rs          -- pub mod spread_analytics; pub mod signal_scoring; pub mod stats;
+    spread_analytics.rs  -- time bucketing, venue-pair slicing, spread distribution
+    signal_scoring.rs    -- hit rate, Sharpe, drawdown, confidence intervals
+    stats.rs             -- shared statistical functions (mean, stddev, percentile, CI)
 ```
 
-**New signature:**
-```rust
-pub fn new(config, instruments_rx: watch::Receiver<Vec<String>>, cancel, rate_limiter, health) -> Self
+**Key distinction from existing `paper_trade::analyzer`:**
+
+| Aspect | `paper_trade::analyzer` | `analysis::*` |
+|--------|------------------------|---------------|
+| Input | Live positions via channel | Batch from JSONL |
+| State | Running accumulators (HashMap) | Computed from full dataset |
+| Output | Prometheus gauges + JSONL | Formatted terminal/JSON/CSV |
+| Runtime | Requires tokio, channels | Pure `fn`, no runtime |
+
+### Decision 5: Output Format Flexibility -- `--format` Flag with Table Default
+
+**Decision:** Support `--format table` (default), `--format json`, and `--format csv` via a clap enum argument. Use no additional crate dependencies.
+
+**Rationale:**
+
+1. **Table for human consumption.** The primary use case is a solo trader reviewing soak test data in a terminal. Aligned columns with headers are the most readable format.
+
+2. **JSON for programmatic use.** Enables piping output to `jq` for ad-hoc queries or feeding into scripts. Use `serde_json::to_string_pretty` -- already a dependency.
+
+3. **CSV for spreadsheet analysis.** For deeper statistical work, CSV import into a spreadsheet is the path of least resistance. Implement with manual comma-separated formatting -- no `csv` crate needed for simple tabular output.
+
+4. **Zero new dependencies.** Table formatting can be done with Rust's `format!` width specifiers (`{:<15}`, `{:>10}`). This continues the zero-new-deps pattern from v1.1/v1.2/v1.3.
+
+## Component Boundaries
+
+### New Components
+
+| Component | Location | Responsibility | Depends On |
+|-----------|----------|---------------|------------|
+| `spread-analytics` binary | `src/bin/spread_analytics.rs` | CLI entry point: arg parsing, file loading, output routing | `prediction::analysis::spread_analytics`, `prediction::spread::patterns` |
+| `signal-scoring` binary | `src/bin/signal_scoring.rs` | CLI entry point: arg parsing, file loading, output routing | `prediction::analysis::signal_scoring`, `prediction::signal::types` |
+| `analysis::spread_analytics` | `src/analysis/spread_analytics.rs` | Time bucketing, venue-pair slicing, spread distribution stats | `prediction::spread::patterns::SpreadResult`, `analysis::stats` |
+| `analysis::signal_scoring` | `src/analysis/signal_scoring.rs` | Hit rate, Sharpe ratio, drawdown, edge CI, threshold effectiveness | `prediction::signal::types::ArbSignal`, `analysis::stats` |
+| `analysis::stats` | `src/analysis/stats.rs` | Mean, stddev, percentile, confidence intervals, Sharpe formula | `rust_decimal`, `statrs` (already dep) |
+
+### Modified Components
+
+| Component | Change | Risk |
+|-----------|--------|------|
+| `Cargo.toml` | Add two `[[bin]]` entries | None -- additive only |
+| `src/lib.rs` | Add `pub mod analysis;` | None -- additive only |
+
+### Unchanged Components
+
+Everything else. The main binary, all feed modules, spread engine, signal engine, paper trade tracker, settlement system, config system -- **zero modifications** to any existing component.
+
+## Data Flow
+
+### Spread Analytics CLI
+
+```
+User invokes:
+  spread-analytics --dir spread_logs/ --from 2026-02-20 --to 2026-02-28 --bucket hourly
+
+  1. Parse CLI args (clap)
+  2. Enumerate JSONL files in date range
+  3. For each file:
+     a. BufReader::lines()
+     b. serde_json::from_str::<SpreadResult>(line)
+     c. Skip malformed lines with warning
+  4. Group by time bucket (hourly/daily)
+  5. Within each bucket, compute:
+     - Count of spread computations
+     - Mean/median/p95 gross spread
+     - Mean/median/p95 net spread
+     - Spread distribution (positive/negative/zero)
+     - Venue pair breakdown
+     - Threshold pass rates (PassedBoth/PassedStaticOnly/Filtered)
+  6. Format output (table/json/csv)
+  7. Print to stdout
 ```
 
-**Inner loop change:**
-```rust
-// Current: only select on cancel + message recv
-// New: add instruments_rx.changed() branch
+### Signal Scoring CLI
 
-loop {
-    tokio::select! {
-        biased;
-        _ = self.cancel.cancelled() => return,
-        Ok(()) = self.instruments_rx.changed() => {
-            tracing::info!("DeribitSupervisor: instrument list updated, reconnecting");
-            metrics::counter!("feed_subscription_reconnects", "venue" => "deribit")
-                .increment(1);
-            break; // Break inner loop -> outer loop creates fresh client
-        }
-        msg = raw_rx.recv() => { /* existing forwarding logic */ }
-    }
-}
-// After breaking inner loop, outer loop re-enters:
-// let instruments = self.instruments_rx.borrow().clone();
-// let client = DeribitClient::new(config, instruments, ...);
+```
+User invokes:
+  signal-scoring --dir signal_logs/ --from 2026-02-20 --to 2026-02-28
+
+  1. Parse CLI args (clap)
+  2. Enumerate JSONL files in date range
+  3. For each file:
+     a. BufReader::lines()
+     b. serde_json::from_str::<ArbSignal>(line)
+     c. Skip malformed lines with warning
+  4. Compute overall metrics:
+     - Total signals by threshold status
+     - Hit rate (signals with positive net_edge vs total)
+     - Cost-adjusted edge distribution
+     - Sharpe ratio (mean_edge / stddev_edge, annualized)
+     - Max drawdown (sequential cumulative P&L)
+     - Confidence intervals (bootstrap or normal approx)
+  5. Compute breakdowns:
+     - By event_id
+     - By direction (BuyPrediction vs SellPrediction)
+     - By prediction_venue (Polymarket vs Kalshi)
+     - By time of day (hourly buckets)
+     - Threshold effectiveness (PassedBoth hit rate vs PassedStaticOnly)
+  6. Format output (table/json/csv)
+  7. Print to stdout
 ```
 
-### PolymarketSupervisor Changes
+### Optional: Combined Settlement Correlation
 
-**Structural difference:** Polymarket's subscription uses `config.assets` (a `Vec<PolymarketAsset>`). The watch channel carries `Vec<PolymarketSubscription>` which the supervisor converts to the config-compatible format before creating a fresh client.
+If settlement logs exist, the signal scoring CLI can optionally cross-reference:
 
-**New field:**
-```rust
-pub struct PolymarketSupervisor {
-    config: PolymarketConfig,
-    assets_rx: watch::Receiver<Vec<PolymarketSubscription>>,  // NEW
-    cancel: CancellationToken,
-    health: Arc<VenueHealth>,
-}
+```
+  signal-scoring --dir signal_logs/ --settlements settlement_logs/ --from 2026-02-20
+
+  Additional step: Load settlement outcomes, match by event_id,
+  compute actual hit rate (signal direction matched settlement outcome)
+  vs estimated hit rate (positive net_edge at signal time).
 ```
 
-**Client creation change:** Before creating `PolymarketClient`, update `config.assets` with the latest from the watch channel:
-```rust
-let assets = self.assets_rx.borrow().clone();
-let mut config = self.config.clone();
-config.assets = assets.into_iter().map(|s| PolymarketAsset {
-    condition_id: s.condition_id,
-    token_id: s.token_id,
-}).collect();
-let client = PolymarketClient::new(config, self.cancel.clone());
+## CLI Interface Design
+
+### Spread Analytics
+
+```
+spread-analytics [OPTIONS]
+
+Options:
+  --dir <PATH>           Spread logs directory [default: spread_logs]
+  --from <YYYY-MM-DD>    Start date (inclusive)
+  --to <YYYY-MM-DD>      End date (inclusive) [default: today]
+  --bucket <BUCKET>      Time bucket size: hourly, daily [default: hourly]
+  --event <EVENT_ID>     Filter to specific event ID
+  --pattern <PATTERN>    Filter to spread pattern
+  --format <FORMAT>      Output format: table, json, csv [default: table]
+  --venue-pair           Group results by venue pair
+  --threshold-breakdown  Show threshold status distribution per bucket
+  -v, --verbose          Show per-line parse warnings
 ```
 
-### KalshiSupervisor Changes
+### Signal Scoring
 
-**Structurally identical to Deribit:** Kalshi uses `config.market_tickers: Vec<String>`. The watch channel carries `Vec<String>`.
-
-**Client creation change:** Before creating `KalshiClient`, update `config.market_tickers`:
-```rust
-let tickers = self.tickers_rx.borrow().clone();
-let mut config = self.config.clone();
-config.market_tickers = tickers;
-let client = KalshiClient::new(config, ...);
 ```
+signal-scoring [OPTIONS]
 
-## Pipeline.rs Changes
-
-`run_live_multi_venue()` currently creates supervisors with config-derived instrument lists. It needs to accept watch receivers and pass them to supervisors.
-
-**New parameter:**
-```rust
-pub struct SubscriptionChannels {
-    pub deribit_rx: watch::Receiver<Vec<String>>,
-    pub polymarket_rx: watch::Receiver<Vec<PolymarketSubscription>>,
-    pub kalshi_rx: watch::Receiver<Vec<String>>,
-}
-
-async fn run_live_multi_venue(
-    config: &VenuesConfig,
-    credentials: &Credentials,
-    recording_dir: PathBuf,
-    cancel: CancellationToken,
-    event_registry: Option<Arc<RwLock<EventRegistry>>>,
-    subscription_channels: Option<SubscriptionChannels>,  // NEW
-) -> anyhow::Result<PipelineHandles>
-```
-
-The `Option` wrapper maintains backward compatibility for Mock/Replay modes (which do not use dynamic subscriptions).
-
-## Main.rs Wiring Changes
-
-```rust
-// After EventRegistry creation, before pipeline start:
-
-// Create subscription watch channels
-let initial_deribit: Vec<String> = { /* from registry active_approved */ };
-let initial_poly: Vec<PolymarketSubscription> = { /* from registry */ };
-let initial_kalshi: Vec<String> = { /* from registry */ };
-
-let (deribit_sub_tx, deribit_sub_rx) = watch::channel(initial_deribit);
-let (poly_sub_tx, poly_sub_rx) = watch::channel(initial_poly);
-let (kalshi_sub_tx, kalshi_sub_rx) = watch::channel(initial_kalshi);
-
-// Create Notify for refresh synchronization
-let registry_refreshed = Arc::new(tokio::sync::Notify::new());
-
-// Pass subscription channels to pipeline
-let pipeline_handles = pipeline::run_multi_venue_pipeline(
-    mode, &config.venues, &config.credentials, recording_dir,
-    shutdown_token.clone(), Some(event_registry.clone()),
-    Some(SubscriptionChannels { deribit_rx, poly_rx, kalshi_rx }),
-).await?;
-
-// Modify config hot-reload subscriber to notify after refresh:
-// reg.refresh(&new_config.events);
-// registry_refreshed.notify_one();  // <-- add this line
-
-// Start SubscriptionManager (live mode only)
-if is_live {
-    let sub_manager = SubscriptionManager::new(
-        event_registry.clone(),
-        registry_refreshed.clone(),
-        deribit_sub_tx, kalshi_sub_tx, poly_sub_tx,
-        shutdown_token.child_token(),
-    );
-    tokio::spawn(sub_manager.run());
-    tracing::info!("SubscriptionManager started");
-}
+Options:
+  --dir <PATH>              Signal logs directory [default: signal_logs]
+  --from <YYYY-MM-DD>       Start date (inclusive)
+  --to <YYYY-MM-DD>         End date (inclusive) [default: today]
+  --settlements <PATH>      Settlement logs directory (optional)
+  --event <EVENT_ID>        Filter to specific event ID
+  --direction <DIR>         Filter to direction
+  --venue <VENUE>           Filter to prediction venue
+  --format <FORMAT>         Output format: table, json, csv [default: table]
+  --confidence-level <F>    CI confidence level [default: 0.95]
+  --sharpe-periods <N>      Annualization factor for Sharpe [default: 252]
+  -v, --verbose             Show per-line parse warnings
 ```
 
 ## Patterns to Follow
 
-### Pattern 1: Watch Channel for Dynamic Instrument Lists
+### Pattern 1: Date-Range File Enumeration
 
-**What:** `tokio::sync::watch` channels carry the latest instrument list from SubscriptionManager to each supervisor. Latest-value semantics means no queue buildup.
+**What:** Iterate JSONL files matching a date range by constructing filenames directly from dates.
+**When:** Any analysis operation that reads JSONL logs.
+**Why:** Avoids filesystem scanning. Filename format `{YYYY-MM-DD}.jsonl` is stable convention across all loggers.
 
-**Why watch, not mpsc:** Supervisors only need the latest full list, not a history of additions/removals. Watch provides exactly this -- the latest value, atomically readable.
-
-**Implementation:**
 ```rust
-let (tx, rx) = watch::channel(initial_instruments);
-// SubscriptionManager: tx.send(new_list)
-// Supervisor: rx.changed().await, then rx.borrow().clone()
+use chrono::NaiveDate;
+use std::path::{Path, PathBuf};
+
+fn files_in_range(dir: &Path, from: NaiveDate, to: NaiveDate) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut date = from;
+    while date <= to {
+        let path = dir.join(format!("{}.jsonl", date.format("%Y-%m-%d")));
+        if path.exists() {
+            files.push(path);
+        }
+        date += chrono::Duration::days(1);
+    }
+    files
+}
 ```
 
-### Pattern 2: Registry Diff for Minimal Reconnects
+### Pattern 2: Tolerant JSONL Deserialization
 
-**What:** SubscriptionManager maintains `HashSet<String>` per venue of last-known instruments. On each registry refresh, computes symmetric difference and only triggers reconnects for venues with actual changes.
+**What:** Warn on malformed lines but continue processing. Count errors.
+**When:** Reading any JSONL file that may have been written during a crash or schema evolution.
+**Why:** A single corrupted line should not invalidate an entire day of data.
 
-**Why:** Prevents unnecessary reconnections when non-subscription config changes occur (threshold tuning, risk weight changes, etc.).
+```rust
+fn parse_jsonl<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    verbose: bool,
+) -> (Vec<T>, usize) {
+    let file = File::open(path).expect("open file");
+    let reader = BufReader::new(file);
+    let mut results = Vec::new();
+    let mut errors = 0;
+    for (i, line) in reader.lines().enumerate() {
+        match line {
+            Ok(text) => match serde_json::from_str::<T>(&text) {
+                Ok(val) => results.push(val),
+                Err(e) => {
+                    errors += 1;
+                    if verbose {
+                        eprintln!("WARN: {}:{}: {}", path.display(), i + 1, e);
+                    }
+                }
+            },
+            Err(e) => {
+                errors += 1;
+                if verbose {
+                    eprintln!("WARN: {}:{}: IO error: {}", path.display(), i + 1, e);
+                }
+            }
+        }
+    }
+    (results, errors)
+}
+```
 
-### Pattern 3: Notify for Ordered Updates
+### Pattern 3: Bucket Aggregation with Generic Key
 
-**What:** `tokio::sync::Notify` ensures the SubscriptionManager reads the registry only after the config subscriber has refreshed it.
+**What:** Group records into time-keyed buckets, then compute per-bucket statistics.
+**When:** Spread analytics hourly/daily rollups, signal scoring time-of-day analysis.
+**Why:** Reusable across both CLIs with different record types.
 
-**Why:** Two independent subscribers to the same `watch::channel` have no ordering guarantee. Without Notify, the SubscriptionManager could read stale registry state.
+```rust
+use std::collections::BTreeMap;
 
-### Pattern 4: Initial List from Registry, Not Config
+fn bucket_by<T, K: Ord>(
+    records: &[T],
+    key_fn: impl Fn(&T) -> K,
+) -> BTreeMap<K, Vec<&T>> {
+    let mut buckets = BTreeMap::new();
+    for record in records {
+        buckets.entry(key_fn(record)).or_insert_with(Vec::new).push(record);
+    }
+    buckets
+}
+```
 
-**What:** On startup, instrument lists are derived from `EventRegistry::active_approved()`, not from `venues.toml` static config.
+### Pattern 4: Statistics Module with Decimal Precision
 
-**Why:** Ensures consistency -- the registry is the single source of truth for what instruments should be subscribed. The static config becomes a fallback only.
+**What:** Statistical functions that work on `Decimal` values (not `f64`) for precision, converting to `f64` only for output display.
+**When:** Computing mean, stddev, percentiles on spread/edge values.
+**Why:** The existing codebase uses `rust_decimal` everywhere. Converting to `f64` for intermediate calculations loses the precision guarantee that was the entire reason for choosing `rust_decimal`.
+
+```rust
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+
+pub fn mean(values: &[Decimal]) -> Option<Decimal> {
+    if values.is_empty() { return None; }
+    let sum: Decimal = values.iter().copied().sum();
+    Some(sum / Decimal::from(values.len()))
+}
+
+pub fn stddev(values: &[Decimal]) -> Option<f64> {
+    let m = mean(values)?.to_f64()?;
+    let variance = values.iter()
+        .map(|v| { let d = v.to_f64().unwrap_or(0.0) - m; d * d })
+        .sum::<f64>() / values.len() as f64;
+    Some(variance.sqrt())
+}
+```
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Incremental Subscribe/Unsubscribe Commands to Supervisors
+### Anti-Pattern 1: Async Runtime in CLI Tools
 
-**What:** Adding mpsc channels to supervisors for "add instrument X" / "remove instrument Y" commands.
-**Why bad:** Each venue has different WS subscription semantics (Deribit supports incremental, Polymarket likely does not, Kalshi unclear). Incremental management creates venue-divergent code paths, partial state, and edge cases around concurrent subscribe/reconnect.
-**Do instead:** Push the full instrument list and trigger reconnect. Battle-tested reconnection handles the rest.
+**What:** Using `#[tokio::main]` or any async runtime in the CLI binaries.
+**Why bad:** The CLI tools perform no async I/O. File reads are synchronous. Adding tokio adds ~200KB to binary size and compilation time for zero benefit.
+**Instead:** Use plain `fn main() -> Result<(), Box<dyn std::error::Error>>`. Use `std::io::BufReader` for file reading.
 
-### Anti-Pattern 2: Reading Config Instead of Registry for Instrument Lists
+### Anti-Pattern 2: Loading AppConfig for CLI Tools
 
-**What:** SubscriptionManager reading `AppConfig.venues.deribit.instruments` to determine what to subscribe.
-**Why bad:** The config's instrument list is manually maintained and may not reflect approved event mappings. The EventRegistry, built from events.toml, is the authoritative source for what instruments are active and approved.
-**Do instead:** Always derive instrument lists from `registry.active_approved()`.
+**What:** Requiring `config.toml`, `events.toml`, `venues.toml` to run analysis.
+**Why bad:** The CLI tools should work on any machine with JSONL files. Config contains API credentials and venue-specific settings irrelevant to offline analysis.
+**Instead:** Accept all parameters via CLI flags. Use sensible defaults.
 
-### Anti-Pattern 3: Hot-Path Subscription Checks
+### Anti-Pattern 3: Defining CLI-Specific Deserialization Types
 
-**What:** Checking subscription state inside `forward_snapshots()` on every snapshot.
-**Why bad:** Subscription changes are rare (days between new events). Checking thousands of times per second wastes CPU.
-**Do instead:** Subscription decisions happen only in the SubscriptionManager background task, triggered by config changes.
+**What:** Creating separate `CliSpreadResult` or `CliArbSignal` types with a subset of fields.
+**Why bad:** Duplicates field definitions, diverges from source of truth, breaks when new fields are added.
+**Instead:** Reuse `prediction::spread::patterns::SpreadResult` and `prediction::signal::types::ArbSignal` directly. The `#[serde(default)]` annotations already handle forward compatibility.
 
-### Anti-Pattern 4: Modifying the Lifecycle Manager to Push Subscriptions
+### Anti-Pattern 4: Loading Entire History Without Date Bounds
 
-**What:** Having `ContractLifecycleManager` directly push subscription updates after its `refresh_registry()` call.
-**Why bad:** Conflates discovery/expiry management with subscription management. The lifecycle manager writes to TOML; the subscription path goes through ConfigReloader -> Registry -> SubscriptionManager. Adding a direct push creates a second activation path and potential race conditions.
-**Do instead:** Let the existing ConfigReloader -> Registry -> SubscriptionManager chain handle it. The lifecycle manager's `refresh_registry()` writes to events.toml, which triggers ConfigReloader, which triggers the full chain.
+**What:** Not requiring `--from` or defaulting to "all files".
+**Why bad:** As soak test history grows, loading all data becomes slow. Users will always want a specific window.
+**Instead:** Require `--from`, default `--to` to today. Enumerate only files in the date range.
 
-### Anti-Pattern 5: Reconnecting All Venues on Any Change
+### Anti-Pattern 5: Putting Analysis Logic Inside the Binaries
 
-**What:** Reconnecting all three venue supervisors whenever any instrument list changes.
-**Why bad:** If only a Deribit instrument is added, Polymarket and Kalshi should not reconnect.
-**Do instead:** Per-venue diffing and per-venue watch channels. Only venues with actual changes reconnect.
+**What:** Writing all computation directly in `src/bin/spread_analytics.rs`.
+**Why bad:** Untestable without running the binary. Cannot be reused by the other CLI or future endpoints.
+**Instead:** Thin binary that parses args and calls `prediction::analysis::*` functions.
 
-## File Structure (New/Modified Only)
+## Build Order (Dependency-Respecting)
 
-```
-src/
-+-- events/
-|   +-- mod.rs              # Add: pub mod subscription;
-|   +-- subscription.rs     # NEW: SubscriptionManager + PolymarketSubscription
-|   +-- discovery.rs        # UNCHANGED
-|   +-- lifecycle.rs        # UNCHANGED
-|   +-- registry.rs         # UNCHANGED
-|   +-- risk.rs             # UNCHANGED
-|   +-- toml_writer.rs      # UNCHANGED
-+-- feed/
-|   +-- pipeline.rs         # MODIFIED: accept SubscriptionChannels, pass to supervisors
-|   +-- deribit/
-|   |   +-- supervisor.rs   # MODIFIED: accept watch::Receiver<Vec<String>>, add select! branch
-|   |   +-- client.rs       # UNCHANGED (receives instruments via constructor, no change)
-|   +-- polymarket/
-|   |   +-- supervisor.rs   # MODIFIED: accept watch::Receiver<Vec<PolymarketSubscription>>
-|   |   +-- client.rs       # UNCHANGED (reads config.assets, no change)
-|   +-- kalshi/
-|       +-- supervisor.rs   # MODIFIED: accept watch::Receiver<Vec<String>>
-|       +-- client.rs       # UNCHANGED (reads config.market_tickers, no change)
-+-- main.rs                 # MODIFIED: wire SubscriptionManager, create watch channels
-```
+### Phase 1: Foundation -- `analysis::stats` Module
 
-### Lines of Code Estimate
+**What:** Shared statistical functions: mean, stddev, percentile, confidence intervals, Sharpe ratio formula.
+**Why first:** Both CLIs depend on this. It has zero dependencies on other new code.
+**Dependencies:** `rust_decimal`, `statrs` (both already in Cargo.toml).
+**Deliverable:** `src/analysis/mod.rs`, `src/analysis/stats.rs` with comprehensive unit tests.
 
-| File | Change Type | Estimated LOC |
-|------|-----------|--------------|
-| `events/subscription.rs` | New | ~200 |
-| `events/mod.rs` | Add module declaration | ~2 |
-| `feed/deribit/supervisor.rs` | Add watch receiver + select branch | ~30 |
-| `feed/polymarket/supervisor.rs` | Add watch receiver + select branch | ~35 |
-| `feed/kalshi/supervisor.rs` | Add watch receiver + select branch | ~30 |
-| `feed/pipeline.rs` | Accept and pass subscription channels | ~40 |
-| `main.rs` | Wire SubscriptionManager, channels, Notify | ~50 |
-| Tests (unit + integration) | New | ~200 |
-| **Total** | | **~590** |
+### Phase 2: Spread Analytics -- Computation Module
 
-This is modest for the functionality delivered -- about 1.7% of the existing codebase.
+**What:** `analysis::spread_analytics` -- time bucketing, venue-pair grouping, spread distribution, threshold breakdown.
+**Dependencies:** `analysis::stats`, `prediction::spread::patterns::SpreadResult`.
+**Deliverable:** `src/analysis/spread_analytics.rs` with unit tests using constructed `SpreadResult` values.
 
-## Build Order (Dependency-Aware)
+### Phase 3: Signal Scoring -- Computation Module
 
-### Phase A: SubscriptionManager Core (read-only observer)
+**What:** `analysis::signal_scoring` -- hit rate, Sharpe ratio, max drawdown, cost-adjusted edge, confidence intervals, threshold effectiveness, optional settlement correlation.
+**Dependencies:** `analysis::stats`, `prediction::signal::types::ArbSignal`.
+**Deliverable:** `src/analysis/signal_scoring.rs` with unit tests using constructed `ArbSignal` values.
 
-**Build** `events/subscription.rs` as a read-only observer that logs diffs but does not push them.
+### Phase 4: JSONL Loading and Output Formatting
 
-1. Define `SubscriptionManager` struct and `PolymarketSubscription` type
-2. Implement `reconcile()`: read registry, compute per-venue sets, diff against last-known
-3. Implement `run()`: loop on `Notify`, call reconcile, log diffs
-4. Wire in `main.rs`: create `Notify`, add `notify_one()` to config subscriber, spawn manager
-5. Unit tests: verify diff detection for additions, removals, no-change cases
+**What:** Shared JSONL file loading (date-range enumeration, tolerant parsing) and output formatter (table/json/csv).
+**Dependencies:** `chrono`, `serde_json` (both already deps). Types from phases 2 and 3.
+**Deliverable:** Added to `src/analysis/mod.rs` or `src/analysis/io.rs`.
 
-**Verifiable milestone:** Run the system, approve a mapping in events.toml, observe structured log "Deribit subscription change: +[BTC-27JUN25-120000-C] -[]". No actual subscription change yet.
+### Phase 5: Spread Analytics Binary
 
-**Dependencies:** None -- purely additive, does not modify any existing components.
+**What:** `src/bin/spread_analytics.rs` -- clap arg parsing, calls loading and computation, prints output.
+**Dependencies:** All of phases 1-4.
+**Deliverable:** Working `spread-analytics` binary. Integration tested against sample JSONL files.
 
-### Phase B: Supervisor Dynamic Instrument Lists
+### Phase 6: Signal Scoring Binary
 
-**Modify** each supervisor to accept and react to watch channels.
+**What:** `src/bin/signal_scoring.rs` -- clap arg parsing, calls loading and computation, prints output.
+**Dependencies:** All of phases 1-4.
+**Deliverable:** Working `signal-scoring` binary. Integration tested against real `signal_logs/` data.
 
-1. Modify `DeribitSupervisor::new()` to accept `watch::Receiver<Vec<String>>`
-2. Add `instruments_rx.changed()` branch to inner `select!` -- break to reconnect
-3. On outer loop entry, `borrow()` latest instruments for client creation
-4. Repeat for `PolymarketSupervisor` (with `PolymarketSubscription` type)
-5. Repeat for `KalshiSupervisor`
-6. Update `run_live_multi_venue()` in `pipeline.rs` to accept and pass channels
+### Phase 7: Integration Verification and Documentation
 
-**Verifiable milestone:** Unit test that sends a new instrument list to a supervisor and verifies it attempts reconnection.
-
-**Dependencies:** Phase A (SubscriptionManager struct must exist to create the sender side of channels).
-
-### Phase C: End-to-End Wiring
-
-**Wire** everything together in `main.rs` and pipeline.
-
-1. Create watch channels in `main.rs`, pass senders to SubscriptionManager, receivers to pipeline
-2. Derive initial instrument lists from registry (not from venues.toml config)
-3. SubscriptionManager pushes actual updates (not just logging)
-4. Verify startup: system subscribes based on registry active_approved
-5. Verify dynamic add: approve a mapping, supervisor reconnects, snapshots arrive
-6. Verify dynamic remove: mark mapping expired, supervisor reconnects without it
-
-**Verifiable milestone:** Full end-to-end: discovery proposes mapping -> operator approves -> supervisor reconnects -> spreads appear for new event (without restart).
-
-**Dependencies:** Phase A + Phase B complete.
-
-### Phase D: Metrics, Edge Cases, Hardening
-
-1. Prometheus metrics: `subscription_activations_total`, `subscription_removals_total`, `feed_subscription_reconnects_total`
-2. Edge case: what if registry has no active instruments for a venue? (Supervisor should still run but subscribe to nothing)
-3. Edge case: rapid config changes (debounce already handled by ConfigReloader's 500ms debounce)
-4. Edge case: SubscriptionManager starts before registry is populated (initial reconcile handles this)
-5. Integration test: full lifecycle from discovery to subscription to retirement
-
-**Dependencies:** Phase C complete.
+**What:** End-to-end verification with real soak test data. Verify both CLIs produce correct output against hand-calculated expected values from known JSONL files.
+**Dependencies:** All phases.
+**Deliverable:** Verified output, any edge case fixes.
 
 ## Scalability Considerations
 
-| Concern | Current (5-10 events) | At 50 events | At 500 events |
-|---------|----------------------|--------------|---------------|
-| Registry read lock duration in SubscriptionManager | Sub-ms | ~1ms | ~5ms |
-| Per-venue diff computation | Sub-ms | Sub-ms | ~1ms (HashSet diff) |
-| Supervisor reconnect time | ~3s per venue | Same | Same (one reconnect per venue) |
-| Watch channel memory | Negligible (Vec<String>) | Negligible | ~50KB per venue |
-| Subscription change frequency | Rare (days) | Rare | Rare (human approval gate) |
+| Concern | Current (6 days) | At 30 days | At 180 days |
+|---------|------------------|------------|-------------|
+| Signal logs | ~550 KB total | ~3 MB | ~18 MB |
+| Spread logs (est.) | Not yet in production | ~100-500 MB | ~1-3 GB |
+| CLI memory usage | Trivial | < 50 MB | < 200 MB (date-bounded) |
+| CLI execution time | < 1 second | < 5 seconds | < 30 seconds (date-bounded) |
+| Approach | Load all in date range | Load all in date range | Load all in date range |
 
-**No scaling concerns at any realistic scale.** The human approval gate ensures subscription changes are infrequent regardless of discovery volume.
+The streaming pattern with date-range bounding keeps memory and time proportional to the analysis window, not total history. Even at 180 days, if the user queries a 7-day window, they load ~7 days of data.
 
-## Integration with Tech Debt Sweep
+If spread logs grow very large (e.g., > 1 GB/day with high-frequency computation), a future optimization would be pre-aggregated daily summaries. But that is unnecessary for v1.4 and can be added non-disruptively later.
 
-The v1.3 milestone also includes tech debt cleanup. The subscription management architecture has no conflicts with any of the 15 known tech debt items. However, two items are directly relevant:
+## Integration Points Summary
 
-1. **"Deribit instrument BTC-27JUN25-100000-C expired June 2025"** -- Once dynamic subscriptions are active, the instrument list in `venues.toml` becomes secondary. This tech debt resolves itself: the registry-derived list will contain only active instruments.
-
-2. **"Kalshi market_tickers = []"** -- Same as above: the empty default in `venues.toml` becomes irrelevant when instrument lists come from the registry.
+| Integration Point | Type | Direction | Details |
+|-------------------|------|-----------|---------|
+| `SpreadResult` serde type | Type reuse | CLI reads library types | `prediction::spread::patterns::SpreadResult` |
+| `ArbSignal` serde type | Type reuse | CLI reads library types | `prediction::signal::types::ArbSignal` |
+| `ThresholdStatus` enum | Type reuse | CLI reads library types | `prediction::signal::types::ThresholdStatus` |
+| `SpreadPattern` enum | Type reuse | CLI reads library types | `prediction::spread::patterns::SpreadPattern` |
+| JSONL file naming convention | Data contract | Service writes, CLI reads | `{YYYY-MM-DD}.jsonl` in configured directories |
+| `rust_decimal` serde | Serialization compat | Shared | `serde(with = "rust_decimal::serde::str")` |
+| `statrs` crate | Statistical functions | CLI computation | Normal distribution for confidence intervals |
+| `clap` crate | CLI parsing | CLI entry points | Already v4.5 with derive feature |
 
 ## Sources
 
-- Direct codebase analysis: `src/feed/deribit/supervisor.rs` (182 lines)
-- Direct codebase analysis: `src/feed/polymarket/supervisor.rs` (141 lines)
-- Direct codebase analysis: `src/feed/kalshi/supervisor.rs` (163 lines)
-- Direct codebase analysis: `src/feed/deribit/client.rs` (311 lines)
-- Direct codebase analysis: `src/feed/polymarket/client.rs` (184 lines)
-- Direct codebase analysis: `src/feed/kalshi/client.rs` (292 lines)
-- Direct codebase analysis: `src/feed/pipeline.rs` (474 lines)
-- Direct codebase analysis: `src/events/registry.rs` (429 lines)
-- Direct codebase analysis: `src/events/lifecycle.rs` (1015+ lines)
-- Direct codebase analysis: `src/config/reload.rs` (119 lines)
-- Direct codebase analysis: `src/config/venues.rs` (172 lines)
-- Direct codebase analysis: `src/config/events.rs` (348 lines)
-- Direct codebase analysis: `src/main.rs` (795 lines)
-- [tokio::sync::watch documentation](https://docs.rs/tokio/latest/tokio/sync/watch/index.html) -- watch channel semantics
-- [Deribit API Documentation](https://docs.deribit.com/) -- confirms dynamic subscribe/unsubscribe support
-- Prior v1.2 architecture research (`.planning/research/ARCHITECTURE.md`, dated 2026-02-26)
-
----
-*Architecture research for: Dynamic Subscription Management (v1.3)*
-*Researched: 2026-02-27*
+- Direct source analysis of `src/spread/patterns.rs` (SpreadResult schema, 583 lines)
+- Direct source analysis of `src/signal/types.rs` (ArbSignal schema, 318 lines)
+- Direct source analysis of `src/spread/logger.rs` (JSONL write pattern, 213 lines)
+- Direct source analysis of `src/signal/logger.rs` (JSONL write pattern, 258 lines)
+- Direct source analysis of `src/paper_trade/tracker.rs` (TradeLogger + SettlementLogger, 816+ lines)
+- Direct source analysis of `src/paper_trade/analyzer.rs` (AccumulatorBucket, LifetimeSummary, FilteredSignalTracker)
+- Direct source analysis of `src/main.rs` (CLI structure with clap Parser + Subcommand, 40,839 lines)
+- Direct source analysis of `Cargo.toml` (dependency inventory)
+- Direct inspection of `signal_logs/*.jsonl` (6 days of production soak data)
+- Direct source analysis of `src/config/system.rs` (AnalysisConfig, PaperTradeConfig, all log dirs)
+- Direct source analysis of `src/settlement/config.rs` (settlement_log_dir)
+- Direct source analysis of `src/spread/config.rs` (spread log_dir default: "spread_logs")
+- Direct source analysis of `src/signal/config.rs` (signal log_dir default: "signal_logs")
