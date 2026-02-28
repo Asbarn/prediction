@@ -102,7 +102,7 @@ impl DeribitClient {
         let (mut write, mut read) = ws_stream.split();
 
         // Build subscription channel list
-        let subscription_channels = channels::build_subscription_channels(&self.instruments);
+        let subscription_channels = channels::build_subscription_channels(&self.instruments, self.config.book_depth_levels);
         let channel_count = subscription_channels.len();
 
         // Send a single batch subscribe request (avoids per-channel rate limit issues)

@@ -391,6 +391,7 @@ impl PricingEngine {
             timestamp: DualTimestamp::now(),
             near_expiry: false,
             iv_spread: iv_spread.max(0.0),
+            options_book_depth: snapshot.depth_bids.len(),
         };
 
         // o. Send via try_send (non-blocking)
@@ -504,6 +505,7 @@ impl PricingEngine {
             timestamp: DualTimestamp::now(),
             near_expiry: true,
             iv_spread: 0.0,
+            options_book_depth: 0,
         };
 
         if let Err(e) = probability_tx.try_send(implied_prob) {

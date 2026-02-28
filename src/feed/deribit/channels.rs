@@ -114,11 +114,11 @@ pub fn extract_instrument(channel: &str) -> Option<String> {
 /// - `trades.{instrument}.raw`
 ///
 /// Additionally includes `deribit_price_index.btc_usd` (always subscribed).
-pub fn build_subscription_channels(instruments: &[String]) -> Vec<String> {
+pub fn build_subscription_channels(instruments: &[String], book_depth_levels: u32) -> Vec<String> {
     let mut channels = Vec::with_capacity(instruments.len() * 3 + 1);
 
     for inst in instruments {
-        channels.push(format!("book.{}.none.20.100ms", inst));
+        channels.push(format!("book.{}.none.{}.100ms", inst, book_depth_levels));
         channels.push(format!("ticker.{}.raw", inst));
         channels.push(format!("trades.{}.raw", inst));
     }
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn build_subscription_channels_single_instrument() {
         let instruments = vec!["BTC-27JUN25-100000-C".to_string()];
-        let channels = build_subscription_channels(&instruments);
+        let channels = build_subscription_channels(&instruments, 20);
 
         assert_eq!(channels.len(), 4);
         assert_eq!(channels[0], "book.BTC-27JUN25-100000-C.none.20.100ms");
@@ -224,7 +224,7 @@ mod tests {
             "BTC-27JUN25-100000-C".to_string(),
             "BTC-27JUN25-80000-P".to_string(),
         ];
-        let channels = build_subscription_channels(&instruments);
+        let channels = build_subscription_channels(&instruments, 20);
 
         // 3 channels per instrument + 1 price index = 7
         assert_eq!(channels.len(), 7);
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn build_subscription_channels_empty_instruments() {
         let instruments: Vec<String> = vec![];
-        let channels = build_subscription_channels(&instruments);
+        let channels = build_subscription_channels(&instruments, 20);
 
         // Just the price index
         assert_eq!(channels.len(), 1);

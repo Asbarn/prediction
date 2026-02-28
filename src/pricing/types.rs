@@ -176,4 +176,8 @@ pub struct ImpliedProbability {
     /// IV bid-ask spread (ask_iv - bid_iv) from IV solver.
     /// Zero for near-expiry intrinsic pricing (no IV solver runs).
     pub iv_spread: f64,
+
+    /// Number of book depth levels in the source Deribit snapshot.
+    /// Zero for near-expiry (no snapshot depth used).
+    pub options_book_depth: usize,
 }

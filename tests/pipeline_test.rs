@@ -17,6 +17,7 @@ fn test_deribit_config() -> DeribitConfig {
         staleness_threshold_ms: 5000,
         reconnect: Default::default(),
         instruments: vec!["BTC-27JUN25-100000-C".to_string()],
+        book_depth_levels: 20,
     }
 }
 
@@ -284,6 +285,7 @@ async fn multi_venue_replay_pipeline_processes_deribit_recordings() {
             staleness_threshold_ms: u64::MAX, // disable staleness for test
             reconnect: Default::default(),
             instruments: vec!["BTC-27JUN25-100000-C".to_string()],
+            book_depth_levels: 20,
         },
         polymarket: PolymarketConfig {
             ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market".to_string(),
@@ -368,6 +370,7 @@ async fn multi_venue_replay_graceful_empty_dir() {
             staleness_threshold_ms: 5000,
             reconnect: Default::default(),
             instruments: vec![],
+            book_depth_levels: 20,
         },
         polymarket: PolymarketConfig {
             ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market".to_string(),

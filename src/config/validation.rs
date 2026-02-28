@@ -217,6 +217,7 @@ mod tests {
                 staleness_threshold_ms: 5000,
                 reconnect: Default::default(),
                 instruments: vec![],
+                book_depth_levels: 20,
             },
             polymarket: PolymarketConfig {
                 ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market".to_string(),

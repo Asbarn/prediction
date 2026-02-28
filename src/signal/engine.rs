@@ -544,7 +544,7 @@ impl CrossAssetEngine {
                     instrument_id: prob.instrument_id.to_string(),
                     probability: options_prob,
                     executable_price: options_executable,
-                    book_depth_levels: 0, // options don't have depth in our model
+                    book_depth_levels: prob.options_book_depth,
                     fill_ratio: Decimal::ONE,
                 },
                 timestamp: DualTimestamp::now(),
@@ -697,6 +697,7 @@ mod tests {
             timestamp: ts,
             near_expiry: false,
             iv_spread: 0.0,
+            options_book_depth: 20,
         }
     }
 

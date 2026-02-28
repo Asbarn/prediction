@@ -51,6 +51,10 @@ fn default_randomization_factor() -> f64 {
     0.5
 }
 
+fn default_book_depth_levels() -> u32 {
+    20
+}
+
 fn default_staleness_threshold() -> u64 {
     5000
 }
@@ -92,6 +96,10 @@ pub struct DeribitConfig {
     /// Dynamic -- comes from config in Phase 2, driven by event registry in Phase 5.
     #[serde(default)]
     pub instruments: Vec<String>,
+    /// Number of book depth levels for grouped book subscription.
+    /// Valid Deribit values: 1, 10, 20. Default: 20.
+    #[serde(default = "default_book_depth_levels")]
+    pub book_depth_levels: u32,
 }
 
 /// A Polymarket asset (token) to subscribe to.
