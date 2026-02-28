@@ -69,7 +69,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 - [x] **Phase 26: Analysis Infrastructure** - Shared stats module, JSONL data loading, and output formatting for both CLIs (completed 2026-02-28)
 - [x] **Phase 27: Spread Analytics CLI** - Complete spread-analytics binary with distribution stats, hourly buckets, and venue-pair breakdown (completed 2026-02-28)
-- [ ] **Phase 28: Signal Scoring CLI** - Complete signal-scoring binary with hit rate, Sharpe, PSR, drawdown, and cost-adjusted edge
+- [x] **Phase 28: Signal Scoring CLI** - Complete signal-scoring binary with hit rate, Sharpe, PSR, drawdown, and cost-adjusted edge (completed 2026-02-28)
 - [ ] **Phase 29: End-to-End Verification** - Validate both CLIs against real soak test data and fix edge cases
 
 ## Phase Details
@@ -113,8 +113,8 @@ Plans:
   5. User can pass `--by-event` and see all scoring metrics additionally broken down per event_id
 **Plans**: 2 plans
 Plans:
-- [ ] 28-01-PLAN.md -- Scoring computation module (stats additions + five pure scoring functions)
-- [ ] 28-02-PLAN.md -- CLI binary wiring with table/JSON rendering and by-event support
+- [x] 28-01-PLAN.md -- Scoring computation module (stats additions + five pure scoring functions)
+- [x] 28-02-PLAN.md -- CLI binary wiring with table/JSON rendering and by-event support
 
 ### Phase 29: End-to-End Verification
 **Goal**: Both CLIs produce correct, trustworthy output when run against actual soak test data, with all edge cases handled gracefully
@@ -140,5 +140,5 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
 | 26. Analysis Infrastructure | 2/2 | Complete    | 2026-02-28 | - |
 | 27. Spread Analytics CLI | 1/1 | Complete    | 2026-02-28 | - |
-| 28. Signal Scoring CLI | 1/2 | In Progress|  | - |
+| 28. Signal Scoring CLI | 2/2 | Complete | 2026-02-28 | - |
 | 29. Verification | v1.4 Analysis Tooling | 0/? | Not started | - |

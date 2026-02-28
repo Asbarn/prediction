@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.4 Analysis Tooling -- Phase 28: Signal Scoring CLI
+**Current focus:** v1.4 Analysis Tooling -- Phase 29: End-to-End Verification
 
 ## Current Position
 
-Phase: 28 (third of 4 in v1.4) — Signal Scoring CLI
-Plan: 1 of 2 in current phase (28-01 complete)
-Status: Executing Phase 28 — 28-01 scoring computation layer complete
-Last activity: 2026-02-28 — Completed 28-01 (scoring computation functions and result structs)
+Phase: 29 (fourth of 4 in v1.4) — End-to-End Verification
+Plan: 0 of ? in current phase (not yet planned)
+Status: Phase 28 complete — ready for Phase 29 planning
+Last activity: 2026-02-28 — Completed 28-02 (signal scoring CLI wiring and binary)
 
-Progress (v1.4): [██████░░░░] 60%
+Progress (v1.4): [████████░░] 80%
 
 ## Performance Metrics
 
@@ -64,6 +64,9 @@ Full decision history in .planning/milestones/v1.0-ROADMAP.md, v1.1-ROADMAP.md, 
 - 28-01: 365.25-day year for prediction market Sharpe annualization (not 252 trading days)
 - 28-01: PSR uses Bailey & Lopez de Prado formula with Fisher bias-corrected moments
 - 28-01: statrs 0.18 StudentsT CDF for p-values and Normal CDF for PSR
+- 28-02: ScoringOutput wrapper with skip_serializing_if for clean JSON without --by-event
+- 28-02: Loading summary to stderr, scoring output to stdout (clean piping for JSON mode)
+- 28-02: BTreeMap for by-event grouping ensuring deterministic key ordering
 
 ### Pending Todos
 
@@ -79,5 +82,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 28-01-PLAN.md (scoring computation layer)
-Next action: Execute 28-02 (signal scoring CLI wiring and binary)
+Stopped at: Completed 28-02-PLAN.md (signal scoring CLI wiring)
+Next action: Plan and execute Phase 29 (end-to-end verification)
