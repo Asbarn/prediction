@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.3 Live Subscription Management -- Phase 24 (Hardening & Observability)
+**Current focus:** v1.3 Live Subscription Management -- Phase 25 (Tech Debt Sweep)
 
 ## Current Position
 
-Phase: 24 of 25 (Hardening & Observability)
+Phase: 25 of 25 (Tech Debt Sweep)
 Plan: 2 of 2 in current phase
-Status: Phase 24 Complete
-Last activity: 2026-02-27 -- Completed 24-02 Stale State Cleanup
+Status: Executing Phase 25
+Last activity: 2026-02-28 -- Completed 25-02 Kalshi Staleness Fix
 
-Progress: [████████████████████████████████] 100% (Phase 24)
+Progress: [████████████████████████████████] 100% (Phase 25, plan 2 of 2)
 
 ## Performance Metrics
 
@@ -44,6 +44,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Full decision history in .planning/milestones/v1.0-ROADMAP.md, v1.1-ROADMAP.md, and v1.2-ROADMAP.md
 
 Key v1.3 decisions:
+- [Phase 25]: unwrap_or(false) for missing Kalshi exchange_timestamp -- cannot determine staleness without timestamp
 - Reconnect-based subscription for all 3 venues (uniform, avoids per-venue protocol differences)
 - tokio::sync::watch for pushing instrument lists to supervisors (latest-value semantics)
 - tokio::sync::Notify for registry-before-subscription ordering
@@ -77,6 +78,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-27
-Stopped at: Completed 24-02-PLAN.md (Stale State Cleanup)
-Next action: Execute Phase 25 (Tech Debt Sweep)
+Last session: 2026-02-28
+Stopped at: Completed 25-02-PLAN.md (Kalshi Staleness Fix)
+Next action: Continue Phase 25 remaining plans (if any) or complete milestone

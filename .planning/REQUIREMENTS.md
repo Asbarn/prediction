@@ -31,7 +31,7 @@ Requirements for v1.3 Live Subscription Management. Each maps to roadmap phases.
 
 - [ ] **FIX-01**: `iv_spread` field populated from IV solver metadata instead of always 0.0
 - [ ] **FIX-02**: Options `book_depth_levels` read from config instead of hardcoded 0
-- [ ] **FIX-03**: Kalshi `is_stale` computed from exchange_timestamp instead of always false
+- [x] **FIX-03**: Kalshi `is_stale` computed from exchange_timestamp instead of always false
 
 ## Future Requirements
 
@@ -88,7 +88,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OPS-02 | Phase 22 | Complete |
 | FIX-01 | Phase 25 | Pending |
 | FIX-02 | Phase 25 | Pending |
-| FIX-03 | Phase 25 | Pending |
+| FIX-03 | Phase 25 | Complete |
 
 **Coverage:**
 - v1.3 requirements: 14 total
