@@ -111,7 +111,10 @@ Plans:
   3. User can see per-trade Sharpe ratio (primary, no annualization) and frequency-adjusted annualized Sharpe, with PSR showing the probability that true Sharpe exceeds zero
   4. User can see maximum drawdown in absolute and percentage terms with drawdown start date, trough date, and recovery date (or "ongoing" if not recovered)
   5. User can pass `--by-event` and see all scoring metrics additionally broken down per event_id
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 28-01-PLAN.md -- Scoring computation module (stats additions + five pure scoring functions)
+- [ ] 28-02-PLAN.md -- CLI binary wiring with table/JSON rendering and by-event support
 
 ### Phase 29: End-to-End Verification
 **Goal**: Both CLIs produce correct, trustworthy output when run against actual soak test data, with all edge cases handled gracefully
@@ -137,5 +140,5 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
 | 26. Analysis Infrastructure | 2/2 | Complete    | 2026-02-28 | - |
 | 27. Spread Analytics CLI | v1.4 Analysis Tooling | 0/1 | Not started | - |
-| 28. Signal Scoring CLI | v1.4 Analysis Tooling | 0/? | Not started | - |
+| 28. Signal Scoring CLI | v1.4 Analysis Tooling | 0/2 | Not started | - |
 | 29. Verification | v1.4 Analysis Tooling | 0/? | Not started | - |
