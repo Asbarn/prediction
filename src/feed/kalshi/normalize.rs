@@ -269,7 +269,22 @@ impl KalshiProcessor {
                         .ok()
                 });
 
-        let is_stale = false;
+        let is_stale = exchange_ts_ms
+            .map(|ts| {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                let age_ms = (now_ms - ts).max(0) as u64;
+                age_ms > self.staleness_threshold_ms
+            })
+            .unwrap_or(false);
+
+        if is_stale {
+            tracing::warn!(
+                market = %market_ticker,
+                age_ms = exchange_ts_ms.map(|ts| (chrono::Utc::now().timestamp_millis() - ts).max(0) as u64).unwrap_or(0),
+                threshold_ms = self.staleness_threshold_ms,
+                "Kalshi exchange data stale"
+            );
+        }
 
         // Latency metrics -- only when exchange timestamp available.
         // Note: Kalshi ts is second-precision ISO 8601; latency values have up to ~999ms jitter.
