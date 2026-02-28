@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.4 Analysis Tooling -- Phase 26: Analysis Infrastructure
+**Current focus:** v1.4 Analysis Tooling -- Phase 27: Spread Analytics CLI
 
 ## Current Position
 
-Phase: 26 (first of 4 in v1.4) — Analysis Infrastructure [COMPLETE]
-Plan: 2 of 2 in current phase (all plans complete)
-Status: Phase complete — ready for Phase 27
-Last activity: 2026-02-28 — Completed 26-02 (CLI binaries and output module)
+Phase: 27 (second of 4 in v1.4) — Spread Analytics CLI [COMPLETE]
+Plan: 1 of 1 in current phase (all plans complete)
+Status: Phase complete — ready for Phase 28
+Last activity: 2026-02-28 — Completed 27-01 (spread analytics computation and CLI wiring)
 
-Progress (v1.4): [██░░░░░░░░] 20%
+Progress (v1.4): [████░░░░░░] 40%
 
 ## Performance Metrics
 
@@ -56,6 +56,10 @@ Full decision history in .planning/milestones/v1.0-ROADMAP.md, v1.1-ROADMAP.md, 
 - 26-02: Synchronous fn main() for CLI binaries (no tokio runtime for batch tools)
 - 26-02: LoadingSummary as placeholder output before Phases 27-28 add analysis computations
 - 26-02: Re-export comfy_table::Table from output.rs for downstream consumers
+- 27-01: Aggregate distribution shown first, venue-pair breakdown repeats per-pair detail
+- 27-01: Hourly table uses net spread only (primary actionable metric)
+- 27-01: Clone SpreadResult refs for per-event computation (simple over dual-signature)
+- 27-01: SpreadPattern derives Ord+Hash for BTreeMap key use
 
 ### Pending Todos
 
@@ -71,5 +75,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 26-02-PLAN.md (Phase 26 complete)
-Next action: Plan Phase 27 (spread analytics computations)
+Stopped at: Completed 27-01-PLAN.md (Phase 27 complete)
+Next action: Execute Phase 28 (signal scoring CLI)

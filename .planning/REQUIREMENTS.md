@@ -16,9 +16,9 @@ Requirements for v1.4 Analysis Tooling milestone. Two CLI binaries for offline s
 
 ### Spread Analytics
 
-- [ ] **SPREAD-01**: User can view spread distribution summary statistics (count, mean, median, stddev, min, max, p5/p25/p75/p95) for net and gross spreads over a date range
-- [ ] **SPREAD-02**: User can view hourly time-bucket analysis showing per-hour spread statistics across 24 UTC hours to identify when opportunities cluster
-- [ ] **SPREAD-03**: User can view venue-pair breakdown showing spread statistics grouped by venue pair (Polymarket-Kalshi, Deribit-Polymarket, Deribit-Kalshi) with directional detail
+- [x] **SPREAD-01**: User can view spread distribution summary statistics (count, mean, median, stddev, min, max, p5/p25/p75/p95) for net and gross spreads over a date range
+- [x] **SPREAD-02**: User can view hourly time-bucket analysis showing per-hour spread statistics across 24 UTC hours to identify when opportunities cluster
+- [x] **SPREAD-03**: User can view venue-pair breakdown showing spread statistics grouped by venue pair (Polymarket-Kalshi, Deribit-Polymarket, Deribit-Kalshi) with directional detail
 
 ### Signal Scoring
 
@@ -58,9 +58,9 @@ Requirements for v1.4 Analysis Tooling milestone. Two CLI binaries for offline s
 | INFRA-02 | Phase 26 | Complete |
 | INFRA-03 | Phase 26 | Complete |
 | INFRA-04 | Phase 26 | Complete |
-| SPREAD-01 | Phase 27 | Pending |
-| SPREAD-02 | Phase 27 | Pending |
-| SPREAD-03 | Phase 27 | Pending |
+| SPREAD-01 | Phase 27 | Complete |
+| SPREAD-02 | Phase 27 | Complete |
+| SPREAD-03 | Phase 27 | Complete |
 | SIGNAL-01 | Phase 28 | Pending |
 | SIGNAL-02 | Phase 28 | Pending |
 | SIGNAL-03 | Phase 28 | Pending |
