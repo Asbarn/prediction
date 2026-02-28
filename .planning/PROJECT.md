@@ -56,7 +56,13 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ### Active
 
-(No active requirements -- planning next milestone)
+## Current Milestone: v1.4 Analysis Tooling
+
+**Goal:** Build CLI-based analysis tools to evaluate signal quality and spread patterns from soak test data, enabling statistically rigorous "go/no-go" decisions before v2 execution.
+
+**Target features:**
+- Spread analytics CLI: hourly time-bucket and venue-pair slicing of recorded spread data
+- Signal scoring CLI: hit rate, Sharpe ratio, cost-adjusted edge, max drawdown with confidence intervals
 
 ### Out of Scope
 
@@ -85,7 +91,7 @@ Signal analysis: hit rate, cost-adjusted edge, false positive rate, time-to-conv
 
 **System status:** Fully operational with dynamic subscription management. When operator approves/archives instruments in events.toml, the system subscribes/unsubscribes feeds without restart and cleans up stale internal state. System can run unattended for paper trading with self-managing event lifecycle and self-managing feed subscriptions.
 
-**Next priority:** Run extended paper trading to validate discovery + signal quality before v2 execution engine.
+**Next priority:** Build analysis tooling (spread analytics + signal scoring CLIs) to evaluate soak test data with statistical rigor before v2 execution engine.
 
 **Known tech debt:** 10 non-blocking items from v1.0 + 2 low-severity from v1.2 + 3 non-critical from v1.3 audit. See MILESTONES.md for full list.
 
@@ -140,4 +146,4 @@ Signal analysis: hit rate, cost-adjusted edge, false positive rate, time-to-conv
 | Registry-retain pattern for stale state cleanup | Engines read active_approved(), retain matching entries only | v1.3 Validated -- authoritative cleanup source |
 
 ---
-*Last updated: 2026-02-28 after v1.3 milestone completion*
+*Last updated: 2026-02-28 after v1.4 milestone start*
