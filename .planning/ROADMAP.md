@@ -83,7 +83,10 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   2. User can pass `--from 2026-02-25 --to 2026-02-28` and the tool loads only JSONL files within that date range (files outside the range are not opened)
   3. User sees aligned terminal table output with numeric columns right-justified and section headers when running either CLI with default output mode
   4. User can pass `--output json` and receive valid JSON that parses without error, containing the same data as the table output
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 26-01-PLAN.md -- Shared analysis module foundation (stats.rs + io.rs)
+- [ ] 26-02-PLAN.md -- Output formatting and CLI binary entry points
 
 ### Phase 27: Spread Analytics CLI
 **Goal**: User can analyze spread distribution patterns, hourly opportunity clustering, and venue-pair performance from recorded spread data
@@ -130,7 +133,7 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29
 | 14-17 | v1.1 Paper Trading | 11/11 | Complete | 2026-02-26 |
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
-| 26. Analysis Infrastructure | v1.4 Analysis Tooling | 0/? | Not started | - |
+| 26. Analysis Infrastructure | v1.4 Analysis Tooling | 0/2 | Not started | - |
 | 27. Spread Analytics CLI | v1.4 Analysis Tooling | 0/? | Not started | - |
 | 28. Signal Scoring CLI | v1.4 Analysis Tooling | 0/? | Not started | - |
 | 29. Verification | v1.4 Analysis Tooling | 0/? | Not started | - |
