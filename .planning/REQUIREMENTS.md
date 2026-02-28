@@ -54,24 +54,24 @@ Requirements for v1.4 Analysis Tooling milestone. Two CLI binaries for offline s
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | — | Pending |
-| INFRA-02 | — | Pending |
-| INFRA-03 | — | Pending |
-| INFRA-04 | — | Pending |
-| SPREAD-01 | — | Pending |
-| SPREAD-02 | — | Pending |
-| SPREAD-03 | — | Pending |
-| SIGNAL-01 | — | Pending |
-| SIGNAL-02 | — | Pending |
-| SIGNAL-03 | — | Pending |
-| SIGNAL-04 | — | Pending |
-| SIGNAL-05 | — | Pending |
+| INFRA-01 | Phase 26 | Pending |
+| INFRA-02 | Phase 26 | Pending |
+| INFRA-03 | Phase 26 | Pending |
+| INFRA-04 | Phase 26 | Pending |
+| SPREAD-01 | Phase 27 | Pending |
+| SPREAD-02 | Phase 27 | Pending |
+| SPREAD-03 | Phase 27 | Pending |
+| SIGNAL-01 | Phase 28 | Pending |
+| SIGNAL-02 | Phase 28 | Pending |
+| SIGNAL-03 | Phase 28 | Pending |
+| SIGNAL-04 | Phase 28 | Pending |
+| SIGNAL-05 | Phase 28 | Pending |
 
 **Coverage:**
 - v1.4 requirements: 12 total
-- Mapped to phases: 0
-- Unmapped: 12 (pending roadmap creation)
+- Mapped to phases: 12
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-28*
-*Last updated: 2026-02-28 after initial definition*
+*Last updated: 2026-02-28 after roadmap creation*

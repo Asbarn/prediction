@@ -5,14 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.4 Analysis Tooling
+**Current focus:** v1.4 Analysis Tooling -- Phase 26: Analysis Infrastructure
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-02-28 — Milestone v1.4 started
+Phase: 26 (first of 4 in v1.4) — Analysis Infrastructure
+Plan: 0 of ? in current phase
+Status: Ready to plan
+Last activity: 2026-02-28 — Roadmap created for v1.4
+
+Progress (v1.4): [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -53,12 +55,13 @@ None.
 
 ### Blockers/Concerns
 
+- Settlement correlation join logic (signal_log to settlement_log by event_id + direction) needs confirmed before Phase 28 planning -- 30-min investigation
+- DualTimestamp::deserialize calls tokio::time::Instant::now() -- may pull tokio dep into sync-only CLI binaries
 - Polymarket groupItemTitle format is not guaranteed stable (permissionless market creation)
 - Windows atomic rename produces DELETE + RENAME events that may race with file watcher debouncer
-- Kalshi may introduce new ticker patterns that bypass extract_kalshi_asset parser
 
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Starting milestone v1.4 Analysis Tooling
-Next action: Define requirements and create roadmap
+Stopped at: v1.4 roadmap created
+Next action: Plan Phase 26 (Analysis Infrastructure)
