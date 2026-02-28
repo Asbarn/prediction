@@ -124,4 +124,4 @@ Plans:
 | 22 | v1.3 Subscription Mgmt | 2/2 | Complete | 2026-02-27 |
 | 23 | v1.3 Subscription Mgmt | Complete    | 2026-02-27 | 2026-02-27 |
 | 24 | 2/2 | Complete    | 2026-02-27 | - |
-| 25 | 2/2 | Complete   | 2026-02-28 | - |
+| 25 | 2/2 | Complete    | 2026-02-28 | - |
