@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-28)
 ## Current Position
 
 Phase: 29 (fourth of 4 in v1.4) — End-to-End Verification
-Plan: 0 of ? in current phase (not yet planned)
-Status: Phase 28 complete — ready for Phase 29 planning
-Last activity: 2026-02-28 — Completed 28-02 (signal scoring CLI wiring and binary)
+Plan: 2 of 2 in current phase
+Status: Phase 29 complete — v1.4 Analysis Tooling milestone complete
+Last activity: 2026-02-28 — Completed 29-02 (signal-scoring E2E golden value tests)
 
-Progress (v1.4): [████████░░] 80%
+Progress (v1.4): [██████████] 100%
 
 ## Performance Metrics
 
@@ -67,6 +67,12 @@ Full decision history in .planning/milestones/v1.0-ROADMAP.md, v1.1-ROADMAP.md, 
 - 28-02: ScoringOutput wrapper with skip_serializing_if for clean JSON without --by-event
 - 28-02: Loading summary to stderr, scoring output to stdout (clean piping for JSON mode)
 - 28-02: BTreeMap for by-event grouping ensuring deterministic key ordering
+- 29-01: Generate JSONL fixtures via serde serialization (not hand-written JSON) to prevent schema drift
+- 29-01: serde_json::Value navigation for flexible JSON assertions in E2E tests
+- 29-01: Epsilon tolerance: 1e-6 for deterministic stats, 1e-4 for stddev
+- 29-02: cargo_bin() resolves binary from current_exe parent chain for cross-platform compatibility
+- 29-02: Shared write_golden_fixture() helper reused across Tests 1-4 for consistency
+- 29-02: Epsilon 1e-4 for golden value assertions (sufficient precision for statistical results)
 
 ### Pending Todos
 
@@ -82,5 +88,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 28-02-PLAN.md (signal scoring CLI wiring)
-Next action: Plan and execute Phase 29 (end-to-end verification)
+Stopped at: Completed 29-02-PLAN.md (signal-scoring E2E golden value tests)
+Next action: v1.4 milestone complete - all phases (26-29) done

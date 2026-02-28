@@ -70,7 +70,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - [x] **Phase 26: Analysis Infrastructure** - Shared stats module, JSONL data loading, and output formatting for both CLIs (completed 2026-02-28)
 - [x] **Phase 27: Spread Analytics CLI** - Complete spread-analytics binary with distribution stats, hourly buckets, and venue-pair breakdown (completed 2026-02-28)
 - [x] **Phase 28: Signal Scoring CLI** - Complete signal-scoring binary with hit rate, Sharpe, PSR, drawdown, and cost-adjusted edge (completed 2026-02-28)
-- [ ] **Phase 29: End-to-End Verification** - Validate both CLIs against real soak test data and fix edge cases
+- [x] **Phase 29: End-to-End Verification** - Validate both CLIs against real soak test data and fix edge cases (completed 2026-02-28)
 
 ## Phase Details
 
@@ -144,4 +144,4 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29
 | 26. Analysis Infrastructure | 2/2 | Complete    | 2026-02-28 | - |
 | 27. Spread Analytics CLI | 1/1 | Complete    | 2026-02-28 | - |
 | 28. Signal Scoring CLI | 2/2 | Complete    | 2026-02-28 | - |
-| 29. Verification | v1.4 Analysis Tooling | 0/2 | Not started | - |
+| 29. Verification | 2/2 | Complete   | 2026-02-28 | - |
