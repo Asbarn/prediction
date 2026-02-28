@@ -11,8 +11,8 @@ See: .planning/PROJECT.md (updated 2026-02-27)
 
 Phase: 25 of 25 (Tech Debt Sweep)
 Plan: 2 of 2 in current phase
-Status: Executing Phase 25
-Last activity: 2026-02-28 -- Completed 25-02 Kalshi Staleness Fix
+Status: Phase 25 Complete
+Last activity: 2026-02-28 -- Completed 25-01 IV Spread and Book Depth Fixes
 
 Progress: [████████████████████████████████] 100% (Phase 25, plan 2 of 2)
 
@@ -44,6 +44,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Full decision history in .planning/milestones/v1.0-ROADMAP.md, v1.1-ROADMAP.md, and v1.2-ROADMAP.md
 
 Key v1.3 decisions:
+- [Phase 25]: iv_spread clamped with .max(0.0) in normal pricing path to prevent negative values
+- [Phase 25]: options_book_depth uses depth_bids.len() as proxy for snapshot depth
+- [Phase 25]: Near-expiry path uses iv_spread=0.0, options_book_depth=0 (semantically correct)
 - [Phase 25]: unwrap_or(false) for missing Kalshi exchange_timestamp -- cannot determine staleness without timestamp
 - Reconnect-based subscription for all 3 venues (uniform, avoids per-venue protocol differences)
 - tokio::sync::watch for pushing instrument lists to supervisors (latest-value semantics)
@@ -79,5 +82,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 25-02-PLAN.md (Kalshi Staleness Fix)
-Next action: Continue Phase 25 remaining plans (if any) or complete milestone
+Stopped at: Completed 25-01-PLAN.md (IV Spread and Book Depth Fixes)
+Next action: Phase 25 complete -- all plans executed. Milestone v1.3 complete.

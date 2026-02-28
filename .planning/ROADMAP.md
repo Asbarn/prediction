@@ -57,7 +57,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - [x] **Phase 22: Subscription Manager Core** - SubscriptionManager with reconciliation logic, registry ordering, and diff logging (completed 2026-02-27)
 - [x] **Phase 23: Dynamic Supervisor Subscriptions** - Wire watch channels into all three venue supervisors for reconnect-based subscribe/unsubscribe (completed 2026-02-27)
 - [x] **Phase 24: Hardening and Observability** - Stale state cleanup, Prometheus subscription metrics, and dry-run reconciliation mode (completed 2026-02-27)
-- [ ] **Phase 25: Tech Debt Sweep** - Fix iv_spread, options book depth, and Kalshi staleness computation
+- [x] **Phase 25: Tech Debt Sweep** - Fix iv_spread, options book depth, and Kalshi staleness computation (completed 2026-02-28)
 
 ## Phase Details
 
@@ -109,7 +109,7 @@ Plans:
   1. iv_spread field in spread computations is populated from the IV solver's actual bid/ask IV metadata instead of always being 0.0
   2. Options book_depth_levels is read from the [deribit] config section instead of being hardcoded to 0
   3. Kalshi is_stale is computed from the exchange_timestamp field instead of always returning false
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 25-01-PLAN.md — IV spread propagation (FIX-01) and config-driven book depth (FIX-02)
 - [ ] 25-02-PLAN.md — Kalshi staleness computation from exchange_timestamp (FIX-03)
@@ -124,4 +124,4 @@ Plans:
 | 22 | v1.3 Subscription Mgmt | 2/2 | Complete | 2026-02-27 |
 | 23 | v1.3 Subscription Mgmt | Complete    | 2026-02-27 | 2026-02-27 |
 | 24 | 2/2 | Complete    | 2026-02-27 | - |
-| 25 | 1/2 | In Progress|  | - |
+| 25 | 2/2 | Complete   | 2026-02-28 | - |
