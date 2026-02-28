@@ -22,11 +22,11 @@ Requirements for v1.4 Analysis Tooling milestone. Two CLI binaries for offline s
 
 ### Signal Scoring
 
-- [ ] **SIGNAL-01**: User can view hit rate (gross and net) with Wilson score confidence intervals at 95% and 99% levels, with sample size reported alongside
-- [ ] **SIGNAL-02**: User can view cost-adjusted mean edge with one-sample t-test significance (t-statistic, p-value, 95% CI) to determine if edge is distinguishable from zero
-- [ ] **SIGNAL-03**: User can view per-trade Sharpe ratio and frequency-adjusted annualized Sharpe ratio computed from settled position P&L series
-- [ ] **SIGNAL-04**: User can view Probabilistic Sharpe Ratio (PSR) showing the probability that true Sharpe exceeds zero, accounting for skewness and kurtosis of returns
-- [ ] **SIGNAL-05**: User can view maximum drawdown in absolute and percentage terms with drawdown start date, trough date, recovery date (or ongoing), and current drawdown state
+- [x] **SIGNAL-01**: User can view hit rate (gross and net) with Wilson score confidence intervals at 95% and 99% levels, with sample size reported alongside
+- [x] **SIGNAL-02**: User can view cost-adjusted mean edge with one-sample t-test significance (t-statistic, p-value, 95% CI) to determine if edge is distinguishable from zero
+- [x] **SIGNAL-03**: User can view per-trade Sharpe ratio and frequency-adjusted annualized Sharpe ratio computed from settled position P&L series
+- [x] **SIGNAL-04**: User can view Probabilistic Sharpe Ratio (PSR) showing the probability that true Sharpe exceeds zero, accounting for skewness and kurtosis of returns
+- [x] **SIGNAL-05**: User can view maximum drawdown in absolute and percentage terms with drawdown start date, trough date, recovery date (or ongoing), and current drawdown state
 
 ## Future Requirements
 
@@ -61,11 +61,11 @@ Requirements for v1.4 Analysis Tooling milestone. Two CLI binaries for offline s
 | SPREAD-01 | Phase 27 | Complete |
 | SPREAD-02 | Phase 27 | Complete |
 | SPREAD-03 | Phase 27 | Complete |
-| SIGNAL-01 | Phase 28 | Pending |
-| SIGNAL-02 | Phase 28 | Pending |
-| SIGNAL-03 | Phase 28 | Pending |
-| SIGNAL-04 | Phase 28 | Pending |
-| SIGNAL-05 | Phase 28 | Pending |
+| SIGNAL-01 | Phase 28 | Complete |
+| SIGNAL-02 | Phase 28 | Complete |
+| SIGNAL-03 | Phase 28 | Complete |
+| SIGNAL-04 | Phase 28 | Complete |
+| SIGNAL-05 | Phase 28 | Complete |
 
 **Coverage:**
 - v1.4 requirements: 12 total

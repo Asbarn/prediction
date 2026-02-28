@@ -140,5 +140,5 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
 | 26. Analysis Infrastructure | 2/2 | Complete    | 2026-02-28 | - |
 | 27. Spread Analytics CLI | 1/1 | Complete    | 2026-02-28 | - |
-| 28. Signal Scoring CLI | v1.4 Analysis Tooling | 0/2 | Not started | - |
+| 28. Signal Scoring CLI | 1/2 | In Progress|  | - |
 | 29. Verification | v1.4 Analysis Tooling | 0/? | Not started | - |

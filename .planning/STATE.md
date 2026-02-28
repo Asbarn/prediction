@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.4 Analysis Tooling -- Phase 27: Spread Analytics CLI
+**Current focus:** v1.4 Analysis Tooling -- Phase 28: Signal Scoring CLI
 
 ## Current Position
 
-Phase: 27 (second of 4 in v1.4) — Spread Analytics CLI [COMPLETE]
-Plan: 1 of 1 in current phase (all plans complete)
-Status: Phase complete — ready for Phase 28
-Last activity: 2026-02-28 — Completed 27-01 (spread analytics computation and CLI wiring)
+Phase: 28 (third of 4 in v1.4) — Signal Scoring CLI
+Plan: 1 of 2 in current phase (28-01 complete)
+Status: Executing Phase 28 — 28-01 scoring computation layer complete
+Last activity: 2026-02-28 — Completed 28-01 (scoring computation functions and result structs)
 
-Progress (v1.4): [████░░░░░░] 40%
+Progress (v1.4): [██████░░░░] 60%
 
 ## Performance Metrics
 
@@ -60,6 +60,10 @@ Full decision history in .planning/milestones/v1.0-ROADMAP.md, v1.1-ROADMAP.md, 
 - 27-01: Hourly table uses net spread only (primary actionable metric)
 - 27-01: Clone SpreadResult refs for per-event computation (simple over dual-signature)
 - 27-01: SpreadPattern derives Ord+Hash for BTreeMap key use
+- 28-01: Boolean gross_hit/net_hit fields for hit rate computation (not P&L sign)
+- 28-01: 365.25-day year for prediction market Sharpe annualization (not 252 trading days)
+- 28-01: PSR uses Bailey & Lopez de Prado formula with Fisher bias-corrected moments
+- 28-01: statrs 0.18 StudentsT CDF for p-values and Normal CDF for PSR
 
 ### Pending Todos
 
@@ -75,5 +79,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 27-01-PLAN.md (Phase 27 complete)
-Next action: Execute Phase 28 (signal scoring CLI)
+Stopped at: Completed 28-01-PLAN.md (scoring computation layer)
+Next action: Execute 28-02 (signal scoring CLI wiring and binary)
