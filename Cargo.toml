@@ -82,3 +82,15 @@ comfy-table = "7"
 
 [dev-dependencies]
 tempfile = "3"
+
+[[bin]]
+name = "prediction"
+path = "src/main.rs"
+
+[[bin]]
+name = "spread-analytics"
+path = "src/bin/spread_analytics.rs"
+
+[[bin]]
+name = "signal-scoring"
+path = "src/bin/signal_scoring.rs"
