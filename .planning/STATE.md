@@ -2,19 +2,18 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-27)
+See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.3 Live Subscription Management -- Phase 25 (Tech Debt Sweep)
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 25 of 25 (Tech Debt Sweep)
-Plan: 2 of 2 in current phase
-Status: Phase 25 Complete
-Last activity: 2026-02-28 -- Completed 25-01 IV Spread and Book Depth Fixes
+Phase: Between milestones (v1.3 complete, next milestone not started)
+Status: Milestone v1.3 shipped 2026-02-28
+Last activity: 2026-02-28 -- Completed milestone v1.3 Live Subscription Management
 
-Progress: [████████████████████████████████] 100% (Phase 25, plan 2 of 2)
+Progress: [████████████████████████████████] 100% (4 milestones shipped)
 
 ## Performance Metrics
 
@@ -36,37 +35,18 @@ Progress: [███████████████████████
 - LOC delta: +2,122 (34,753 total)
 - Timeline: 2 days (2026-02-26 to 2026-02-27)
 
+**v1.3 Summary:**
+- Plans completed: 7
+- Phases: 4 (22-25)
+- LOC delta: +827 (35,580 total)
+- Timeline: 2 days (2026-02-27 to 2026-02-28)
+
 ## Accumulated Context
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-Full decision history in .planning/milestones/v1.0-ROADMAP.md, v1.1-ROADMAP.md, and v1.2-ROADMAP.md
-
-Key v1.3 decisions:
-- [Phase 25]: iv_spread clamped with .max(0.0) in normal pricing path to prevent negative values
-- [Phase 25]: options_book_depth uses depth_bids.len() as proxy for snapshot depth
-- [Phase 25]: Near-expiry path uses iv_spread=0.0, options_book_depth=0 (semantically correct)
-- [Phase 25]: unwrap_or(false) for missing Kalshi exchange_timestamp -- cannot determine staleness without timestamp
-- Reconnect-based subscription for all 3 venues (uniform, avoids per-venue protocol differences)
-- tokio::sync::watch for pushing instrument lists to supervisors (latest-value semantics)
-- tokio::sync::Notify for registry-before-subscription ordering
-- Zero new crate dependencies (continues v1.1/v1.2 pattern)
-- Tech debt sweep in separate final phase for clean bisectability
-- [Phase 22]: SubscriptionManager takes SubscriptionSenders struct for cleaner constructor API
-- [Phase 22]: Explicit drop(reg) before notify_one() to prevent deadlock with read lock acquisition
-- [Phase 22]: sub_senders/sub_receivers wrapped in Option for clean flow out of is_live block
-- [Phase 23]: PolymarketAsset re-exported from config/mod.rs for supervisor import
-- [Phase 23]: One-shot watch channels with immediate sender drop for Mock/Replay modes
-- [Phase 23]: Subscription receivers consumed by pipeline function, not post-hoc attached
-- [Phase 24]: Metrics emitted after state update so gauges reflect actual current subscription counts
-- [Phase 24]: Dry-run skips metrics emission (gauges/counters reflect actual state only)
-- [Phase 24]: cleanup_txs uses Vec<mpsc::Sender> not broadcast (fixed number of consumers)
-- [Phase 24]: try_send for cleanup events: best-effort non-blocking with warn log on failure
-- [Phase 24]: SpreadEngine/CrossAssetEngine use registry active_approved() for cleanup (authoritative source)
-- [Phase 24]: PricingEngine uses deribit_instruments from CleanupEvent directly (instrument-keyed, no registry needed)
-- [Phase 24]: smiles/smile_points NOT cleaned (Research Pitfall 5: shared expiry dates)
-- [Phase 24]: engine_cleanup_rxs returned via PipelineHandles tuple for main.rs-spawned engines
+Full decision history in .planning/milestones/v1.0-ROADMAP.md, v1.1-ROADMAP.md, v1.2-ROADMAP.md, and v1.3-ROADMAP.md
 
 ### Pending Todos
 
@@ -77,10 +57,9 @@ None.
 - Polymarket groupItemTitle format is not guaranteed stable (permissionless market creation)
 - Windows atomic rename produces DELETE + RENAME events that may race with file watcher debouncer
 - Kalshi may introduce new ticker patterns that bypass extract_kalshi_asset parser
-- Stale state after unsubscribe is the primary risk -- SpreadEngine/DeribitProcessor/KalshiProcessor HashMaps grow monotonically (addressed in Phase 24)
 
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 25-01-PLAN.md (IV Spread and Book Depth Fixes)
-Next action: Phase 25 complete -- all plans executed. Milestone v1.3 complete.
+Stopped at: Completed milestone v1.3 Live Subscription Management
+Next action: /gsd:new-milestone to start next milestone

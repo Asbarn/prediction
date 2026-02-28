@@ -62,3 +62,25 @@
 
 ---
 
+
+## v1.3 Live Subscription Management (Shipped: 2026-02-28)
+
+**Phases completed:** 4 phases, 7 plans
+**LOC delta:** +827 lines (35,580 LOC Rust total)
+**Timeline:** 2 days (2026-02-27 to 2026-02-28)
+**Commits:** 31
+**Requirements:** 14/14 satisfied
+**Audit:** 14/14 requirements, 4/4 phases, 14/14 integration, 5/5 E2E flows
+
+**Key accomplishments:**
+- SubscriptionManager with per-venue HashSet diff reconciliation, watch channel push, and Notify-based ordering guarantee ensuring registry refresh completes before subscription reads
+- All three venue supervisors (Deribit, Polymarket, Kalshi) dynamically subscribe/unsubscribe via watch::Receiver without restart -- operator approves in events.toml, system responds within one config reload cycle
+- Prometheus subscription metrics (active gauge per venue, activation/removal counters) and dry-run reconciliation mode for safe operator testing
+- Stale state cleanup after unsubscribe: 5 stateful engines evict entries via mpsc cleanup channels, preventing phantom signals from stale data paired with live data
+- iv_spread populated from actual IV solver bid-ask spread (was always 0.0), options book depth config-driven (was hardcoded 0), Kalshi staleness computed from exchange_timestamp age (was always false)
+- Zero new crate dependencies (continues v1.1/v1.2 pattern)
+
+**Tech debt carried forward:** 10 non-blocking items from v1.0 (3 behavior-changing items fixed in v1.3) + 2 low-severity from v1.2 + 3 non-critical from v1.3 audit (stale comment, unused CleanupEvent field, dead PipelineHandles field)
+
+---
+
