@@ -80,7 +80,7 @@ pub struct AccumulatorBucket {
 ///
 /// Combines per-position data with running accumulator metrics at the time
 /// of settlement, giving a complete snapshot for post-hoc analysis.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisSettlementRecord {
     pub event_id: String,
     pub position_id: String,

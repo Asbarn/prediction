@@ -90,6 +90,45 @@ pub fn wilson_ci(successes: usize, total: usize, z: f64) -> Option<(f64, f64)> {
     Some((center - margin, center + margin))
 }
 
+/// Fisher's bias-corrected sample skewness.
+/// Returns None if n < 3 or variance is zero.
+pub fn skewness_f64(values: &[f64]) -> Option<f64> {
+    let n = values.len();
+    if n < 3 {
+        return None;
+    }
+    let nf = n as f64;
+    let mean = values.iter().sum::<f64>() / nf;
+    let m2: f64 = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / nf;
+    if m2 == 0.0 {
+        return None;
+    }
+    let m3: f64 = values.iter().map(|x| (x - mean).powi(3)).sum::<f64>() / nf;
+    let g1 = m3 / m2.powf(1.5);
+    let correction = (nf * (nf - 1.0)).sqrt() / (nf - 2.0);
+    Some(g1 * correction)
+}
+
+/// Fisher's excess kurtosis (normal distribution = 0).
+/// Returns None if n < 4 or variance is zero.
+pub fn kurtosis_f64(values: &[f64]) -> Option<f64> {
+    let n = values.len();
+    if n < 4 {
+        return None;
+    }
+    let nf = n as f64;
+    let mean = values.iter().sum::<f64>() / nf;
+    let m2: f64 = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / nf;
+    if m2 == 0.0 {
+        return None;
+    }
+    let m4: f64 = values.iter().map(|x| (x - mean).powi(4)).sum::<f64>() / nf;
+    let raw_kurt = m4 / (m2 * m2);
+    let excess = ((nf - 1.0) / ((nf - 2.0) * (nf - 3.0)))
+        * ((nf + 1.0) * raw_kurt - 3.0 * (nf - 1.0));
+    Some(excess)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +222,58 @@ mod tests {
         let vals = [dec!(1), dec!(2), dec!(3)];
         // 6 / 3 = 2 exactly
         assert_eq!(mean_decimal(&vals), Some(dec!(2)));
+    }
+
+    #[test]
+    fn skewness_symmetric_is_zero() {
+        let vals = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let skew = skewness_f64(&vals).unwrap();
+        assert!(
+            skew.abs() < 1e-10,
+            "Symmetric distribution should have skewness ~0, got {skew}"
+        );
+    }
+
+    #[test]
+    fn skewness_right_skewed() {
+        let vals = [1.0, 1.0, 1.0, 1.0, 10.0];
+        let skew = skewness_f64(&vals).unwrap();
+        assert!(
+            skew > 0.0,
+            "Right-skewed distribution should have positive skewness, got {skew}"
+        );
+    }
+
+    #[test]
+    fn skewness_too_few_returns_none() {
+        assert_eq!(skewness_f64(&[]), None);
+        assert_eq!(skewness_f64(&[1.0]), None);
+        assert_eq!(skewness_f64(&[1.0, 2.0]), None);
+    }
+
+    #[test]
+    fn kurtosis_normal_like() {
+        // A uniform-ish distribution should have negative excess kurtosis (platykurtic)
+        let vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        let kurt = kurtosis_f64(&vals).unwrap();
+        // Uniform excess kurtosis is -1.2; discrete uniform of 10 is close
+        assert!(
+            kurt > -3.0 && kurt < 3.0,
+            "Reasonable kurtosis expected, got {kurt}"
+        );
+    }
+
+    #[test]
+    fn kurtosis_too_few_returns_none() {
+        assert_eq!(kurtosis_f64(&[]), None);
+        assert_eq!(kurtosis_f64(&[1.0]), None);
+        assert_eq!(kurtosis_f64(&[1.0, 2.0]), None);
+        assert_eq!(kurtosis_f64(&[1.0, 2.0, 3.0]), None);
+    }
+
+    #[test]
+    fn kurtosis_zero_variance_returns_none() {
+        let vals = [5.0, 5.0, 5.0, 5.0, 5.0];
+        assert_eq!(kurtosis_f64(&vals), None);
     }
 }
