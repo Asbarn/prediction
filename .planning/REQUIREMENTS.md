@@ -9,7 +9,7 @@ Requirements for v1.4 Analysis Tooling milestone. Two CLI binaries for offline s
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: User can run `spread-analytics` and `signal-scoring` as separate CLI binaries with `--from YYYY-MM-DD`, `--to YYYY-MM-DD`, and `--last N` date-range filtering
+- [x] **INFRA-01**: User can run `spread-analytics` and `signal-scoring` as separate CLI binaries with `--from YYYY-MM-DD`, `--to YYYY-MM-DD`, and `--last N` date-range filtering
 - [ ] **INFRA-02**: User sees analysis output as formatted terminal tables with aligned numeric columns and section headers
 - [ ] **INFRA-03**: User can pass `--output json` to get machine-readable JSON output instead of terminal tables
 - [ ] **INFRA-04**: User can pass `--by-event` to see all analyses broken down by event_id in addition to aggregate view
@@ -54,7 +54,7 @@ Requirements for v1.4 Analysis Tooling milestone. Two CLI binaries for offline s
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 26 | Pending |
+| INFRA-01 | Phase 26 | Complete |
 | INFRA-02 | Phase 26 | Pending |
 | INFRA-03 | Phase 26 | Pending |
 | INFRA-04 | Phase 26 | Pending |
