@@ -99,7 +99,7 @@ Plans:
   4. User can pass `--by-event` and see all three analyses additionally broken down per event_id
 **Plans**: 1 plan
 Plans:
-- [ ] 27-01-PLAN.md -- Spread analytics computation module and CLI binary wiring
+- [x] 27-01-PLAN.md -- Spread analytics computation module and CLI binary wiring
 
 ### Phase 28: Signal Scoring CLI
 **Goal**: User can make a statistically rigorous go/no-go decision for v2 execution based on hit rate confidence intervals, edge significance, risk-adjusted returns, and drawdown analysis
@@ -124,7 +124,10 @@ Plans:
   1. Both CLIs run against real soak test JSONL data and produce output without errors, panics, or malformed tables
   2. At least one known data subset has hand-verified expected values that match CLI output for spread stats, hit rate, and Sharpe ratio
   3. Edge cases produce graceful output: empty date ranges show "No data in range", zero settled positions show "Insufficient data" rather than division-by-zero panics, and malformed JSONL lines are skipped with a warning count
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 29-01-PLAN.md -- Spread analytics E2E golden value and edge case tests
+- [ ] 29-02-PLAN.md -- Signal scoring E2E golden value and edge case tests
 
 ## Progress
 
@@ -141,4 +144,4 @@ Phases execute in numeric order: 26 -> 27 -> 28 -> 29
 | 26. Analysis Infrastructure | 2/2 | Complete    | 2026-02-28 | - |
 | 27. Spread Analytics CLI | 1/1 | Complete    | 2026-02-28 | - |
 | 28. Signal Scoring CLI | 2/2 | Complete    | 2026-02-28 | - |
-| 29. Verification | v1.4 Analysis Tooling | 0/? | Not started | - |
+| 29. Verification | v1.4 Analysis Tooling | 0/2 | Not started | - |
