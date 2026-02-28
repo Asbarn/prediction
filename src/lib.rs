@@ -16,3 +16,4 @@ pub mod signal;
 pub mod subscription;
 pub mod spread;
 pub mod types;
+pub mod analysis;

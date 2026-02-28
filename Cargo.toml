@@ -76,3 +76,6 @@ rand = "0.8"
 statrs = "0.18"
 # HTTP health endpoint (Phase 9)
 axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"] }
+
+# Terminal table rendering (Phase 26 analysis tooling)
+comfy-table = "7"
