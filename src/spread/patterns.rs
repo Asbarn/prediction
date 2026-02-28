@@ -19,7 +19,7 @@ use crate::types::Probability;
 /// Patterns 3 and 4 are algebraically equivalent to 1 and 2 in gross spread,
 /// but produce different net spreads when walk-the-book uses different depth
 /// sides (asks vs bids).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SpreadPattern {
     /// Buy Polymarket YES (at ask), Sell Kalshi YES (at bid).
     BuyPolyYesSellKalshiYes,
