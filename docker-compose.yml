@@ -1,0 +1,31 @@
+services:
+  prediction:
+    build: .
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./config:/app/config:ro
+      - ./secrets:/app/secrets:ro
+      - spread_logs:/app/spread_logs
+      - settlement_logs:/app/settlement_logs
+      - paper_trades:/app/paper_trades
+      - state:/app/state
+      - logs:/app/logs
+    environment:
+      - KALSHI_API_KEY_ID=${KALSHI_API_KEY_ID:-}
+      - KALSHI_PRIVATE_KEY_PATH=/app/secrets/kalshi_private_key.pem
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  spread_logs:
+  settlement_logs:
+  paper_trades:
+  state:
+  logs:

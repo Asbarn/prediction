@@ -5,5 +5,7 @@
 *.swo
 *~
 .env
+secrets/
 .idea/
 *.iml
+.kalshi.demo.env

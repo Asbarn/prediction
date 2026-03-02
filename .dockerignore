@@ -1,0 +1,15 @@
+target/
+.git/
+.planning/
+recordings/
+signal_logs/
+state/
+logs/
+spread_logs/
+paper_trades/
+settlement_logs/
+.env
+secrets/
+*.md
+.idea/
+.claude/
