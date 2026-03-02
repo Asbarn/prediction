@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A production-grade cross-venue arbitrage signal generator in Rust that detects pricing discrepancies between crypto prediction markets (Polymarket, Kalshi) and options markets (Deribit). Compares prediction market binary contract prices against options-implied probabilities derived via Black-76 pricing with call spread replication, generates trading signals when spreads exceed cost-adjusted thresholds, tracks settlement outcomes for signal validation, computes statistical evidence of signal quality, automatically discovers new cross-venue instrument matches with operator-approved proposals, and dynamically manages feed subscriptions as instruments are approved or retired. Built as a single-binary service for a solo trader with 35,580 lines of Rust and full deterministic replay capability.
+A production-grade cross-venue arbitrage signal generator in Rust that detects pricing discrepancies between crypto prediction markets (Polymarket, Kalshi) and options markets (Deribit). Compares prediction market binary contract prices against options-implied probabilities derived via Black-76 pricing with call spread replication, generates trading signals when spreads exceed cost-adjusted thresholds, tracks settlement outcomes for signal validation, computes statistical evidence of signal quality, automatically discovers new cross-venue instrument matches with operator-approved proposals, dynamically manages feed subscriptions as instruments are approved or retired, and provides offline CLI analysis tools for statistically rigorous go/no-go decisions. Built as a single-binary service for a solo trader with 36,507 lines of Rust and full deterministic replay capability.
 
 ## Core Value
 
@@ -54,15 +54,14 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 - v1.3 Prometheus subscription metrics (active gauge, activation/removal counters per venue) and dry-run reconciliation mode
 - v1.3 iv_spread populated from actual IV solver bid-ask spread, options book depth config-driven, Kalshi staleness from exchange_timestamp
 
+- v1.4 Shared analysis infrastructure: stats module (mean, stddev, percentile, wilson_ci, skewness, kurtosis), tolerant JSONL loader with date-range file enumeration, dual-mode output (table/JSON)
+- v1.4 `spread-analytics` CLI: distribution summary, 24-row hourly breakdown, venue-pair analysis with --by-event and --output json support
+- v1.4 `signal-scoring` CLI: hit rate with Wilson CIs, cost-adjusted edge t-test, Sharpe/PSR, max drawdown with recovery dates, --by-event and --output json support
+- v1.4 13 E2E golden-value integration tests proving computation correctness for both CLIs
+
 ### Active
 
-## Current Milestone: v1.4 Analysis Tooling
-
-**Goal:** Build CLI-based analysis tools to evaluate signal quality and spread patterns from soak test data, enabling statistically rigorous "go/no-go" decisions before v2 execution.
-
-**Target features:**
-- Spread analytics CLI: hourly time-bucket and venue-pair slicing of recorded spread data
-- Signal scoring CLI: hit rate, Sharpe ratio, cost-adjusted edge, max drawdown with confidence intervals
+(No active requirements -- next milestone not yet defined)
 
 ### Out of Scope
 
@@ -78,20 +77,24 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 - NLP/ML-based Polymarket question parsing -- regex sufficient for predictable BTC price patterns
 - Automatic approval of high-confidence matches -- human gate is non-negotiable safety mechanism
 - Database-backed event store -- TOML sufficient at dozens-to-hundreds of entries, human-readable and git-trackable
+- Real-time TUI dashboard -- Prometheus + Grafana covers live monitoring; analysis tools are for offline evaluation
+- Database backend (SQLite/DuckDB) for analysis -- JSONL sufficient at current scale; Vec<T> faster for expected volumes
+- Full backtesting engine -- settled data is stronger evidence than simulated backtests
+- Terminal charting -- JSON output + external tools preferred
 
 ## Context
 
-**Shipped v1.3 Live Subscription Management** (2026-02-28) with 35,580 LOC Rust across 25 phases (4 milestones).
-Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prometheus, statrs, tracing, strsim.
+**Shipped v1.4 Analysis Tooling** (2026-03-02) with 36,507 LOC Rust across 29 phases (5 milestones).
+Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prometheus, statrs, comfy-table, tracing, strsim.
 3 venues operational: Deribit (WebSocket + REST settlement + discovery), Polymarket (CLOB WebSocket + Gamma API discovery), Kalshi (WebSocket + REST + discovery).
 Dynamic subscription: SubscriptionManager with per-venue reconciliation, watch channels to supervisors, Notify ordering, dry-run mode, and stale state cleanup across 5 engines.
 Automated event management: three-venue discovery with fuzzy matching, confidence-scored proposals, approved-mapping validation, expired event archival, and periodic background pipeline.
 Settlement tracking: 3 venue resolution checkers with 4-tier polling cadence, startup backfill, and auto-settlement.
-Signal analysis: hit rate, cost-adjusted edge, false positive rate, time-to-convergence, threshold effectiveness tracking.
+Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and `signal-scoring` CLI (hit rate, Sharpe, PSR, drawdown, edge t-test) with E2E golden-value tests.
 
-**System status:** Fully operational with dynamic subscription management. When operator approves/archives instruments in events.toml, the system subscribes/unsubscribes feeds without restart and cleans up stale internal state. System can run unattended for paper trading with self-managing event lifecycle and self-managing feed subscriptions.
+**System status:** Fully operational with analysis capability. System runs unattended for paper trading with self-managing event lifecycle, self-managing feed subscriptions, and offline analysis CLIs for soak test evaluation. Ready for extended soak testing to gather settlement data for go/no-go decision.
 
-**Next priority:** Build analysis tooling (spread analytics + signal scoring CLIs) to evaluate soak test data with statistical rigor before v2 execution engine.
+**Next priority:** Extended soak testing to gather sufficient settlement data, then evaluate results with analysis CLIs to make a statistically rigorous go/no-go decision for v2 execution engine.
 
 **Known tech debt:** 10 non-blocking items from v1.0 + 2 low-severity from v1.2 + 3 non-critical from v1.3 audit. See MILESTONES.md for full list.
 
@@ -144,6 +147,12 @@ Signal analysis: hit rate, cost-adjusted edge, false positive rate, time-to-conv
 | Tech debt sweep in separate final phase | Clean bisectability; behavior changes isolated from subscription work | v1.3 Validated -- clean separation |
 | Vec<mpsc::Sender> for cleanup channels | Fixed number of consumers (5 engines); no broadcast needed | v1.3 Validated -- simple, correct |
 | Registry-retain pattern for stale state cleanup | Engines read active_approved(), retain matching entries only | v1.3 Validated -- authoritative cleanup source |
+| Decimal for financial mean, f64 for statistical functions | Precision boundary: financial values in Decimal, statistical in f64 | v1.4 Validated -- clean separation |
+| Synchronous fn main() for CLI binaries | No tokio runtime needed for batch analysis tools | v1.4 Validated -- simpler dependency chain |
+| 365.25-day year for Sharpe annualization | Prediction markets trade 24/7, not 252 stock trading days | v1.4 Validated -- correct for asset class |
+| PSR via Bailey & Lopez de Prado formula | Accounts for non-normal return distribution (skewness/kurtosis) | v1.4 Validated -- robust statistical inference |
+| statrs for t-distribution and normal CDF | Standard library for statistical distributions | v1.4 Validated -- correct p-values |
+| Generated JSONL fixtures (not hand-written) | Prevents schema drift between struct definitions and test data | v1.4 Validated -- reliable E2E tests |
 
 ---
-*Last updated: 2026-02-28 after v1.4 milestone start*
+*Last updated: 2026-03-02 after v1.4 milestone*

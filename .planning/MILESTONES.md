@@ -84,3 +84,23 @@
 
 ---
 
+
+## v1.4 Analysis Tooling (Shipped: 2026-03-02)
+
+**Phases completed:** 4 phases, 7 plans, 11 tasks
+**LOC delta:** +927 lines (36,507 LOC Rust total)
+**Timeline:** 1 day (2026-02-28)
+**Commits:** 11
+**Requirements:** 12/12 satisfied
+
+**Key accomplishments:**
+- Shared analysis infrastructure: pure statistics module (mean, stddev, percentile, wilson_ci, skewness, kurtosis), tolerant JSONL loader with date-range file enumeration, dual-mode output (table/JSON) with comfy-table rendering
+- `spread-analytics` CLI: distribution summary (net/gross with p5-p95), 24-row hourly breakdown revealing opportunity clustering, venue-pair analysis with directional detail, --by-event and --output json support
+- `signal-scoring` CLI: hit rate with Wilson CIs at 95%/99%, cost-adjusted edge t-test (t-stat, p-value, CI), per-trade and annualized Sharpe with PSR (Bailey & Lopez de Prado), max drawdown with recovery dates
+- 13 E2E golden-value integration tests (6 spread + 7 signal) proving computation correctness against hand-verified expected values with epsilon tolerances
+- Pure-function architecture: all computation functions accept slices, return Options, no side effects; deterministic BTreeMap bucketing for ordered output
+
+**Tech debt carried forward:** Same as v1.3 (no new items)
+
+---
+
