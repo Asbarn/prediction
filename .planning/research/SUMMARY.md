@@ -1,196 +1,197 @@
 # Project Research Summary
 
-**Project:** Prediction Market Arbitrage System — v1.4 Analysis Tooling
-**Domain:** CLI-based statistical analysis for cross-venue prediction market arbitrage
-**Researched:** 2026-02-28
-**Confidence:** HIGH
+**Project:** v1.5 Derive.xyz Venue Integration
+**Domain:** Cross-venue options arbitrage — DeFi venue feed addition (Rust, multi-venue, real-time)
+**Researched:** 2026-03-03
+**Confidence:** MEDIUM-HIGH (architecture HIGH from direct codebase analysis; API specifics MEDIUM/LOW pending live verification)
 
 ## Executive Summary
 
-v1.4 adds two offline CLI analysis tools — `spread-analytics` and `signal-scoring` — that read existing JSONL log files and produce the statistical summaries needed to make a go/no-go decision for v2 live execution. The research reveals a project in an enviable position: the data pipeline already exists (SpreadResult and ArbSignal JSONL files), the types already derive serde, and all but two new crate dependencies are already in Cargo.toml. The recommended implementation path is two separate `[[bin]]` targets sharing a new `src/analysis/` library module, with streaming line-by-line JSONL parsing, and date-range filtering at the file level. Total new dependencies: `comfy-table 7.2` (terminal tables) and `csv 1.4` (CSV export). Everything else is covered by existing crates.
+v1.5 adds Derive.xyz (formerly Lyra v2) as a fourth venue to an existing, production-validated cross-venue options arbitrage system. Derive is a decentralized CLOB options exchange running on an Ethereum OP Stack L2, with a JSON-RPC WebSocket API structurally similar to Deribit. The integration is architecturally additive: no changes to downstream engines, no changes to the MarketSnapshot schema, no changes to existing venue supervisors. Every new component mirrors an existing one, with six new source files modeled directly on `src/feed/deribit/`. The primary value delivered is a **Deribit vs Derive options spread** — a direct options-vs-options arbitrage signal uncontaminated by prediction market basis risk — plus a three-way spread (Deribit vs Derive vs Polymarket) that activates automatically once the feed is wired in.
 
-The statistical surface is well-understood but contains one critical domain-specific trap: the standard Sharpe ratio annualization formula (mean/stddev * sqrt(252)) is mathematically invalid for binary event outcomes. Prediction market positions are bimodal, correlated, and irregularly-timed — every assumption behind sqrt(N) annualization is violated. The research mandates reporting per-trade Sharpe (no annualization) as the primary metric, accompanied by a Probabilistic Sharpe Ratio (PSR) that quantifies confidence given the small sample sizes that early soak testing will produce. Secondary metrics — Wilson score confidence intervals for hit rate, Student's t for mean edge, and absolute max drawdown annotated with settlement count — are all well-specified and implementable with existing dependencies.
+The recommended approach is a strict copy-and-adapt of the Deribit feed stack, with two critical deviations: (1) instrument name parsing must independently handle Derive's `YYYYMMDD` date format (`BTC-20250627-100000-C`) vs Deribit's `DDMMMYY` format (`BTC-27JUN25-100000-C`) — the formats look similar but require completely separate parsers; and (2) Derive prices are USDC-denominated (linear/cash-settled contracts) while Deribit prices are BTC-denominated (inverse contracts), requiring normalization before probability extraction. One new Cargo dependency is required — `k256 = "0.13"` for secp256k1 ECDSA signing — though pre-implementation live API testing should first confirm whether `public/login` authentication is actually needed for read-only orderbook data, as it may not be required.
 
-The three highest-risk implementation choices are: (1) ensuring the data loading layer streams rather than bulk-loads JSONL files, because spread logs can reach 725 MB/day at the system's tick rate; (2) avoiding survivorship bias by reporting all position states (settled, open, timed-out) rather than only settled positions; and (3) always segmenting metrics by venue-pair type rather than aggregating prediction-vs-prediction with prediction-vs-options, as the two categories have incompatible cost structures and risk profiles. All three are architectural decisions that must be made before implementation begins.
-
----
+The primary risks are: a price denomination bug producing phantom arbitrage signals (high severity, detectable by comparing Derive vs Deribit implied probabilities for the same instrument), an instrument name format mismatch causing zero cross-venue candidates (medium severity, caught by a unit test before any wiring), and the book update model assumption — Derive may send incremental deltas rather than full snapshots, which would silently corrupt the book if the wrong model is used. All three risks are caught early if the implementation begins with live API inspection of the testnet feed before committing to any implementation details.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The existing v1.0–v1.3 stack handles all v1.4 needs with two additions. `comfy-table 7.2` is the correct choice for terminal table output — it is feature-complete, has a single transitive dependency, and its builder API suits dynamic summary tables better than tabled's derive-macro approach. The canonical `csv 1.4` crate by BurntSushi handles CSV export with correct quoting/escaping and serde integration. All statistical computation (Sharpe CI, Wilson score, max drawdown) is covered by `statrs 0.18`, `rust_decimal 1.40`, and basic f64 arithmetic already in the project.
+The existing v1.0–v1.4 validated stack is almost entirely sufficient. The only new dependency is `k256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }` for Ethereum wallet-based session signing. All WebSocket, JSON-RPC, rate limiting, reconnection, decimal arithmetic, and recording needs are covered by existing crates. The `sha3` crate (Keccak256) may also be needed if `k256`'s ecdsa feature does not re-export it — verify at implementation time before adding.
 
 **Core technologies:**
-- `comfy-table 7.2`: Terminal table rendering — builder API fits dynamic summary rows, "finished" project status, 58M+ downloads, 1 transitive dep
-- `csv 1.4`: CSV export — canonical BurntSushi implementation, 129M+ downloads, serde-aware Writer, no credible alternative
-- `statrs 0.18` (existing): Statistical functions — Normal distribution inverse CDF for Wilson score and PSR; already used for Black-76 pricing
-- `clap 4.5` (existing): CLI argument parsing — already in deps with derive feature; subcommands, defaults, help all available
-- `chrono 0.4` (existing): Timestamp handling — millisecond parsing, hour extraction, date arithmetic; all JSONL timestamps already use this
-- `rust_decimal 1.40` (existing): Decimal arithmetic — all SpreadResult and ArbSignal financial fields already use this serde integration
-- `serde_json 1.0` (existing): JSONL deserialization — all log types already derive Serialize + Deserialize
+- `k256 = "0.13"` (new): secp256k1 ECDSA signing for Derive `public/login` — pure Rust, RustCrypto family, NCC Group audited, no C FFI; may be deferred if live testing shows public channels work unauthenticated
+- `tokio-tungstenite` (existing): WebSocket to `wss://api.lyra.finance/ws` — same `connect_async` + `split()` read loop pattern as Deribit
+- `reqwest` (existing): REST calls to `POST /public/get_instruments` for discovery — already used for Polymarket Gamma API and Kalshi
+- `serde_json` (existing): JSON-RPC 2.0 message construction and parsing — same `json!{}` macro pattern as Deribit client
+- `rust_decimal` (existing): All price and size fields — normalize USDC prices to BTC-equivalent using Decimal arithmetic before IV solver
 
-**What NOT to add:** polars (200+ transitive deps for Vec<f64> operations), ndarray/nalgebra (no matrix math needed), plotters (tables convey analysis information more precisely), tokio in analysis binaries (synchronous file I/O only; no async needed).
+**What NOT to add:** `alloy` / `alloy-signer` (50+ transitive deps for one `personal_sign` call), `ethers-rs` (deprecated), `secp256k1 0.29` (requires C build step), any Derive-specific SDK (none exists as a library crate), `tokio-websockets` (would create a second WS library alongside `tokio-tungstenite`).
 
 ### Expected Features
 
-All 9 table stakes features are required for the go/no-go decision. They naturally decompose into two CLIs: `spread-analytics` handles spread distribution analysis, and `signal-scoring` handles trade performance evaluation.
+All features required for a functional fourth venue are table stakes — there are no differentiators that require extra work. The most valuable outcomes (three-way spread and Black-76 implied probability) activate automatically from the base integration.
 
-**Must have (table stakes — v1.4 ship criteria):**
-- TS-8: Date-range filtering (`--from`, `--to`, `--last N`) — foundation for all analysis; JSONL filename convention makes file-level filtering trivial
-- TS-9: Terminal table output — `comfy-table` for aligned columns, headers, and section separators
-- TS-1: Spread distribution summary stats — count, mean, median, stddev, min, max, p5/p25/p75/p95 per venue pair
-- TS-2: Hourly time-bucket analysis — 24-row table showing when opportunities appear; essential for v2 scheduling decisions
-- TS-3: Venue-pair breakdown — which pairs produce positive mean net_spread; direct capital allocation input
-- TS-4: Hit rate with Wilson score confidence intervals — Wilson score mandatory (not Wald) because of small n; must show sample size alongside CI
-- TS-5: Cost-adjusted edge with t-test significance — mean net edge, SE, t-statistic, p-value; answers "is the edge real after costs?"
-- TS-6: Sharpe ratio — per-trade (non-annualized) as primary metric; PSR accompanies it
-- TS-7: Maximum drawdown — absolute dollar terms with settlement count annotation; not percentage (arbitrary denominator)
+**Must have (table stakes — all P1):**
+- `Venue::Derive` enum variant — hard blocker for everything; add first and fix all match arms completely, no `todo!()` shortcuts
+- Instrument name parser (`parse_derive_instrument_name`) — `YYYYMMDD` format only, entirely independent of Deribit parser
+- DeriveClient — WebSocket connect + `public/subscribe` + forward `RawMessage` frames
+- DeriveBook — order book state (snapshot or incremental delta model; verify from live API before writing any code)
+- Ticker feed — `bid_iv`, `ask_iv`, `index_price`, `mark_price` extraction
+- DeriveProcessor — normalization to `MarketSnapshot { venue: Venue::Derive }` with USDC price normalization
+- DeriveSupervisor — exponential backoff reconnection watching `watch::Receiver<Vec<String>>`
+- `discover_derive()` — REST-based instrument discovery proposing BTC options for human approval via events.toml
+- DeriveChecker — settlement tracking via `POST /public/get_option_settlement_prices` (08:00 UTC, 30-min TWAP, USDC payout)
+- Pipeline wiring — Derive block in `run_live_multi_venue()`, SubscriptionManager extended, EventRegistry extended
 
-**Should have (include if time permits):**
-- DIFF-1: Probabilistic Sharpe Ratio — trivial marginal cost post-Sharpe; high value for small-sample decisions
-- DIFF-3: Per-event breakdown — low cost, reveals edge concentration vs. distribution
-- DIFF-5: JSON output mode — `--format json` for `jq` piping and analysis snapshots
+**Included at no additional code cost (activates automatically once pipeline wired):**
+- Three-way spread (Deribit vs Derive vs Polymarket) — SpreadEngine already handles multi-venue by event_id; no code change needed
+- Black-76 implied probability for Derive — PricingEngine already handles European-style BTC options with bid_iv/ask_iv populated
 
-**Defer to future milestones:**
-- DIFF-2: Threshold effectiveness analysis — valuable but requires additional data pipeline work
-- DIFF-4: Spread autocorrelation — optimization concern, not go/no-go
-- DIFF-6: Comparative period analysis — manual two-run comparison is sufficient initially
-
-**Explicit anti-features (do not build):**
-- Real-time TUI dashboard — offline analysis tool; live monitoring is Prometheus + Grafana
-- Database backend — JSONL at current scale loads in under 1 second; no schema/migration burden justified
-- Automated go/no-go decision — human judgment required; CLI presents statistics, operator decides
-- Charting/plotting — tables convey the same information more precisely; CSV + external tools for visualization
+**Defer to v2+:**
+- On-chain settlement verification via Ethereum RPC — redundant given REST `get_option_settlement_prices` endpoint
+- Session key authentication for private endpoints — execution is out of scope for v1.5; read-only only
+- Perpetuals feed (BTC-PERP) — incompatible with binary probability extraction pipeline
+- Multi-collateral accounting (wBTC, stETH collateral) — irrelevant until execution planning
 
 ### Architecture Approach
 
-The architecture is additive-only: two new `[[bin]]` targets, one new library module (`src/analysis/`), and two new crate dependencies. The main binary, all feed modules, spread engine, signal engine, paper trade tracker, and settlement system are untouched. The analysis binaries share existing serde types for deserialization (zero type duplication) and link against the `prediction` library crate for those types. Streaming line-by-line JSONL parsing with date-range file enumeration handles arbitrarily large log files without memory pressure.
+The integration is purely additive. Six new source files in `src/feed/derive/` mirror `src/feed/deribit/` exactly. Five existing files require targeted extensions: `src/types/venue.rs` (add `Venue::Derive` variant), `src/config/events.rs` (add `DeriveMapping`, add `Option<DeriveMapping>` to `EventVenues`), `src/config/venues.rs` (add `DeriveConfig`), `src/events/registry.rs` (one new `if let Some` block in `build_indexes()`), and `src/subscription/manager.rs` (add `derive_tx`, `current_derive`). All downstream engines — SpreadEngine, OptionsEngine, SignalEngine, PaperTradeTracker, AlertManager, PrometheusExporter — are completely unchanged. They operate on `MarketSnapshot` and `EventId` abstractions that are venue-agnostic.
 
-**Major components:**
-1. `src/bin/spread_analytics.rs` — CLI entry point: arg parsing (clap), date-range file enumeration, output routing (table/json/csv)
-2. `src/bin/signal_scoring.rs` — CLI entry point: same pattern; links settlement data optionally
-3. `src/analysis/stats.rs` — shared pure statistical functions: mean, stddev, percentile, Wilson score CI, Sharpe, PSR, max drawdown; fully unit-testable without file I/O
-4. `src/analysis/spread_analytics.rs` — time bucketing, venue-pair slicing, spread distribution; takes `&[SpreadResult]`
-5. `src/analysis/signal_scoring.rs` — hit rate, Sharpe, drawdown, edge CI, threshold effectiveness; takes `&[ArbSignal]`
+**Major new components:**
+1. `src/feed/derive/client.rs` — WebSocket connect, subscribe JSON-RPC, forward `RawMessage`; no Deribit-style heartbeat protocol needed (standard WS ping/pong)
+2. `src/feed/derive/supervisor.rs` — reconnection loop watching `watch::Receiver<Vec<String>>`; verbatim copy of DeribitSupervisor with type changes
+3. `src/feed/derive/normalize.rs` — DeriveProcessor: parses wire format, maintains book/ticker state, emits `MarketSnapshot`; includes USDC-to-BTC price normalization
+4. `src/feed/derive/messages.rs` — Derive-specific serde deserialization types (from live API capture)
+5. `src/feed/derive/book.rs` — DeriveBook order book state; snapshot-only or snapshot+delta depending on live API behavior
+6. `src/feed/derive/auth.rs` — `sign_derive_login()` using k256 secp256k1 + Ethereum `personal_sign`; only needed if auth confirmed required
 
-**Key patterns:**
-- Date-range file enumeration: construct filenames from dates (`{YYYY-MM-DD}.jsonl`), skip missing files — avoids filesystem scanning
-- Tolerant JSONL deserialization: warn on malformed lines and continue; count errors; do not abort the analysis
-- Bucket aggregation with BTreeMap: `O(hours * venue_pairs)` memory, not `O(records)` — critical for large spread logs
-- `Decimal` for all financial computation; convert to `f64` only at the statistics boundary (statrs input) and display output
-
-**Binary structure decision:** Separate `[[bin]]` targets, not subcommands of the main binary. Rationale: analysis tools do synchronous file I/O only (no tokio needed), require no config files or API credentials, and should not touch `src/main.rs` at all.
+**Key architectural decision:** Derive instrument names (`BTC-20250627-100000-C`) map to the same `event_id` as Deribit names (`BTC-27JUN25-100000-C`) via the EventRegistry. No name translation occurs in the processor — each venue retains its native format, and `build_indexes()` maps each independently to the shared `event_id`. The existing `build_snapshot()` function in Deribit's normalize.rs requires zero changes; DeriveProcessor calls it with Derive-specific inputs.
 
 ### Critical Pitfalls
 
-1. **Invalid Sharpe annualization for binary events** — Binary outcomes are bimodal (not normal), correlated (same-expiry clustering), and irregularly-timed (no natural period). `sqrt(252)` or any fixed annualization factor is statistically invalid. Report per-trade Sharpe (no scaling) as the primary metric. Add PSR for confidence quantification. Add Sortino for downside-only comparison. Emit a CLI warning if annualized Sharpe > 3.0 with fewer than 100 trades.
+1. **Price denomination mismatch (Derive USDC vs Deribit BTC)** — Derive options are USDC-denominated (linear, cash-settled in USDC). Deribit options are BTC-denominated (inverse). Without normalization, the probability extractor receives `550` (USDC premium) and interprets it as a BTC fraction, producing implied probabilities near 1.0 and spurious spread signals. Fix: divide USDC premium by BTC/USD index price (available from the same ticker message) before passing to the IV solver. Gate: Derive implied probability must be within 5% of Deribit's for the same instrument before proceeding to pipeline wiring.
 
-2. **Survivorship bias from analyzing only settled positions** — Open positions (long-dated events still running), timed-out positions (168-hour polling timeout = probable loss), and filtered signals are all excluded if the CLI only processes settled records. Report total/settled/open/timed-out separately. Count timed-out positions as losses equal to entry cost. Require at least 80% settlement ratio before metrics are considered actionable.
+2. **Instrument name format mismatch** — `YYYYMMDD` (Derive) vs `DDMMMYY` (Deribit). A shared parser or a copy-paste error produces wrong expiry dates, causing zero cross-venue candidates. Fix: implement `parse_derive_instrument_name()` independently using `NaiveDate::parse_from_str(s, "%Y%m%d")`. Unit test that each parser rejects the other's format. This is Phase 1, task 2.
 
-3. **Confidence intervals mislead with small samples (n < 30)** — Standard Wald hit rate CI overshoots [0, 1] at small n. Use Wilson score interval for all proportions. Use Student's t (not normal) for mean edge, with a prominent sample-size warning when n < 20. Always display `(n=15)` next to every CI. Report the exact settled count needed to reach a target CI width.
+3. **Book update model assumption** — Derive may send incremental deltas after an initial snapshot rather than full snapshots on every update. Applying deltas as snapshots silently corrupts the book after the first message. Fix: capture 20+ messages from `wss://api-demo.lyra.finance/ws` before writing any book code. Implement `apply_snapshot()` and `apply_delta()` as separate methods if delta updates are confirmed.
 
-4. **Look-ahead bias in threshold effectiveness analysis** — "What threshold would have maximized profit?" is in-sample optimization, not predictive. Exclude cold-start observations (where `is_cold_start == true`). Split data chronologically into train/test halves. Present threshold tradeoff curves, never a single "optimal" value.
+4. **`Venue::Derive` match arm `todo!()` shortcuts** — Adding the enum variant triggers compiler exhaustiveness errors across all `match venue` sites (metrics, health, settlement, subscription, recording). The temptation is to patch with `todo!()` and return later. Fix: resolve ALL match arms completely in Phase 1 before writing any feed logic. Run `cargo check 2>&1 | grep -i "todo\|unreachable\|unimplemented"` to verify zero placeholders remain.
 
-5. **Mixing venue-pair types in aggregate metrics** — Prediction-vs-prediction (Kalshi/Polymarket) and prediction-vs-options (Deribit/Polymarket, Deribit/Kalshi) have incompatible cost structures, edge distributions, and risk profiles. Always report metrics separately by pair type. Never show a single aggregate hit rate. Go/no-go recommendation is per-pair-type, not aggregate.
-
----
+5. **Non-Friday Derive expiry dates causing false validation warnings** — Derive supports arbitrary expiry dates; Deribit only exposes weekly Fridays and monthly end-of-month. Any "must be Friday" validation produces false positives for legitimate Derive instruments. Fix: remove Friday-only assertions from Derive discovery code. Use exact date matching (0-day tolerance) for initial cross-venue candidate matching; only relax if real data shows alignment requires it.
 
 ## Implications for Roadmap
 
-Based on the combined research, the implementation follows a clear dependency-respecting build order. The architecture's layered design (stats module -> computation modules -> CLI binaries) maps directly to phases.
+The integration divides cleanly into two phases: foundation work (types, live API verification, core feed components) followed by integration and validation work (pipeline wiring, discovery, settlement, correctness validation). The architectural analysis is high-confidence because it is based on direct codebase inspection. The API specifics require live verification against the testnet before committing to implementation details — this is not optional research overhead, it resolves four LOW-confidence questions in under 30 minutes.
 
-### Phase 1: Foundation — Analysis Infrastructure
-**Rationale:** The `src/analysis/stats.rs` module has zero dependencies on new code and is a prerequisite for both CLIs. Building it first with comprehensive unit tests de-risks the critical statistical correctness decisions (Wilson score formula, PSR formula, drawdown edge cases) before they are embedded in a binary. The Cargo.toml changes (two new `[[bin]]` entries, two new crate deps, `pub mod analysis` in lib.rs) also belong here — purely additive, no risk.
-**Delivers:** `comfy-table` and `csv` added to Cargo.toml; `src/analysis/` module structure wired up; `stats.rs` with mean, stddev, percentile, Wilson score CI, Sharpe, PSR, max drawdown; all functions unit-tested with known inputs and expected outputs.
-**Addresses:** TS-4 (Wilson score), TS-6 (Sharpe), TS-7 (drawdown), DIFF-1 (PSR) — statistical foundations
-**Avoids:** Pitfall 1 (invalid annualization), Pitfall 3 (misleading CIs) — both are correctness decisions that must be made here
+### Phase 1: Foundation — Type Extension, API Verification, Core Feed
 
-### Phase 2: Data Loading Layer
-**Rationale:** Date-range file enumeration and tolerant JSONL deserialization are used by both CLIs identically. Building this as a shared, tested layer before the binaries ensures the streaming pattern is correct (Pitfall 5: large files) and that all position states are loaded (Pitfall 2: survivorship bias). This is the highest-risk performance decision in the project — get it wrong here and fixing it requires touching both binaries.
-**Delivers:** `src/analysis/io.rs` with `files_in_range()`, `parse_jsonl<T>()`, and the position-state reporting (total/settled/open/timed-out counters); tested with sample JSONL fixture files.
-**Addresses:** TS-8 (date filtering) — foundation for all analysis
-**Avoids:** Pitfall 2 (survivorship bias from settled-only loading), Pitfall 5 (memory exhaustion from bulk loading), Pitfall 7 (canonical timestamp selection — `timestamp_ms` as bucketing key)
+**Rationale:** `Venue::Derive` is a hard blocker — the compiler cannot progress until the enum is added and all match arms resolved without placeholders. Live API inspection of the testnet (`wss://api-demo.lyra.finance/ws`) must precede implementation to determine: exact channel names, book update model (snapshot vs delta), heartbeat mechanism, and whether `public/login` is required. The core feed components (messages, book, client, supervisor, processor) are independently testable before any pipeline wiring.
 
-### Phase 3: Spread Analytics Computation and CLI
-**Rationale:** The spread analytics CLI (`spread-analytics`) is the simpler of the two binaries. SpreadResult deserialization is simpler (no settlement correlation), the metrics are straightforward (distribution stats, hourly buckets, venue-pair breakdown), and there is no go/no-go pressure on correctness. Building it first validates the full pipeline (load -> compute -> output) before tackling the higher-stakes signal scoring metrics.
-**Delivers:** `src/analysis/spread_analytics.rs` with time bucketing, venue-pair slicing, spread distribution; `src/bin/spread_analytics.rs` CLI with `--format table/json/csv`, `--from`, `--to`, `--event`, `--venue-pair`, `--threshold-breakdown` flags; comfy-table output; integration tested against actual `spread_logs/*.jsonl` data.
-**Addresses:** TS-1 (spread distribution), TS-2 (hourly buckets), TS-3 (venue-pair breakdown), TS-9 (terminal output), DIFF-5 (JSON output)
-**Avoids:** Pitfall 9 (output verbosity — tiered summary/verbose/json), Pitfall 10 (venue-pair type mixing — always separated), Pitfall 12 (Decimal display — Decimal::normalize() + fixed dp per field type)
+**Delivers:** A working Derive feed emitting `MarketSnapshot { venue: Venue::Derive }` with correct USDC price normalization — testable standalone without touching pipeline.
 
-### Phase 4: Signal Scoring Computation and CLI
-**Rationale:** Signal scoring is the go/no-go decision tool — the metrics here determine whether v2 proceeds. Building after spread analytics means the output infrastructure, JSONL loading patterns, and stats module are all proven. This phase contains the most domain-specific complexity: PSR, per-trade Sharpe without annualization, Wilson score CIs, cost-adjusted edge significance, settlement correlation, and threshold effectiveness analysis.
-**Delivers:** `src/analysis/signal_scoring.rs` with hit rate, Sharpe, PSR, max drawdown, cost-adjusted edge with t-test, threshold effectiveness (excluding cold-start observations, chronological train/test split); `src/bin/signal_scoring.rs` CLI with `--settlements`, `--confidence-level`, `--format`, `--venue-pair` flags; integration tested against real `signal_logs/` soak data; DIFF-3 (per-event breakdown) included.
-**Addresses:** TS-4 (hit rate CI), TS-5 (cost-adjusted edge), TS-6 (Sharpe), TS-7 (drawdown), DIFF-1 (PSR), DIFF-2 (threshold effectiveness, basic), DIFF-3 (per-event)
-**Avoids:** Pitfall 1 (Sharpe annualization), Pitfall 2 (all position states), Pitfall 3 (small-sample CIs), Pitfall 4 (look-ahead bias in threshold analysis), Pitfall 6 (drawdown edge cases), Pitfall 8 (cost model drift), Pitfall 10 (venue-pair type mixing)
+**Addresses:** Venue::Derive enum, TS-2 (instrument name parser), TS-1 (DeriveClient), TS-3 (DeriveBook), TS-4 (ticker feed), TS-5 (DeriveProcessor), TS-6 (DeriveSupervisor)
 
-### Phase 5: Verification and Milestone Completion
-**Rationale:** End-to-end verification against actual soak test JSONL data with hand-calculated expected values for at least one known data subset. This catches implementation bugs that unit tests miss (e.g., off-by-one in hourly bucketing, incorrect UTC handling at midnight boundaries, settlement correlation mismatches).
-**Delivers:** Both CLIs verified against real data; edge cases fixed (empty date ranges, all-filtered signals, zero settled positions, midnight boundary records); documented baseline metrics from soak test data for v2 planning.
-**Avoids:** Pitfall 7 (timestamp boundary issues discovered here), Pitfall 11 (DualTimestamp elapsed() misuse caught in review)
+**Avoids:** Pitfall 3 (Venue::Derive todo!() shortcuts — resolves all match arms before any logic), Pitfall 1 (instrument name mismatch — independent parser with unit tests), Pitfall 7 (wrong book update model — live API first), Pitfall 5 (auth/no-auth — test unauthenticated before adding k256)
+
+**Build order within phase:**
+1. Add `Venue::Derive` to enum; fix all match arm exhaustiveness errors; `cargo check` to zero placeholders
+2. Live API session: connect to `wss://api-demo.lyra.finance/ws`, capture 20+ messages; resolve channel names, book model, heartbeat, auth requirement
+3. `src/feed/derive/messages.rs` — serde types from captured live messages
+4. `src/feed/derive/book.rs` — DeriveBook (snapshot-only or snapshot+delta per verified model)
+5. `src/feed/derive/client.rs` + `supervisor.rs` — connect, subscribe, reconnect; add `auth.rs` only if auth confirmed needed
+6. `src/feed/derive/normalize.rs` — DeriveProcessor with USDC-to-BTC normalization; IV source detection metric
+
+### Phase 2: Pipeline Integration, Discovery, and Correctness Validation
+
+**Rationale:** Pipeline wiring, SubscriptionManager extension, EventRegistry changes, and discovery integration all depend on Phase 1 types and feed components. This phase wires everything into `run_live_multi_venue()` and validates that cross-venue signals are numerically correct. Settlement tracking (DeriveChecker) can be developed in parallel with pipeline wiring since it uses only REST endpoints.
+
+**Delivers:** Derive instruments feeding SpreadEngine for live cross-venue signals; auto-discovery proposing BTC option candidates; settlement outcome tracking enabling paper trade validation; correctness gate (Derive implied prob within 5% of Deribit for same instrument).
+
+**Implements:** TS-7 (discover_derive), TS-8 (DeriveChecker), TS-9 (pipeline wiring), DIFF-1 (three-way spread, automatic), DIFF-2 (Black-76 IV probability, automatic)
+
+**Avoids:** Pitfall 2 (USDC price denomination in probability extraction — validation gate here), Pitfall 4 (expiry date matching — exact-date match for Derive discovery), Pitfall 6 (L2 sequencer silence — heartbeat/staleness thresholds configured), Pitfall 8 (IV source tracking — `derive_iv_source` metric)
+
+**Validation gate before declaring complete:** Connect to live Derive feed, approve one BTC option in events.toml, verify that the Derive implied probability and Deribit implied probability for the same strike/expiry are within 5% of each other. This is the definitive end-to-end correctness test.
+
+### Phase 3: Hardening and Post-Soak Tuning
+
+**Rationale:** After initial soak test data is collected, tune discovery filters, heartbeat thresholds, and rate limits based on observed real-world behavior. Add discovery config filtering if initial discovery reveals excessive thinly-traded instrument proposals.
+
+**Delivers:** Production-stable Derive feed with tuned staleness thresholds; discovery filtered to liquid instruments; Prometheus gauge `derive_reconnect_rate` for sequencer downtime detection.
+
+**Addresses:** DIFF-3 (discovery config tuning), Pitfall 6 (sequencer downtime metric), rate limit configuration from actual observed behavior
 
 ### Phase Ordering Rationale
 
-- Stats module before computation modules because all computation depends on it and pure-function unit tests here are the cheapest way to validate statistical formulas.
-- Data loading layer before both CLIs because the streaming-vs-bulk-loading decision is architectural and affects both; deciding it once in a shared module prevents divergence.
-- Spread analytics before signal scoring because it is the lower-stakes CLI with simpler metrics — it validates the full pipeline (load -> bucket -> aggregate -> format) without the go/no-go pressure that signal scoring carries.
-- Verification phase is explicit and last because end-to-end tests against real JSONL data will find edge cases that unit tests cannot.
+- `Venue::Derive` must come first because it cascades compiler errors across the entire codebase — no other work can proceed until this compiles cleanly with no placeholders
+- Live API inspection before any implementation — channel names, book model, and auth requirement are all LOW confidence without live testing; building on assumptions risks discarding 2–3 days of work
+- Core feed validated standalone before pipeline wiring — an incorrect DeriveProcessor wired into the full pipeline is substantially harder to debug than the same bug in an isolated unit test
+- Settlement tracking (DeriveChecker) is independent of the WebSocket feed pipeline (REST polling, separate task) and can be developed in parallel with Phase 2 pipeline wiring
+- Three-way spread and Black-76 IV probability require zero additional code — they activate automatically once the feed is wired and instruments are approved in events.toml
 
 ### Research Flags
 
-Phases with clear, well-documented patterns — research-phase is not needed:
-- **Phase 1 (stats module):** Wilson score, PSR, and Sharpe formulas are mathematically well-specified in PITFALLS.md with exact Rust code. comfy-table and csv crate APIs are straightforward.
-- **Phase 2 (data loading):** `BufReader::lines()` + `serde_json::from_str` streaming pattern is standard Rust. JSONL filename convention is already established in the codebase.
-- **Phase 3 (spread analytics):** All data types, field names, and serde annotations are verified from direct source analysis. chrono bucketing by hour is trivial.
-- **Phase 5 (verification):** Standard integration testing against known data.
+Phases requiring live API verification before implementation:
 
-May benefit from targeted investigation before planning:
-- **Phase 4 (signal scoring):** Settlement correlation (matching signal_logs to settlement_logs by event_id) is underspecified — the exact join key and handling of multi-leg partial settlements needs a 30-minute inspection of actual `state/checkpoint.json` schema and real settlement log structure before the computation module is designed.
+- **Phase 1 (Live API Inspection — mandatory):** Channel subscription format, book update model (snapshot vs delta), heartbeat mechanism, and whether `public/login` is required for public channels are all LOW confidence from documentation search alone. These must be resolved by connecting to `wss://api-demo.lyra.finance/ws` and capturing real messages before writing any integration code. A 30-minute session resolves all four questions.
 
----
+- **Phase 2 (Price Normalization Correctness — mandatory gate):** The USDC-to-BTC normalization path is new logic with no precedent in the existing codebase. A targeted integration test comparing Derive vs Deribit implied probabilities for the same instrument must pass before deployment to the soak environment.
+
+Phases with standard patterns (no additional research needed):
+
+- **Supervisor and reconnection:** Direct copy of `DeribitSupervisor` — identical structural pattern, no unknowns
+- **Registry and SubscriptionManager extension:** Purely additive, identical pattern already established for Deribit, Polymarket, and Kalshi
+- **Discovery pipeline:** `discover_derive()` mirrors `discover_deribit()` — same `DiscoveredInstrument` + `FuzzyMatchKey` return types and flow
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Verified from Cargo.toml, docs.rs, and direct source analysis. Two new crates have no version conflicts. All existing crates confirmed sufficient for their v1.4 roles. |
-| Features | HIGH | Statistical methods are established domain knowledge with well-known formulas. Feature boundaries are clear from go/no-go requirements. Anti-features are well-reasoned. |
-| Architecture | HIGH | Based on direct source analysis of 35,580 LOC codebase. All serde types verified to derive Deserialize. JSONL schemas confirmed from live soak data. Streaming pattern is standard Rust. |
-| Pitfalls | HIGH (statistical methodology), MEDIUM (scaling under full soak volume) | Sharpe/CI/survivorship pitfalls validated against quantitative finance literature. Spread log volume estimate (725 MB/day) is extrapolated from architecture — actual volume depends on tick rate and active events. |
+| Stack | HIGH | One new dep (k256 0.13); all else covered by existing validated stack. k256 may not be needed if public channels work unauthenticated — test first. |
+| Features | MEDIUM | All P1 features are clearly defined. Channel names (LOW), book update model (LOW), rate limits (LOW), and exact ticker field names in WebSocket messages (MEDIUM) need live API verification before committing to implementation. |
+| Architecture | HIGH | Based on direct codebase analysis of 36,507 LOC. Additive integration pattern is unambiguous: 6 new files, 5 modified files, 0 downstream changes. Build order validated against dependency graph. |
+| Pitfalls | HIGH | 8 pitfalls identified with concrete prevention strategies, recovery costs, and phase assignments. Price denomination and format mismatch pitfalls verified against codebase structure. Sequencer downtime pitfall verified against OP Stack L2BEAT data. |
 
-**Overall confidence:** HIGH
+**Overall confidence:** MEDIUM-HIGH
 
 ### Gaps to Address
 
-- **Settlement correlation join logic:** How signal_log entries correlate to settlement_log entries needs inspection of actual `state/settlements/*.jsonl` file structure before Phase 4 implementation. The join field (likely `event_id` + `direction`) should be confirmed. 30-minute investigation, not a research gap.
+- **WebSocket channel name format** — Inferred as `orderbook.{instrument_name}` and `ticker.{instrument_name}` but not confirmed from official docs. Resolve by connecting to `wss://api-demo.lyra.finance/ws` and sending a subscribe request before implementation. Do not write channel name constants until verified.
 
-- **Actual spread log volume:** The 725 MB/day estimate is theoretical. Actual volume depends on active event count and tick rate during the soak test. The streaming architecture handles any volume, but the real number informs whether a pre-aggregated daily summary optimization is needed.
+- **Book update model** — Unknown whether Derive sends full snapshots per update or incremental delta updates after initial snapshot. This determines whether `DeriveBook` needs delta processing. Resolve by capturing 20+ sequential messages from the testnet feed. Critical architectural decision — do not defer.
 
-- **DualTimestamp deserialization and tokio in CLI binaries:** `DualTimestamp::deserialize` calls `tokio::time::Instant::now()`, which may pull a minimal tokio dependency into analysis binaries even without `#[tokio::main]`. Confirm whether this is acceptable or whether `DualTimestamp` deserialization needs restructuring before Phase 4.
+- **Authentication requirement for public market data** — `public/login` may or may not be required for read-only orderbook subscriptions. If not required, the `k256` dependency and auth module are deferred to v2. Resolve by attempting an unauthenticated subscribe before adding any auth code.
 
----
+- **Exact rate limit numbers** — Estimated as ~10 req/5s from partial docs page access; not confirmed. Visit `docs.derive.xyz/reference/rate-limits` directly before configuring `VenueRateLimiter`. Setting too low wastes discovery throughput; setting too high risks temporary IP bans.
+
+- **Ticker field names in WebSocket messages** — `bid_iv`, `ask_iv`, `mark_iv`, `index_price` confirmed present from REST ticker docs but not verified in live WebSocket ticker notification format. Verify field names match during live API inspection session.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Direct source analysis: `src/spread/patterns.rs` (SpreadResult, 583 lines), `src/signal/types.rs` (ArbSignal, 318 lines), `src/paper_trade/analyzer.rs` (AccumulatorBucket, FilteredSignalTracker), `Cargo.toml`, `src/main.rs` (CLI structure, 40,839 lines)
-- Direct inspection: `signal_logs/*.jsonl` (6 days live soak data), `src/config/system.rs`, `src/spread/config.rs`, `src/signal/config.rs`
-- [comfy-table docs.rs](https://docs.rs/comfy-table/latest/comfy_table/) — API reference, builder pattern, version 7.2.2
-- [csv crate docs.rs](https://docs.rs/csv/latest/csv/) — serde integration, Writer/Reader API, version 1.4.0
-- [statrs::distribution::Normal](https://docs.rs/statrs/latest/statrs/distribution/struct.Normal.html) — inverse_cdf confirmed in 0.18
+- `docs.derive.xyz/reference/overview` — WebSocket URL, JSON-RPC protocol, transport-agnostic confirmation
+- `docs.derive.xyz/reference/json-rpc` — method naming, subscribe pattern
+- `docs.derive.xyz/reference/post_public-get-instrument` — instrument schema, field names
+- `docs.derive.xyz/reference/post_public-login` — endpoint exists, WebSocket-only, wallet/timestamp/signature params
+- `help.lyra.finance/en/articles/8691491-expiration-settlement` — 08:00 UTC expiry, 30-min TWAP, USDC settlement confirmed
+- Direct codebase analysis: `src/feed/deribit/` (supervisor 206 LOC, client 311 LOC, normalize 1076 LOC, messages 653 LOC), `src/types/venue.rs`, `src/subscription/manager.rs`, `src/events/registry.rs`, `src/events/discovery.rs`, `src/types/snapshot.rs` — architecture patterns, MarketSnapshot schema, all venue fields
+- `crates.io/crates/k256` — version 0.13.4 stable, ecdsa feature confirmed, Ethereum signing
 
 ### Secondary (MEDIUM confidence)
-- [Binomial proportion CI — Wilson score](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval) — formula and comparison with Wald
-- [Sharpe Ratio for Algorithmic Trading](https://www.quantstart.com/articles/Sharpe-Ratio-for-Algorithmic-Trading-Performance-Measurement/) — annualization methodology and interpretation thresholds
-- [Probabilistic Sharpe Ratio — QuantConnect](https://www.quantconnect.com/research/17112/probabilistic-sharpe-ratio/) — PSR formula and implementation
-- [Two Sigma Sharpe CI Research Paper](https://www.twosigma.com/wp-content/uploads/sharpe-tr-1.pdf) — confidence interval estimation for Sharpe ratio
-- [Survivorship bias in backtesting](https://www.quantifiedstrategies.com/survivorship-bias-in-backtesting/) — methodology for avoiding settled-only analysis
-- [Maximum drawdown — LuxAlgo](https://www.luxalgo.com/blog/maximum-drawdown-metric-calculation-and-use-cases/) — edge cases and variants
-- [McInish & Wood — Intraday bid/ask spread patterns](https://digitalcommons.memphis.edu/facpubs/11507/) — academic evidence for time-of-day bucket analysis value
+- CCXT `derive.py` — instrument name format `{ASSET}-{YYYYMMDD}-{STRIKE}-{C/P}` confirmed; `publicPostGetTicker()` method, response field mapping
+- Hummingbot Derive connector — wallet_address, private_key credential structure; `personal_sign` authentication approach
+- `docs.derive.xyz/reference/rate-limits` — fixed-window 5s algorithm confirmed; specific request counts not captured (page partially inaccessible)
+- `docs.derive.xyz/reference/public-get_ticker` — bid_iv, ask_iv, mark_iv, index_price confirmed present in REST response
+- `github.com/derivexyz/cockpit` — official Rust market-maker reference; instrument name format confirmed in CLI context; confirms Rust integration is viable
+- `insights.derive.xyz/a-technical-overview-of-lyra-v2/` — Rust-powered offchain CLOB, OP Stack L2, USDC settlement architecture
+- Amberdata Derive integration references — European-style options, `{ASSET}-{YYYYMMDD}-{STRIKE}-{C/P}` naming confirmed
 
 ### Tertiary (LOW confidence)
-- [Streaming JSON in Rust — Rust Forum](https://users.rust-lang.org/t/reading-json-sequentially/57708) — confirms BufReader pattern for large JSONL; actual performance depends on hardware
+- Channel subscription format — inferred from JSON-RPC docs overview and Deribit pattern similarity; requires live API verification before use
+- Book update model (snapshot vs delta) — inferred from architecture documentation describing "complete snapshot model"; requires live message capture to confirm
+- Rate limit numeric values — "10 req/s" estimated from search result snippets; requires direct docs page visit before configuring VenueRateLimiter
 
 ---
-*Research completed: 2026-02-28*
+*Research completed: 2026-03-03*
 *Ready for roadmap: yes*

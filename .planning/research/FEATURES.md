@@ -1,490 +1,595 @@
-# Feature Research: v1.4 Analysis Tooling (Spread Analytics CLI + Signal Scoring CLI)
+# Feature Research: v1.5 Derive.xyz Venue Integration
 
-**Domain:** CLI-based statistical analysis tooling for cross-venue prediction market arbitrage
-**Researched:** 2026-02-28
-**Confidence:** HIGH (statistical methods well-established; data formats already defined in codebase; no external API dependencies)
+**Domain:** Options venue feed integration for cross-venue arbitrage (Derive.xyz / Lyra v2)
+**Researched:** 2026-03-03
+**Confidence:** MEDIUM (API structure confirmed from docs.derive.xyz and CCXT implementation; specific field names inferred from documentation search results and analogous Deribit implementation; WebSocket channel format MEDIUM confidence pending direct API testing)
 
-**Scope note:** This research covers ONLY the new features for v1.4: two CLI tools that analyze soak test data offline. These tools READ existing JSONL log files and checkpoint state -- they do NOT modify the live system, connect to exchanges, or require new external dependencies beyond terminal table formatting.
+**Scope note:** This research covers ONLY the new features needed to add Derive.xyz as a fourth venue. The existing pipeline (MarketSnapshot bus, Black-76 pricing, spread calculator, signal engine, subscription manager, discovery framework) is already complete and operational. This milestone slots Derive into the existing architecture.
 
 **Existing infrastructure this builds on:**
-- `spread_logs/{YYYY-MM-DD}.jsonl` -- SpreadResult JSONL files with net_spread, gross_spread, pattern, venue pair, timestamp_ms, threshold data, exchange timestamps, fill ratios, and cost breakdowns
-- `signal_logs/{YYYY-MM-DD}.jsonl` -- ArbSignal JSONL files with net_edge, raw_spread, confidence, cost_breakdown, threshold_status, prediction/options legs, IV spread, skew adjustment
-- `state/checkpoint.json` -- PaperPosition lifecycle state with settlement P&L, settled legs, divergence annotations, adverse selection, MTM history
-- `AccumulatorBucket` -- existing runtime hit rate, edge, convergence, false positive rate tracking (keyed by venue_pair + event_id + threshold_status)
-- `DailyRollup` -- existing per-day trade count, P&L totals, win/loss counts
-- `clap` 4.5 already in Cargo.toml with `derive` feature and existing subcommand infrastructure (`Commands` enum)
-- `statrs` 0.18 already in Cargo.toml -- provides Normal distribution with inverse CDF needed for Wilson score intervals
-- `chrono` 0.4 already in Cargo.toml -- timestamp parsing and hour-of-day extraction
-- `rust_decimal` 1.40 already in Cargo.toml -- all arithmetic
+
+| Component | Location | How Derive Reuses It |
+|-----------|----------|----------------------|
+| MarketSnapshot bus | `src/types/snapshot.rs` | Unchanged -- Derive emits the same struct |
+| Black-76 IV solver + call spread replication | `src/pricing/` | Unchanged -- Derive BTC options are European-style, same math |
+| SpreadEngine + signal generation | `src/signal/` | Unchanged -- Derive is just another venue source |
+| SubscriptionManager (watch channel + reconnect) | `src/feed/pipeline.rs` | Derive supervisor receives same `watch::Receiver<Vec<String>>` |
+| DeribitProcessor (normalize.rs + book.rs) | `src/feed/deribit/` | Template for DeriveProcessor; channel parsing differs |
+| DeribitSupervisor + backoff reconnect | `src/feed/deribit/supervisor.rs` | Verbatim copy-and-adapt for Derive |
+| VenueRateLimiter | `src/feed/reliability/rate_limiter.rs` | Reused with Derive rate limit config |
+| VenueHealth + heartbeat monitoring | `src/feed/health.rs` | Reused unchanged |
+| RecordLine JSONL recording | `src/feed/recording/` | Reused with `venue = Venue::Derive` |
+| DiscoveredInstrument + FuzzyMatchKey | `src/events/discovery.rs` | New `discover_derive()` function added |
+| EventRegistry + TOML writer | `src/events/` | Unchanged -- Derive instruments get `approved = false` proposals |
+| Settlement checker framework | `src/settlement/` | New `DeriveChecker` added |
+| Prometheus metrics | `src/metrics_export/` | Reused with `venue = "derive"` label |
 
 ---
 
 ## Table Stakes
 
-Features the CLI tools must have to answer the "go/no-go" question for v2 execution. Without these, the soak test data cannot be evaluated with statistical rigor.
+Features required for Derive to be a functional fourth venue. Missing any of these means the venue cannot contribute to spread calculations.
 
-### TS-1: Spread Distribution Summary Statistics
+### TS-1: Derive WebSocket Client (connect + subscribe)
 
 | Attribute | Detail |
 |-----------|--------|
-| Why Expected | The first question any trader asks about spread data is "what does the distribution look like?" -- mean, median, standard deviation, min, max, percentiles (p5, p25, p75, p95). Without this, the data is just a wall of JSONL. |
+| Why Expected | Every venue integration starts with a WebSocket connection. Without a connected feed, nothing else works. |
 | Complexity | LOW |
-| Dependencies | Reads `spread_logs/*.jsonl`, deserializes `SpreadResult` |
+| Dependencies | Existing tokio-tungstenite infrastructure from DeribitClient |
 
-**What it is:** For a given date range, compute summary statistics over net_spread and gross_spread values. Output as a formatted terminal table showing count, mean, median, stddev, min, max, p5/p25/p75/p95 percentiles.
+**What it is:** A `DeriveClient` that connects to the Derive WebSocket endpoint and sends a JSON-RPC subscribe request for orderbook and ticker channels per instrument.
 
-**Why it matters for go/no-go:** Establishes the baseline spread distribution. If mean net spread is consistently negative or near zero, there is no edge to exploit. If the distribution is highly skewed, it tells the trader whether rare large opportunities compensate for frequent small losses.
+**API specifics (MEDIUM confidence from docs.derive.xyz):**
+- Production WS URL: `wss://api.lyra.finance/ws` (testnet: `wss://api-demo.lyra.finance/ws`)
+- Protocol: JSON-RPC 2.0 over WebSocket (same as Deribit)
+- Transport agnostic: same `method` and `params` work over both HTTP and WebSocket
+- Authentication: public market data channels (orderbook, ticker) do NOT require auth. Auth is only required for private/trading endpoints.
+- Subscribe method: `public/subscribe` with a `channels` array (confirmed -- same pattern as Deribit)
+- Heartbeat: Derive uses its own keepalive mechanism (details need live API testing; assume WebSocket-level ping/pong initially)
 
-**Implementation note:** Sorting a `Vec<Decimal>` of all spreads to extract percentiles is O(n log n) and perfectly fine for days-to-weeks of data at ~1 record per second throughput (~86K records/day max). No streaming percentile algorithms needed.
+**Channel names to subscribe per instrument (MEDIUM confidence):**
+- Orderbook: `{instrument_name}.orderbook` or similar -- exact format needs live verification from docs.derive.xyz/reference/json-rpc
+- Ticker: `{instrument_name}.ticker` or similar -- exact format needs live verification
 
+**Key difference from Deribit:** Deribit uses dot-separated channels like `book.{instrument}.none.20.100ms`. Derive is expected to use a different channel naming convention. The exact format must be verified from the live documentation or API testing before implementation.
 
-### TS-2: Hourly Time-Bucket Spread Analysis
+**Implementation:** DeriveClient follows DeribitClient exactly:
+- `AtomicU64` request ID counter
+- Batch subscribe in a single `public/subscribe` call
+- Forward non-heartbeat text frames to `mpsc::Receiver<RawMessage>`
+- Cancellation via `CancellationToken`
+- Rate limiter on outbound subscribe messages
+
+**Reuses:** `DeribitClient` as structural template; `VenueRateLimiter`, `CancellationToken`, `tokio-tungstenite`.
+
+---
+
+### TS-2: Derive Instrument Name Format Parsing
 
 | Attribute | Detail |
 |-----------|--------|
-| Why Expected | Spread opportunities in cross-venue arbitrage are heavily time-of-day dependent. Crypto options markets (Deribit) have different activity patterns than prediction markets (Polymarket, Kalshi). Knowing which hours produce the best spreads is essential for timing execution in v2. |
+| Why Expected | Instrument IDs are the keys that tie book data, ticker data, and event mappings together. Without correct ID parsing, the entire pipeline breaks. |
+| Complexity | LOW |
+| Dependencies | None (pure string processing) |
+
+**What it is:** Functions to parse and construct Derive instrument names.
+
+**Confirmed format (HIGH confidence from CCXT derive.py and docs.derive.xyz):**
+```
+{ASSET}-{YYYYMMDD}-{STRIKE}-{C|P}
+```
+Examples:
+- `BTC-20250328-100000-C` (BTC call, expiry 2025-03-28, $100,000 strike)
+- `BTC-20251226-80000-P` (BTC put, expiry 2025-12-26, $80,000 strike)
+- `ETH-20250228-1000-P` (ETH put -- confirmed format from CCXT docs)
+
+**Key difference from Deribit:** Deribit uses `BTC-27JUN25-100000-C` (DDMmmYY). Derive uses `BTC-YYYYMMDD-STRIKE-C/P` (ISO date). The parsers are completely different.
+
+**Implementation:**
+- `parse_derive_instrument(name: &str) -> Option<(String, NaiveDate, Decimal, Direction)>`
+  - Split by `-`, parts 0=asset, 1=YYYYMMDD, 2=strike, 3=C/P
+  - Parse date with `NaiveDate::parse_from_str(parts[1], "%Y%m%d")`
+  - Parse strike as `Decimal`
+  - Map C -> Direction::Above, P -> Direction::Below
+- Unit tests covering: valid BTC calls, valid ETH puts, malformed inputs, edge strikes (100, 1000000)
+
+**Reuses:** `NaiveDate`, `rust_decimal::Decimal`, `crate::config::Direction`.
+
+---
+
+### TS-3: Derive Order Book Maintenance
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | Best bid/ask and depth are needed for spread calculation. Without a maintained order book, MarketSnapshot has no prices. |
 | Complexity | LOW-MEDIUM |
-| Dependencies | TS-1 (summary statistics computation), `timestamp_ms` field in SpreadResult |
+| Dependencies | TS-1 (raw messages flowing in), TS-2 (instrument name parsing) |
 
-**What it is:** Group spread records into 24 hourly buckets (UTC). For each bucket, compute: record count, mean net_spread, median net_spread, stddev, percentage of positive spreads, and best/worst spread. Present as a 24-row table.
+**What it is:** A `DeriveBook` structure (equivalent to Deribit's `InstrumentBook`) that applies incoming order book snapshots and updates.
 
-**Why it matters for go/no-go:** If actionable spreads cluster in specific hours (e.g., overlapping US/EU session), v2 execution can be scheduled for those windows only, reducing operational complexity and capital requirements. If spreads are uniformly distributed, the system needs to run 24/7.
+**Derive orderbook model (MEDIUM confidence):**
+- Derive uses a central-limit-order-book (CLOB) with a Rust-powered offchain matching engine
+- Orderbook updates come as either full snapshots or incremental deltas (exact format needs live API verification)
+- Prices are in USD; amounts are in BTC (base asset units)
+- Depth: configurable (likely 10 or 20 levels supported)
 
-**Implementation:** Extract hour from `timestamp_ms` via `chrono::DateTime::from_timestamp_millis()`. Bucket into `[0..24]` array of `Vec<Decimal>`. Compute per-bucket stats using the same functions as TS-1.
+**Difference from Deribit:** Deribit's `book.{instrument}.none.20.100ms` channel sends periodic grouped snapshots. Derive likely sends incremental delta updates OR periodic snapshots -- the exact model must be verified. If incremental, a sequence-number gap handler (same as Deribit's `SequenceError::Gap`) is required.
 
+**Implementation:** Model after `InstrumentBook` in `src/feed/deribit/book.rs`:
+- `BTreeMap<Price, Notional>` for bids (desc) and asks (asc)
+- `apply_snapshot()` and optionally `apply_delta()` methods
+- `best_bid()` / `best_ask()` accessors
+- `is_stale` flag for sequence gaps
 
-### TS-3: Venue-Pair Spread Breakdown
+**Reuses:** `InstrumentBook` pattern verbatim with Derive-specific snapshot/delta deserialization.
 
-| Attribute | Detail |
-|-----------|--------|
-| Why Expected | The system tracks 4 directional spread patterns across venue pairs (Polymarket-Kalshi, Deribit-Polymarket, Deribit-Kalshi). Aggregating across all pairs hides which venue combination actually produces edge. A per-pair breakdown is necessary to decide which venue pairs to execute on. |
-| Complexity | LOW |
-| Dependencies | TS-1 (summary statistics), `pattern` field in SpreadResult (has `venue_pair_label()` method) |
+---
 
-**What it is:** Group spread records by venue pair label. For each pair, compute the same summary statistics as TS-1 plus directional breakdown (by SpreadPattern variant). Present as a multi-section table.
-
-**Why it matters for go/no-go:** If only kalshi_polymarket spreads show positive mean net_spread but deribit_polymarket does not, v2 execution should focus on the Kalshi-Polymarket pair. This directly informs capital allocation strategy.
-
-**Implementation:** Group by `SpreadResult.pattern.venue_pair_label()`. For each group, compute stats. Also break down by `SpreadPattern` variant within each group to show directional skew.
-
-
-### TS-4: Hit Rate with Confidence Intervals
+### TS-4: Derive Ticker Feed (mark_iv, bid_iv, ask_iv, index_price)
 
 | Attribute | Detail |
 |-----------|--------|
-| Why Expected | Raw hit rate (e.g., "60% of signals were profitable") is meaningless without a confidence interval. With small sample sizes (dozens to low hundreds of settled positions in early soak testing), the true hit rate could easily be 40-80%. Statistical significance determines whether the observed edge is real or noise. |
-| Complexity | MEDIUM |
-| Dependencies | Reads `state/checkpoint.json` (settled PaperPositions) or recomputes from signal/spread logs |
-
-**What it is:** Compute gross hit rate and net hit rate (post-fee) with Wilson score confidence intervals at 95% and 99% levels. Wilson score is preferred over Wald (normal approximation) because it performs well with small samples and proportions near 0 or 1 -- both common in early soak testing.
-
-**Formula (Wilson score interval):**
-```
-p_hat = successes / n
-z = normal_inverse_cdf(1 - alpha/2)   # 1.96 for 95%, 2.576 for 99%
-denominator = 1 + z^2/n
-center = (p_hat + z^2/(2*n)) / denominator
-margin = (z * sqrt(p_hat*(1-p_hat)/n + z^2/(4*n^2))) / denominator
-CI = [center - margin, center + margin]
-```
-
-**Why it matters for go/no-go:** If the 95% CI lower bound for net hit rate is below 50%, the trader cannot conclude with confidence that the strategy is profitable. This is the single most important statistical test for the go/no-go decision.
-
-**Implementation:** `statrs::distribution::Normal::new(0.0, 1.0).inverse_cdf(0.975)` gives z=1.96. All arithmetic in `rust_decimal` for precision. Report sample size alongside CI to highlight when more data is needed.
-
-
-### TS-5: Cost-Adjusted Edge with Statistical Significance
-
-| Attribute | Detail |
-|-----------|--------|
-| Why Expected | Hit rate alone does not capture profitability. A 90% hit rate with tiny wins and occasional large losses can be worse than a 40% hit rate with large wins. The mean net edge (profit per trade after all costs) and its statistical significance (is it distinguishable from zero?) are required. |
-| Complexity | MEDIUM |
-| Dependencies | Settled positions from checkpoint or signal logs, cost_breakdown data |
-
-**What it is:** Compute mean net edge across settled positions with a one-sample t-test against H0: mean_edge = 0. Report:
-- Mean net edge (per trade)
-- Standard error of the mean
-- t-statistic = mean / (stddev / sqrt(n))
-- p-value (two-tailed)
-- 95% confidence interval for mean edge
-- Cost breakdown: mean total cost, mean fee impact, mean slippage
-
-**Why it matters for go/no-go:** Even if hit rate is above 50%, if the mean net edge is not statistically significantly different from zero (p > 0.05), the trader cannot conclude the strategy generates profit after costs. This catches strategies that appear profitable due to random variation.
-
-**Implementation:** t-distribution not in `statrs`? The `statrs` crate includes `StudentsT` distribution. Use `StudentsT::new(0.0, 1.0, df).cdf(t_stat)` for p-value computation. All values from `PaperPosition.settlement_pnl` and cost data from the originating signals.
-
-
-### TS-6: Sharpe Ratio Calculation
-
-| Attribute | Detail |
-|-----------|--------|
-| Why Expected | The Sharpe ratio is the universal metric for risk-adjusted return in quantitative trading. Any trader evaluating a strategy will compute it. A Sharpe below 1.0 (annualized) is generally insufficient to justify live capital deployment. |
+| Why Expected | The Black-76 IV solver needs bid_iv and ask_iv to work. Without ticker data, options pricing cannot produce implied volatilities, and the whole spread pipeline breaks. |
 | Complexity | LOW-MEDIUM |
-| Dependencies | Time series of per-trade P&L (settled positions) |
+| Dependencies | TS-1 (raw messages flowing) |
 
-**What it is:** Compute the Sharpe ratio from the sequence of per-trade returns:
-```
-Sharpe = mean(returns) / stddev(returns) * sqrt(annualization_factor)
-```
+**What it is:** Parse Derive ticker notifications to extract pricing data for options.
 
-For binary event arbitrage with irregular trade timing, the annualization factor must be derived from the actual trading frequency, not a fixed 252 (trading days) assumption.
+**Confirmed available fields from docs.derive.xyz (MEDIUM confidence):**
+- `best_bid_price` / `best_ask_price` -- top-of-book prices (USD, option contract value)
+- `best_bid_amount` / `best_ask_amount` -- sizes
+- `mark_price` -- exchange mark price (USD)
+- `index_price` -- BTC/USD spot index price
+- `mark_iv` -- exchange-computed mark implied volatility (%)
+- `bid_iv` / `ask_iv` -- bid/ask implied volatilities (%)
+- `instrument_name` -- identifies which instrument this ticker belongs to
+- `timestamp` -- millisecond epoch timestamp
 
-**Key consideration for this system:** Trades are not daily -- they correspond to binary event settlements that may be days or weeks apart. The annualization factor should be computed as: `sqrt(365.25 * 24 * 3600 / avg_trade_interval_seconds)` to normalize by actual trading frequency.
+**Key fields for the pipeline:**
+- `bid_iv` + `ask_iv` feed directly into `IvSpread` for the Black-76 vol surface
+- `index_price` provides the BTC/USD spot for `underlying_price` in MarketSnapshot
+- `mark_price` provides the exchange's mid-market option price
 
-**Output:** Report raw (non-annualized) Sharpe, annualized Sharpe, number of trades, average trade interval, and a note on the annualization methodology.
+**How this maps to MarketSnapshot:** Same field mapping as Deribit's `TickerData` -> `TickerState` -> `MarketSnapshot`. The `underlying_index` field on Derive may differ (Deribit uses futures contract name like "BTC-27JUN25"; Derive may use a simpler string).
 
-**Why it matters for go/no-go:** Industry consensus is that annualized Sharpe > 1.0 is acceptable for retail algorithmic trading, > 2.0 is strong. Below 1.0 after costs suggests the strategy does not compensate for the risk taken.
+**Reuses:** `TickerState` struct from Deribit can be reused almost unchanged; Derive's ticker field names differ but map to the same slots.
 
+---
 
-### TS-7: Maximum Drawdown Computation
-
-| Attribute | Detail |
-|-----------|--------|
-| Why Expected | Max drawdown measures the worst peak-to-trough decline. Even a profitable strategy with high Sharpe can have a drawdown that exceeds the trader's risk tolerance or available capital. |
-| Complexity | LOW |
-| Dependencies | Time-ordered series of cumulative P&L (from settled positions) |
-
-**What it is:** From the cumulative P&L curve of settled trades:
-1. Compute running peak (high-water mark)
-2. At each point, compute drawdown = (current - peak) / peak (or absolute drawdown in dollar terms)
-3. Report maximum drawdown in both absolute terms and as percentage of peak equity
-4. Report drawdown duration (time from peak to recovery, or ongoing if still in drawdown)
-
-**Output:** Max drawdown amount, max drawdown percentage, drawdown start date, trough date, recovery date (or "ongoing"), current drawdown.
-
-**Why it matters for go/no-go:** If max drawdown exceeds the trader's risk budget (e.g., 20% of capital), the strategy cannot be deployed even if its expected return is positive. Max drawdown directly informs position sizing and capital requirements for v2.
-
-
-### TS-8: Date-Range Filtering and Multi-Day Aggregation
+### TS-5: Derive Message Processor and Normalization
 
 | Attribute | Detail |
 |-----------|--------|
-| Why Expected | Soak testing produces data over days or weeks. The trader needs to analyze specific date ranges (e.g., last 7 days, last 3 days, specific date) and compare different periods. Without date filtering, every analysis covers all available data with no ability to isolate trends or regime changes. |
-| Complexity | LOW |
-| Dependencies | All other features (this is a filter applied before analysis) |
+| Why Expected | Raw WebSocket frames must become MarketSnapshot events before they're useful. This is the core translation layer. |
+| Complexity | MEDIUM |
+| Dependencies | TS-2 (instrument parsing), TS-3 (book maintenance), TS-4 (ticker state) |
 
-**What it is:** CLI flags for `--from YYYY-MM-DD`, `--to YYYY-MM-DD`, and `--last N` (last N days). Applied at the JSONL file loading stage -- only load files within the date range, then filter records by timestamp within those files.
+**What it is:** A `DeriveProcessor` that consumes `RawMessage` frames, parses them into Derive-specific message types, routes by channel, maintains book and ticker state, and emits `MarketSnapshot`.
 
-**Implementation:** Since files are already named `{YYYY-MM-DD}.jsonl`, date filtering at the file level is trivial. Combine with per-record timestamp filtering for intra-day boundaries.
+**Structure (modeled exactly on `DeribitProcessor` in `src/feed/deribit/normalize.rs`):**
+- `derive_messages.rs` -- Derive-specific serde structs (equivalent to `deribit/messages.rs`)
+- `derive_channels.rs` -- channel name parsing and routing (equivalent to `deribit/channels.rs`)
+- `derive_normalize.rs` -- main processor loop with `build_snapshot()` call
 
+**Key difference from Deribit:** Deribit's `build_snapshot()` is already generic -- it takes `InstrumentBook` and `TickerState` and produces `MarketSnapshot`. Derive's processor calls the same function with Derive-specific inputs. No changes to `build_snapshot()` are required; only the upstream parsing differs.
 
-### TS-9: Terminal Table Output
+**MarketSnapshot fields populated:**
+- `venue: Venue::Derive` (new enum variant needed)
+- `instrument_id`: Derive instrument name (e.g., `BTC-20250328-100000-C`)
+- `bid`, `ask`, `bid_size`, `ask_size`, `depth_bids`, `depth_asks`: from order book
+- `mark_price`, `index_price`: from ticker
+- `mark_iv`, `bid_iv`, `ask_iv`: from ticker (feeds IV solver)
+- `underlying_price`: index_price (BTC/USD spot)
+- `exchange_timestamp`: from message timestamp field
+- `is_stale`: sequence gap OR exchange timestamp staleness
+
+**Venue enum change:** Add `Venue::Derive` to `src/types/ids.rs` (or wherever `Venue` is defined). This ripples through: venue labels in metrics, recording, settlement dispatch, alert monitoring. Mechanical but non-trivial in volume.
+
+**Reuses:** `build_snapshot()` from `deribit/normalize.rs` unchanged; `InstrumentBook` with new Derive-specific snapshot deserialization; `TickerState`/`GreeksState` reused.
+
+---
+
+### TS-6: Derive Reconnection Supervisor
 
 | Attribute | Detail |
 |-----------|--------|
-| Why Expected | Raw numbers dumped to stdout are unusable. Formatted tables with aligned columns, headers, and section separators are the minimum for a CLI analysis tool. The trader reads this output in a terminal to make decisions. |
+| Why Expected | Network drops are expected in production. The supervisor ensures the feed self-heals. |
 | Complexity | LOW |
-| Dependencies | All other features (this is the presentation layer) |
+| Dependencies | TS-1 (DeriveClient), TS-5 (processor) |
 
-**What it is:** Use a terminal table library to format all output. Requirements:
-- Aligned numeric columns (right-justified)
-- Decimal precision appropriate to the values (spreads to 4dp, percentages to 1dp, counts as integers)
-- Section headers separating different analysis views
-- Color highlighting for key values (green for positive, red for negative) -- optional but standard
+**What it is:** A `DeriveSupervisor` that wraps `DeriveClient` with exponential backoff reconnection.
 
-**Library recommendation:** `comfy-table` -- well-tested, no unsafe, handles dynamic-width content, already used in Rust CLI ecosystem. Single dependency addition (consistent with project's conservative dependency philosophy, but justified because terminal formatting is genuinely hard to do well from scratch).
+**Implementation:** Verbatim copy of `DeribitSupervisor` with types changed. The reconnect pattern (watch channel, backoff, first-message reset) is identical.
 
-**Alternative considered:** Manual `println!` with format strings. Rejected because alignment breaks with variable-width numbers and the code becomes a maintenance burden.
+**Reuses:** `ExponentialBackoffBuilder`, `watch::Receiver<Vec<String>>`, `VenueHealth`, `VenueRateLimiter` -- all unchanged.
+
+---
+
+### TS-7: Derive Discovery via REST API
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | Without instrument discovery, the system cannot find which BTC option pairs to compare across venues. Manual TOML entry is not sustainable. |
+| Complexity | MEDIUM |
+| Dependencies | TS-2 (instrument name parsing), existing `DiscoveredInstrument` framework |
+
+**What it is:** A `discover_derive()` function that fetches active BTC options from the Derive REST API and normalizes them into `DiscoveredInstrument`.
+
+**API endpoint (MEDIUM confidence from docs.derive.xyz):**
+- Method: `POST /public/get_instruments` (Derive uses HTTP POST for all methods)
+- Parameters: `{"currency": "BTC", "instrument_type": "option", "expired": false}` (exact field names need verification)
+- Response: array of instrument objects with `instrument_name`, `expiry_timestamp` (or `expiry_date`), `strike`, `option_type`, `is_active` (field names MEDIUM confidence -- inferred from CCXT derive.py)
+- No authentication required for public endpoints
+- REST base URL: `https://api.lyra.finance` (or `https://api-demo.lyra.finance` for testnet)
+
+**Instrument parsing:** Use `parse_derive_instrument()` from TS-2 to extract asset, date, strike, direction from the `instrument_name` field. This avoids dependency on API field names for the core data.
+
+**Rate limits (MEDIUM confidence from docs.derive.xyz):**
+- Fixed-window algorithm, refill every 5 seconds
+- Public endpoints: lower limit (exact number not found; assume 10 req/5s as conservative estimate)
+- Market makers eligible for higher limits
+- Use existing `VenueRateLimiter` with configured rate
+
+**Integration with existing framework:**
+- `discover_derive()` returns `Vec<DiscoveredInstrument>`
+- Feeds into `find_cross_venue_candidates_fuzzy()` alongside Deribit and Polymarket results
+- Auto-proposes matches to `events.toml` with `approved = false`
+- Existing `approved = false` human gate applies unchanged
+
+**Config addition:** New `DeriveConfig` struct in `venues.toml` with `rest_url`, `ws_url`, `rate_limit_per_second`, `staleness_threshold_ms`, `reconnect`, `instruments` fields -- mirrors `DeribitConfig` structure.
+
+**Reuses:** `DiscoveredInstrument`, `FuzzyMatchKey`, `compute_expiry_confidence()`, `VenueRateLimiter`, `reqwest::Client`.
+
+---
+
+### TS-8: Derive Settlement Outcome Tracking
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | Settlement outcomes are needed to validate paper trade P&L and signal quality. Without settlement data, the signal scoring CLI has no ground truth. |
+| Complexity | MEDIUM |
+| Dependencies | Existing `VenueChecker` settlement framework in `src/settlement/` |
+
+**What it is:** A `DeriveChecker` that polls the Derive settlement REST API for option settlement prices and resolves settled positions.
+
+**API endpoint (confirmed from docs.derive.xyz):**
+- `POST /public/get_option_settlement_prices` -- gets settlement prices by expiry for each currency
+- Parameters: `{"currency": "BTC"}` (currency is required parameter)
+- Response: settlement prices keyed by expiry with BTC/USD TWAP settlement values
+- `POST /public/get_option_settlement_history` -- historical settlement records
+
+**Settlement mechanics (HIGH confidence from help.lyra.finance and docs.derive.xyz):**
+- All options expire at 08:00 UTC
+- Settlement price = 30-minute TWAP of BTC/USD spot price ending at 08:00 UTC
+- Payout in USDC (not in BTC -- cash-settled)
+- Oracle: Block Scholes provides settlement data, posted on-chain for transparency
+- Call settles to max(0, index_price - strike); put settles to max(0, strike - index_price), in USD, paid in USDC
+
+**Difference from Deribit settlement:** Deribit settles options in BTC (inverse contracts -- BTC-margined). Derive settles in USDC (linear contracts -- USD-margined). This affects the payout calculation but NOT the probability extraction pipeline (which works in normalized 0-1 probability space regardless).
+
+**Implementation:** Add `DeriveChecker` implementing `VenueChecker` trait. The 4-tier polling cadence (startup backfill, hourly, post-expiry, on-demand) applies unchanged.
+
+**Reuses:** `VenueChecker` trait, `SettlementMonitor`, 4-tier polling cadence logic.
+
+---
+
+### TS-9: Derive Feed Integration into Main Pipeline
+
+| Attribute | Detail |
+|-----------|--------|
+| Why Expected | The venue is useless if it's not wired into the running system. |
+| Complexity | MEDIUM |
+| Dependencies | TS-1 through TS-8, existing pipeline in `src/main.rs` and `src/feed/pipeline.rs` |
+
+**What it is:** Wire the Derive feed into the main application startup:
+1. Add `DeriveConfig` to `VenuesConfig` (in `src/config/venues.rs`)
+2. Spawn `DeriveSupervisor` alongside existing Deribit and Polymarket supervisors
+3. Add Derive `instruments_tx` watch channel to `SubscriptionManager`
+4. Add `DeriveProcessor` to the pipeline (snapshot fan-out)
+5. Add Derive cleanup channel to the 5-engine cleanup list
+6. Add `DeriveChecker` to `SettlementMonitor`'s venue checker list
+7. Add Derive discovery to the discovery background task
+
+**Venue enum ripple:** Adding `Venue::Derive` requires updates in all `match venue` exhaustive arms:
+- `src/signal/` -- SpreadEngine venue labeling
+- `src/settlement/` -- checker dispatch
+- `src/alert/` -- liveness monitoring
+- `src/metrics_export/` -- Prometheus labels
+- `src/feed/recording/` -- JSONL venue tags
+- `src/events/discovery.rs` -- discovery dispatch
+- `src/paper_trade/` -- position tracking
+
+**Reuses:** All existing pipeline components; main.rs startup pattern.
 
 ---
 
 ## Differentiators
 
-Features that go beyond the stated v1.4 goals but would add significant value to the go/no-go decision. Not required for the milestone, but worth considering.
+Features that add value beyond the minimum Derive integration but are not strictly required for cross-venue signal generation.
 
-### DIFF-1: Probabilistic Sharpe Ratio (PSR)
-
-| Attribute | Detail |
-|-----------|--------|
-| Value Proposition | The standard Sharpe ratio is a point estimate. With small samples, its distribution is wide. The Probabilistic Sharpe Ratio (developed by Marcos Lopez de Prado) answers: "What is the probability that the true Sharpe ratio exceeds a benchmark (e.g., 0)?" This directly quantifies confidence in the strategy's risk-adjusted performance. |
-| Complexity | MEDIUM |
-| Dependencies | TS-6 (Sharpe ratio), `statrs` for Normal CDF |
-
-**Formula:**
-```
-PSR = Normal_CDF((SR_hat - SR_benchmark) * sqrt(n-1) / sqrt(1 - skew*SR_hat + (kurtosis-1)/4 * SR_hat^2))
-```
-Where `SR_hat` is observed Sharpe, `SR_benchmark` is the target (usually 0), `n` is number of trades, `skew` and `kurtosis` are of the return distribution.
-
-**Why valuable:** With 50 trades, a Sharpe of 1.5 might have only 80% probability of being truly above 0 if returns are skewed. PSR makes this explicit.
-
-**Recommendation:** Include if time permits. The additional computation is trivial once Sharpe is computed. High value for small-sample go/no-go decisions.
-
-
-### DIFF-2: Threshold Effectiveness Analysis
+### DIFF-1: Three-Way Cross-Venue Spread (Deribit vs Derive vs Polymarket)
 
 | Attribute | Detail |
 |-----------|--------|
-| Value Proposition | The system already tracks signals that were filtered by the dynamic threshold (PassedStaticOnly, Filtered) and correlates them with settlement outcomes. The CLI should surface this data: "How many profitable trades did the threshold filter out? Is the threshold too aggressive or too permissive?" |
-| Complexity | MEDIUM |
-| Dependencies | `FilteredSignalTracker` data from runtime, threshold_status field on SpreadResult and ArbSignal |
-
-**What it is:** For each threshold_status category (PassedBoth, PassedStaticOnly, Filtered):
-- Count of signals
-- Hit rate (for PassedBoth: from settlements; for filtered: hypothetical based on outcome)
-- Mean edge
-- Optimal threshold backtesting: what threshold would have maximized net P&L?
-
-**Why valuable:** Directly informs threshold tuning before v2 deployment. If the threshold is filtering out 30% of would-be profitable trades, it needs adjustment.
-
-**Recommendation:** Include the basic breakdown (count and hit rate per threshold status). Defer optimal threshold backtesting to a future milestone -- it requires replaying all spread data with different thresholds, which is a larger effort.
-
-
-### DIFF-3: Per-Event Breakdown
-
-| Attribute | Detail |
-|-----------|--------|
-| Value Proposition | Aggregate statistics can hide that all profit comes from one event while other events lose money. Breaking down by event_id shows if the edge is concentrated or distributed. |
+| Value Proposition | With two options venues (Deribit + Derive), the system can detect divergences between venues for the same contract -- a purer arbitrage signal than options-vs-prediction. |
 | Complexity | LOW |
-| Dependencies | TS-1 through TS-7 (same computations, different grouping key) |
+| Dependencies | TS-5 (Derive producing MarketSnapshot), existing SpreadEngine |
 
-**What it is:** Run all spread and signal scoring analyses grouped by `event_id` in addition to the aggregate view. Present as a table sorted by net P&L per event.
+**What it is:** The existing `SpreadEngine` computes cross-venue spreads between any two venues with a matched `event_id`. Adding `Venue::Derive` means:
+- **Deribit vs Polymarket** (existing)
+- **Derive vs Polymarket** (new -- same math, different venue label)
+- **Deribit vs Derive** (new -- direct options-vs-options comparison; both run Black-76 pricing)
 
-**Why valuable:** If only 1 of 5 events shows positive edge, the strategy may not generalize. If all events show positive edge, the signal is robust.
+The Deribit vs Derive pair is particularly interesting: both are European-style BTC options with the same underlying. Any pricing divergence between them is a purer options arbitrage, less contaminated by prediction market basis risk.
 
-**Recommendation:** Include. Very low marginal cost (add a group-by to existing computations).
+**Implementation:** No code changes to SpreadEngine required. When Derive instruments are approved in events.toml with a Derive venue entry, SpreadEngine automatically picks up the new venue pairs. The only required change is ensuring `Venue::Derive` is handled in venue-pair labeling functions used by spread_analytics CLI.
 
+**Value for the project:** This is the primary motivation for adding Derive. The Deribit vs Derive spread is an actionable institutional arbitrage signal that does not depend on prediction market liquidity.
 
-### DIFF-4: Spread Autocorrelation
+---
 
-| Attribute | Detail |
-|-----------|--------|
-| Value Proposition | If spreads are autocorrelated (today's spread predicts tomorrow's), it means the arb opportunity is persistent and execution timing is less critical. If spreads are mean-reverting quickly, execution speed matters more. This informs v2 latency requirements. |
-| Complexity | MEDIUM |
-| Dependencies | TS-1 (spread time series) |
-
-**What it is:** Compute lag-1 through lag-N autocorrelation of the net_spread time series. Report correlation coefficients and whether they are statistically significant.
-
-**Recommendation:** Defer. Interesting but not essential for the go/no-go decision. The primary question is "is there edge?" not "how persistent is the edge?" Persistence analysis is a v2 optimization concern.
-
-
-### DIFF-5: JSON Output Mode
+### DIFF-2: Derive Options Implied Probability (via existing Black-76 pipeline)
 
 | Attribute | Detail |
 |-----------|--------|
-| Value Proposition | Machine-readable output for piping to other tools, storing analysis snapshots, or feeding into a future dashboard. |
+| Value Proposition | Derive options can be converted to implied probabilities using the same Black-76 call spread replication already in production for Deribit. This makes Derive a full substitute for Deribit in cross-venue comparisons. |
+| Complexity | LOW (pipeline already exists) |
+| Dependencies | TS-4 (bid_iv, ask_iv fields populated), existing `PricingEngine` in `src/pricing/` |
+
+**What it is:** The existing `PricingEngine` already processes MarketSnapshots from Deribit to compute `bid_probability` and `ask_probability`. Adding `Venue::Derive` to the list of venues the PricingEngine processes is likely a one-line change or a new config entry.
+
+**Key prerequisite:** Derive's `bid_iv` and `ask_iv` must be populated correctly in MarketSnapshot (from TS-4). The Black-76 math is identical for European cash-settled options on BTC.
+
+**Settlement alignment note:** Derive settles options at 08:00 UTC (confirmed). Deribit also settles at 08:00 UTC. This means the time-to-expiry calculation is aligned between venues -- no adjustment needed in the Black-76 `t` parameter.
+
+**Reuses:** `PricingEngine`, `IvSolver`, `CallSpreadReplicator`, `VolSurface` -- all unchanged.
+
+---
+
+### DIFF-3: Derive-Specific Discovery Configuration
+
+| Attribute | Detail |
+|-----------|--------|
+| Value Proposition | Discovery can be tuned to Derive's expiry schedule (flexible user-defined expiries vs Deribit's fixed weekly/monthly schedule). This prevents flood of proposals for far-dated or illiquid contracts. |
 | Complexity | LOW |
-| Dependencies | All features (alternative serialization of the same data) |
+| Dependencies | TS-7 (discover_derive()) |
 
-**What it is:** `--output json` flag that outputs all analysis results as JSON instead of terminal tables. Uses the same `serde::Serialize` structs that back the table rendering.
+**What it is:** Config parameters in `derive.toml` to filter discovery output:
+- `max_expiry_days`: skip instruments expiring more than N days out (default: 90)
+- `min_open_interest`: skip instruments below OI threshold (if OI available in API response)
+- `currencies`: list of currencies to discover (default: `["BTC"]`)
 
-**Recommendation:** Include. Trivial to implement (derive `Serialize` on all output structs, `serde_json::to_string_pretty`). Enables `jq` piping and analysis snapshots saved to files.
+**Derive expiry schedule (MEDIUM confidence):** Unlike Deribit which lists fixed weekly Friday and monthly end-of-month expirations, Derive supports "any expiry and strike" provided an oracle data feed exists. In practice, liquid expiries on Derive cluster around the same dates as Deribit (weekly Fridays). However, the API may return dozens of thinly-traded custom expiries that should be filtered.
 
-
-### DIFF-6: Comparative Period Analysis
-
-| Attribute | Detail |
-|-----------|--------|
-| Value Proposition | Compare two time periods side by side (e.g., "last 7 days" vs "previous 7 days") to detect if spread patterns are stable or deteriorating. |
-| Complexity | MEDIUM |
-| Dependencies | TS-8 (date filtering), all analysis features |
-
-**What it is:** `--compare-from YYYY-MM-DD --compare-to YYYY-MM-DD` flags that run the same analysis on two date ranges and present results side by side with delta columns.
-
-**Recommendation:** Defer. The trader can run the tool twice with different date ranges and compare manually. The side-by-side presentation is nice-to-have but adds CLI complexity.
+**Reuses:** Existing `DeriveDiscoveryConfig` struct (new), merged into `DiscoveryConfig`.
 
 ---
 
 ## Anti-Features
 
-Features to explicitly NOT build in v1.4.
+Features to explicitly NOT build in v1.5.
 
-### AF-1: Real-Time Dashboard / TUI
+### AF-1: Derive On-Chain Settlement Verification
 
-| Anti-Feature | ncurses/ratatui-based live-updating terminal dashboard |
-|--------------|-------------------------------------------------------|
-| Why Requested | "It would be cool to watch stats update in real time" |
-| Why Problematic | Massive scope increase (event loop, widget layout, state management). The analysis tools are for offline post-hoc analysis of soak test data, not live monitoring. Live monitoring is already covered by Prometheus metrics + Grafana (standard approach for this system). A TUI would duplicate existing capability with a worse interface. |
-| Alternative | Run the CLI periodically during soak testing. Use `watch -n 60 prediction analyze-spreads --last 1` for pseudo-live updates. |
+| Anti-Feature | Verify settlement via Derive Chain (OP Stack / Ethereum L2) RPC calls |
+|--------------|-----------------------------------------------------------------------|
+| Why Requested | "The settlement is on-chain -- we could verify it directly" |
+| Why Problematic | Requires an Ethereum RPC endpoint, on-chain data parsing, ABI decoding, and understanding of Derive's settlement contract state. This is orders-of-magnitude more complex than polling the REST API. The REST `public/get_option_settlement_prices` endpoint provides the same settlement prices already verified by the Derive protocol. On-chain verification adds no signal value -- it's redundant infrastructure. |
+| Alternative | Use `public/get_option_settlement_prices` REST endpoint -- already provides Block Scholes oracle-verified settlement prices. |
 
+---
 
-### AF-2: Database Backend for Analysis Data
+### AF-2: Derive Authentication / Session Keys
 
-| Anti-Feature | SQLite/DuckDB backend replacing JSONL files |
-|--------------|----------------------------------------------|
-| Why Requested | "SQL queries would make analysis more flexible" |
-| Why Problematic | Violates the project's explicit "no database" philosophy (TOML/JSONL sufficient at current scale). Adds a major new dependency. JSONL files are human-readable, git-trackable, and `grep`-able. The analysis volume (thousands to tens of thousands of records) is trivially handled by in-memory Rust `Vec<T>`. Loading 100K SpreadResult records from JSONL into memory takes under 1 second in Rust. |
-| Alternative | Load JSONL into `Vec<SpreadResult>`, filter/group/aggregate in-memory with iterators. This is faster than SQLite for the expected data volumes and has zero infrastructure requirements. |
+| Anti-Feature | Implement Derive session key auth for private endpoint access |
+|--------------|---------------------------------------------------------------|
+| Why Requested | "Private endpoints give more market data" |
+| Why Problematic | Derive's authentication uses EIP-712 session keys (on-chain signature scheme, not simple API keys). Implementation requires: wallet key management, EIP-712 signing, session key registration on-chain. All public market data channels (orderbook, ticker, instruments) are unauthenticated. Private endpoints are for order placement and account data -- both out of scope for v1.5 (paper trading only). |
+| Alternative | All required data (orderbook, ticker, settlement prices, instrument listing) is available via public endpoints. No auth needed for v1.5. |
 
+---
 
-### AF-3: Backtesting Engine
+### AF-3: Derive Perpetuals Feed
 
-| Anti-Feature | Full replay-based backtesting with hypothetical execution simulation |
-|--------------|---------------------------------------------------------------------|
-| Why Requested | "What if we had used different thresholds?" |
-| Why Problematic | A backtesting engine is a v2+ feature that requires simulating fill prices, order book state, latency, and partial fills. The v1.4 CLI tools analyze what actually happened, not what might have happened. Backtesting with look-ahead bias is worse than useless -- it creates false confidence. |
-| Alternative | TS-4/TS-5 with Wilson score CIs on actual settled positions. If the actual data shows edge, that is stronger evidence than any backtest. |
+| Anti-Feature | Subscribe to Derive perpetual futures (BTC-PERP) |
+|--------------|--------------------------------------------------|
+| Why Requested | "Derive also has perpetuals, could be interesting" |
+| Why Problematic | Perpetuals require funding rate modeling, mark price basis tracking, and a different probability extraction approach. The pipeline is purpose-built for binary options pricing. Perpetuals provide no direct comparison to Polymarket binary contracts. |
+| Alternative | Subscribe to BTC options only (European calls and puts). The perpetual feed produces no actionable signal for cross-venue binary arbitrage. |
 
+---
 
-### AF-4: Charting / Plotting
+### AF-4: Full Derive Instrument Universe
 
-| Anti-Feature | In-terminal or image-based charts (histograms, scatter plots, time series) |
-|--------------|----------------------------------------------------------------------------|
-| Why Requested | "Visualize the spread distribution" |
-| Why Problematic | Terminal plotting is low-fidelity and adds dependencies (plotters, textplots). Image generation requires a render backend. The trader can export JSON (DIFF-5) and use external tools (Python/matplotlib, gnuplot, Excel) for visualization if needed. Tables convey the same information more precisely for statistical analysis. |
-| Alternative | JSON output + external plotting tools. Tables with percentile breakdowns serve the analytical purpose. |
+| Anti-Feature | Subscribe to all active BTC options on Derive |
+|--------------|-----------------------------------------------|
+| Why Requested | "More instruments = more signals" |
+| Why Problematic | Derive supports custom expiries and strikes, resulting in potentially hundreds of active option instruments. Subscribing to all of them creates unmanaged memory growth, excessive WebSocket bandwidth, and no additional signal value (instruments without a matching Polymarket question are useless for cross-venue arb). |
+| Alternative | Subscribe only to instruments that have been approved in events.toml (same `instruments_tx` watch channel pattern as Deribit). Discovery proposes candidates; human approves before subscription. |
 
+---
 
-### AF-5: Automated Go/No-Go Decision
+### AF-5: Multi-Collateral Accounting
 
-| Anti-Feature | CLI outputs "GO" or "NO-GO" based on programmatic thresholds |
-|--------------|--------------------------------------------------------------|
-| Why Requested | "Automate the decision" |
-| Why Problematic | The go/no-go decision is a human judgment that weighs statistical evidence alongside risk tolerance, capital availability, market conditions, and operational readiness. No algorithm can capture all these factors. Presenting false precision ("the system says GO") creates unjustified confidence. |
-| Alternative | Present the statistics clearly with confidence intervals. Let the trader decide. Flag when sample sizes are insufficient for reliable conclusions (e.g., "n=12 settled trades -- confidence intervals are wide"). |
+| Anti-Feature | Track and account for Derive's multi-collateral positions (wBTC, stETH, etc.) |
+|--------------|-------------------------------------------------------------------------------|
+| Why Requested | "Derive uses USDC AND wBTC as collateral -- affects cost basis" |
+| Why Problematic | Collateral accounting is a v2 execution concern, not a v1.5 signal generation concern. Paper trading uses normalized probability and USD-denominated spreads. The collateral composition of a potential trade is irrelevant until execution planning. |
+| Alternative | Model all Derive spreads as USDC-denominated (linear). BasisRiskCache already handles basis risk adjustments. Collateral-specific cost modeling deferred to v2. |
 
 ---
 
 ## Feature Dependencies
 
 ```
-TS-8: Date-Range Filtering
+Venue::Derive enum variant
     |
-    +-- TS-1: Spread Distribution Stats (needs loaded, filtered data)
-    |     |
-    |     +-- TS-2: Hourly Time-Bucket Analysis (reuses stat functions)
-    |     |
-    |     +-- TS-3: Venue-Pair Breakdown (reuses stat functions)
+    +--requires--> TS-2: Instrument Name Parser
+    |                   |
+    |                   +--requires--> TS-7: Discovery (derive_discover())
+    |                   |
+    |                   +--requires--> TS-5: Message Processor (DeriveProcessor)
     |
-    +-- TS-4: Hit Rate with CIs (needs loaded position data)
-    |     |
-    |     +-- TS-5: Cost-Adjusted Edge (builds on position analysis)
-    |     |
-    |     +-- TS-6: Sharpe Ratio (builds on P&L series)
-    |           |
-    |           +-- TS-7: Max Drawdown (needs cumulative P&L series)
-    |           |
-    |           +-- DIFF-1: Probabilistic Sharpe (extends Sharpe)
+    +--requires--> TS-1: WebSocket Client (DeriveClient)
+                        |
+                        +--requires--> TS-3: Order Book Maintenance (DeriveBook)
+                        |                   |
+                        |                   +--feeds--> TS-5: Processor -> MarketSnapshot
+                        |
+                        +--requires--> TS-4: Ticker Feed
+                        |                   |
+                        |                   +--feeds--> TS-5: Processor -> MarketSnapshot
+                        |                   |
+                        |                   +--enables--> DIFF-2: Black-76 IV Pipeline
+                        |
+                        +--requires--> TS-6: Supervisor (DeriveSupervisor)
 
-TS-9: Terminal Table Output (parallel -- presentation layer for all features)
+TS-5 (MarketSnapshot with Venue::Derive)
+    |
+    +--enables--> DIFF-1: Three-way spread (Deribit/Derive/Polymarket)
+    |
+    +--requires--> TS-9: Pipeline Wiring (all venue enum match arms)
 
-DIFF-5: JSON Output (parallel -- alternative presentation)
+TS-8: Settlement Checker (DeriveChecker)
+    |
+    +--independent of feed pipeline (REST polling, separate task)
+    +--required for signal validation (paper trade P&L ground truth)
 
-DIFF-2: Threshold Effectiveness (parallel -- independent data source)
-
-DIFF-3: Per-Event Breakdown (parallel -- adds group-by to existing analyses)
+TS-7: Discovery
+    |
+    +--feeds--> EventRegistry (approved matches drive TS-1 subscriptions via SubscriptionManager)
 ```
 
 ### Dependency Notes
 
-- **TS-8 (date filtering) is the foundation** -- every analysis needs to load and filter JSONL data. Build the data loading layer first.
-- **TS-1 (spread stats) and TS-4 (hit rate) are independent branches** -- spread analytics CLI and signal scoring CLI can be built in parallel once the data loading layer exists.
-- **TS-9 (table output) is needed by everything** -- but can be stubbed initially with `println!` and upgraded to `comfy-table` as a separate step.
-- **DIFF-2 (threshold effectiveness) reads different data** (FilteredSignalTracker state) than the main analyses, so it is independent.
-- **Two natural CLI subcommands emerge:** `analyze-spreads` (TS-1, TS-2, TS-3) and `score-signals` (TS-4, TS-5, TS-6, TS-7). Shared infrastructure: TS-8 (loading), TS-9/DIFF-5 (output).
+- **Venue::Derive enum variant is the blocker for everything.** Add it first, fix all match arms, then build the feed. Attempting to build the feed before the enum is added creates compile errors across the codebase.
+
+- **TS-2 (instrument name parsing) should be built and tested first** -- it has no dependencies, is pure logic, and is required by both discovery (TS-7) and the processor (TS-5). Tests provide immediate verification.
+
+- **TS-3 and TS-4 can be built in parallel** -- both consume raw messages but do independent state management.
+
+- **TS-5 (processor) is the integration point** -- it depends on TS-2, TS-3, TS-4. Build last among the data-path components.
+
+- **TS-8 (settlement) is independent of the feed pipeline** -- it polls REST endpoints on a schedule. Can be developed in parallel with the WebSocket feed.
+
+- **DIFF-1 (three-way spread) requires no code changes** -- it activates automatically once TS-9 (pipeline wiring) is complete and instruments are approved in events.toml.
+
+- **The existing `build_snapshot()` function does NOT need to change** -- it is fully generic over `InstrumentBook` and `TickerState`. Derive's processor calls it with Derive-specific inputs but the function signature and logic are identical.
 
 ---
 
-## MVP Recommendation
+## MVP Definition
 
-### Must Have (v1.4 ship criteria)
+### Must Have (v1.5 ship criteria)
 
-- [x] **TS-8:** Date-range filtering -- foundation for all analysis
-- [x] **TS-9:** Terminal table output -- presentation layer
-- [x] **TS-1:** Spread distribution summary statistics -- "what does the data look like?"
-- [x] **TS-2:** Hourly time-bucket analysis -- "when do opportunities appear?"
-- [x] **TS-3:** Venue-pair breakdown -- "which venue pairs have edge?"
-- [x] **TS-4:** Hit rate with Wilson score confidence intervals -- "is the win rate real?"
-- [x] **TS-5:** Cost-adjusted edge with t-test significance -- "is the edge real after costs?"
-- [x] **TS-6:** Sharpe ratio -- "is the risk-adjusted return acceptable?"
-- [x] **TS-7:** Maximum drawdown -- "can I survive the worst case?"
+- [ ] **Venue::Derive enum** -- ripple through all match arms first
+- [ ] **TS-2: Instrument name parser** -- foundation for all other work
+- [ ] **TS-1: DeriveClient** -- WebSocket connection + subscribe
+- [ ] **TS-3: DeriveBook** -- order book maintenance
+- [ ] **TS-4: Ticker feed** -- bid_iv, ask_iv, index_price
+- [ ] **TS-5: DeriveProcessor** -- normalization to MarketSnapshot
+- [ ] **TS-6: DeriveSupervisor** -- reconnection with backoff
+- [ ] **TS-7: discover_derive()** -- REST discovery for instrument proposals
+- [ ] **TS-8: DeriveChecker** -- settlement outcome tracking
+- [ ] **TS-9: Pipeline wiring** -- plugged into main + SubscriptionManager + SpreadEngine
 
-### Should Have (include if time permits)
+### Included With No Additional Cost
 
-- [ ] **DIFF-1:** Probabilistic Sharpe Ratio -- small marginal cost, high value for small samples
-- [ ] **DIFF-3:** Per-event breakdown -- low cost, reveals concentration risk
-- [ ] **DIFF-5:** JSON output mode -- trivial to implement, enables external tooling
+- [ ] **DIFF-1: Three-way spread** -- activates automatically from TS-9 + event approvals
+- [ ] **DIFF-2: Black-76 IV probability** -- activates automatically from TS-4 + existing PricingEngine
 
-### Future Consideration (defer)
+### Add After Validation
 
-- [ ] **DIFF-2:** Threshold effectiveness analysis -- valuable but requires additional data pipeline work
-- [ ] **DIFF-4:** Spread autocorrelation -- optimization concern, not go/no-go
-- [ ] **DIFF-6:** Comparative period analysis -- manual comparison is sufficient initially
+- [ ] **DIFF-3: Discovery config tuning** -- after first discovery run reveals signal-to-noise ratio
 
 ---
 
 ## Feature Prioritization Matrix
 
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| TS-8: Date filtering | HIGH | LOW | P1 |
-| TS-9: Table output | HIGH | LOW | P1 |
-| TS-1: Spread stats | HIGH | LOW | P1 |
-| TS-2: Hourly buckets | HIGH | LOW | P1 |
-| TS-3: Venue-pair breakdown | HIGH | LOW | P1 |
-| TS-4: Hit rate + CIs | HIGH | MEDIUM | P1 |
-| TS-5: Edge significance | HIGH | MEDIUM | P1 |
-| TS-6: Sharpe ratio | HIGH | LOW-MEDIUM | P1 |
-| TS-7: Max drawdown | MEDIUM | LOW | P1 |
-| DIFF-1: PSR | MEDIUM | LOW | P2 |
-| DIFF-3: Per-event | MEDIUM | LOW | P2 |
-| DIFF-5: JSON output | MEDIUM | LOW | P2 |
-| DIFF-2: Threshold analysis | MEDIUM | MEDIUM | P3 |
-| DIFF-4: Autocorrelation | LOW | MEDIUM | P3 |
-| DIFF-6: Period comparison | LOW | MEDIUM | P3 |
-
-**Priority key:**
-- P1: Must have for v1.4 -- required for go/no-go decision
-- P2: Should have, add if time permits -- improves quality of analysis
-- P3: Future consideration -- optimization and extended analysis
+| Feature | Value | Cost | Priority |
+|---------|-------|------|----------|
+| Venue::Derive enum | HIGH | LOW | P1 |
+| TS-2: Instrument name parser | HIGH | LOW | P1 |
+| TS-1: WebSocket client | HIGH | LOW | P1 |
+| TS-3: Order book maintenance | HIGH | LOW-MEDIUM | P1 |
+| TS-4: Ticker feed (bid_iv/ask_iv) | HIGH | LOW-MEDIUM | P1 |
+| TS-5: Message processor | HIGH | MEDIUM | P1 |
+| TS-6: Reconnection supervisor | HIGH | LOW | P1 |
+| TS-7: REST discovery | HIGH | MEDIUM | P1 |
+| TS-8: Settlement checker | HIGH | MEDIUM | P1 |
+| TS-9: Pipeline wiring | HIGH | MEDIUM | P1 |
+| DIFF-1: Three-way spread | HIGH | LOW (free) | P1 |
+| DIFF-2: IV probability | HIGH | LOW (free) | P1 |
+| DIFF-3: Discovery config | MEDIUM | LOW | P2 |
+| AF-1: On-chain verification | NONE | VERY HIGH | OUT |
+| AF-2: Auth/session keys | NONE | HIGH | OUT |
+| AF-3: Perpetuals feed | LOW | MEDIUM | OUT |
+| AF-4: Full instrument universe | NEGATIVE | MEDIUM | OUT |
+| AF-5: Multi-collateral accounting | NONE | MEDIUM | OUT |
 
 ---
 
-## Data Sources and Schemas
+## Key API Facts Summary
 
-### Spread Analytics CLI (`analyze-spreads`) reads:
+| Fact | Value | Confidence |
+|------|-------|------------|
+| WS URL (production) | `wss://api.lyra.finance/ws` | MEDIUM |
+| WS URL (testnet) | `wss://api-demo.lyra.finance/ws` | HIGH |
+| REST URL (production) | `https://api.lyra.finance` | MEDIUM |
+| Protocol | JSON-RPC 2.0 | HIGH |
+| Auth required for market data | No (public endpoints) | HIGH |
+| Instrument format | `{ASSET}-{YYYYMMDD}-{STRIKE}-{C/P}` | HIGH |
+| Settlement time | 08:00 UTC | HIGH |
+| Settlement price | 30-min TWAP of BTC/USD | HIGH |
+| Settlement currency | USDC (linear/USDC-margined) | HIGH |
+| Option style | European | HIGH |
+| Rate limit window | 5-second fixed window | MEDIUM |
+| Rate limit numeric value | Unknown -- needs live verification | LOW |
+| WebSocket channel names | Unknown -- needs live API testing | LOW |
+| Orderbook update type | Snapshot vs delta -- needs verification | LOW |
+| `bid_iv` / `ask_iv` in ticker | Present (confirmed from Get Ticker docs) | MEDIUM |
+| `index_price` in ticker | Present | MEDIUM |
 
-**Source:** `spread_logs/{YYYY-MM-DD}.jsonl`
-**Schema:** `SpreadResult` struct with fields:
-| Field | Type | Use in Analysis |
-|-------|------|-----------------|
-| `net_spread` | Decimal (string) | Primary metric for distribution analysis |
-| `gross_spread` | Decimal (string) | Pre-cost spread for gross edge |
-| `pattern` | SpreadPattern enum | Venue pair grouping, directional analysis |
-| `event_id` | String | Per-event breakdown |
-| `timestamp_ms` | i64 | Time-of-day bucketing, date filtering |
-| `threshold` | Decimal or null | Threshold at computation time |
-| `threshold_status` | ThresholdStatus or null | Threshold effectiveness |
-| `total_cost` | Decimal (string) | Cost analysis |
-| `buy_fill_ratio` / `sell_fill_ratio` | Decimal | Liquidity analysis |
+---
 
-### Signal Scoring CLI (`score-signals`) reads:
+## Low-Confidence Items Requiring Live API Verification
 
-**Source 1:** `signal_logs/{YYYY-MM-DD}.jsonl`
-**Schema:** `ArbSignal` struct with fields:
-| Field | Type | Use in Analysis |
-|-------|------|-----------------|
-| `net_edge` | Decimal (string) | Edge after costs |
-| `raw_spread` | Decimal (string) | Pre-cost edge |
-| `confidence` | f64 | Confidence score analysis |
-| `cost_breakdown` | CostBreakdown | Fee/slippage analysis |
-| `threshold_status` | ThresholdStatus | Threshold effectiveness |
-| `prediction_venue` | Venue | Venue breakdown |
+The following must be verified against the live API before or during implementation:
 
-**Source 2:** `state/checkpoint.json`
-**Schema:** Checkpoint with `open` and `daily_rollups` fields, containing `PaperPosition` data with:
-| Field | Type | Use in Analysis |
-|-------|------|-----------------|
-| `settlement_pnl` | Decimal or null | P&L for Sharpe, drawdown, hit rate |
-| `status` | PositionStatus | Filter to "Settled" only |
-| `settled_legs` | Vec<SettledLeg> | Per-venue P&L breakdown |
-| `adverse_selection` | Decimal or null | Fill quality analysis |
-| `threshold_status` | ThresholdStatus or null | Threshold analysis |
+1. **Exact WebSocket channel name format** -- is it `{instrument_name}.orderbook` or `orderbook.{instrument_name}` or something else? Check `docs.derive.xyz/reference/json-rpc` Subscribe section.
+
+2. **Order book update model** -- are updates full snapshots (like Deribit's grouped channel) or incremental deltas requiring sequence tracking?
+
+3. **Heartbeat mechanism** -- does Derive send periodic keepalive messages? Does it have a server-side heartbeat command equivalent to Deribit's `public/set_heartbeat`? Or is it purely WebSocket-level ping/pong?
+
+4. **Discovery endpoint field names** -- exact JSON field names for the instrument listing response (`expiry_timestamp` vs `expiry_date` vs `expiration_timestamp`, `option_type` vs `instrument_type`, etc.)
+
+5. **Rate limit numbers** -- requests per 5-second window for public endpoints.
+
+6. **Production REST/WS hostname** -- confirm `api.lyra.finance` vs any `api.derive.xyz` hostname.
+
+**Recommended approach:** Write a minimal test harness (a few lines of Rust or even a curl command) that connects to `wss://api-demo.lyra.finance/ws` and sends a subscribe request before implementing the full client. Capture 10-20 raw messages to establish the exact format.
 
 ---
 
 ## Sources
 
-- [Binomial proportion confidence interval (Wilson score)](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval) -- Wilson score formula, comparison with Wald and Clopper-Pearson methods
-- [statrs::distribution::Normal](https://docs.rs/statrs/latest/statrs/distribution/struct.Normal.html) -- Rust Normal distribution with inverse CDF for z-scores
-- [statrs::distribution::Binomial](https://docs.rs/statrs/latest/statrs/distribution/struct.Binomial.html) -- Binomial distribution in statrs
-- [Sharpe Ratio for Algorithmic Trading Performance Measurement](https://www.quantstart.com/articles/Sharpe-Ratio-for-Algorithmic-Trading-Performance-Measurement/) -- Annualization methodology, interpretation thresholds
-- [Advanced Trading Metrics: Sharpe, Sortino, Calmar, SQN & K-Ratio](https://algostrategyanalyzer.com/en/blog/advanced-trading-metrics/) -- Comprehensive trading metric overview (2026)
-- [How to measure the quality of a trading signal](https://macrosynergy.com/research/how-to-measure-the-quality-of-a-trading-signal/) -- Signal quality metrics, classification-based evaluation, Probabilistic Sharpe Ratio
-- [comfy-table](https://github.com/Nukesor/comfy-table) -- Terminal table formatting library for Rust
-- [Intraday Patterns in Bid/Ask Spreads](https://digitalcommons.memphis.edu/facpubs/11507/) -- Academic evidence for time-of-day spread patterns (McInish & Wood)
-- [5 Key Metrics to Evaluate Trading Algorithms](https://www.utradealgos.com/blog/5-key-metrics-to-evaluate-the-performance-of-your-trading-algorithms/) -- Industry standard performance evaluation metrics (2025)
+- [Derive.xyz API Introduction](https://docs.derive.xyz/reference/overview) -- transport-agnostic JSON-RPC protocol, WebSocket URL, public/subscribe method
+- [Derive.xyz JSON-RPC Reference](https://docs.derive.xyz/reference/json-rpc) -- method listing, subscribe channel documentation
+- [Derive.xyz Get Instrument](https://docs.derive.xyz/reference/post_public-get-instrument) -- single instrument endpoint, instrument_name field
+- [Derive.xyz Get Ticker](https://docs.derive.xyz/reference/public-get_ticker) -- best bid/ask, instrument constraints, fees info
+- [Derive.xyz Get Option Settlement Prices](https://docs.derive.xyz/reference/public-get_option_settlement_prices) -- settlement prices by expiry
+- [Derive.xyz Rate Limits](https://docs.derive.xyz/reference/rate-limits) -- fixed-window 5-second algorithm
+- [Derive.xyz Supported Products](https://docs.derive.xyz/docs/supported-products-1) -- options, perpetuals, USDC settlement, multi-asset collateral
+- [Lyra Help Center: Expiration and Settlement](https://help.lyra.finance/en/articles/8691491-expiration-settlement) -- 08:00 UTC expiry, 30-min TWAP, BTC/USD settlement
+- [A Technical Overview of Derive](https://insights.derive.xyz/a-technical-overview-of-lyra-v2/) -- Rust-powered offchain orderbook, OP Stack L2, matching service
+- [Announcing Crypto Options Derive (Lyra v2)](https://insights.derive.xyz/announcing-lyra-v2/) -- architecture overview, USDC settlement confirmation
+- [CCXT derive.py](https://github.com/ccxt/ccxt/blob/master/python/ccxt/derive.py) -- confirmed instrument_name format (`BTC-YYYYMMDD-STRIKE-C/P`), `publicPostGetTicker()` method, response field mapping
+- [derivexyz/cockpit](https://github.com/derivexyz/cockpit) -- Automated market maker algorithms for Lyra V2 markets
+- [Derive.xyz by QuickNode](https://www.quicknode.com/builders-guide/tools/derive-xyz-by-lyra-technologies) -- Rust-powered orderbook, WebSocket streaming, REST and WebSocket API client libraries
+- [Key Features of Lyra V2 (Amberdata)](https://blog.amberdata.io/ad-derivatives-insights-lyra-v2-protocol) -- European-style options, USDC settlement, TWAP mechanics
 
 ---
-*Feature research for: v1.4 Analysis Tooling (Spread Analytics CLI + Signal Scoring CLI)*
-*Researched: 2026-02-28*
+*Feature research for: v1.5 Derive.xyz Venue Integration*
+*Researched: 2026-03-03*
