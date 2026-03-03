@@ -11,6 +11,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - v1.2 Automated Event Management -- Phases 18-21 (shipped 2026-02-27) | [Full details](milestones/v1.2-ROADMAP.md)
 - v1.3 Live Subscription Management -- Phases 22-25 (shipped 2026-02-28) | [Full details](milestones/v1.3-ROADMAP.md)
 - v1.4 Analysis Tooling -- Phases 26-29 (shipped 2026-03-02) | [Full details](milestones/v1.4-ROADMAP.md)
+- v1.5 Derive.xyz Venue Integration -- Phases 30-33 (in progress) | [Full details](milestones/v1.5-ROADMAP.md)
 
 ## Phases
 
@@ -73,6 +74,15 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 </details>
 
+### v1.5 Derive.xyz Venue Integration (In Progress)
+
+**Milestone Goal:** Add Derive.xyz as fourth venue -- decentralized options exchange on Ethereum L2 with BTC options CLOB. Enables Deribit vs Derive options spread and three-way cross-venue signals.
+
+- [ ] **Phase 30: Venue Type Foundation** - Add Venue::Derive enum, resolve all match arms, add config section, verify live API
+- [ ] **Phase 31: Derive Feed and Normalization** - Complete standalone feed emitting correct MarketSnapshot with USDC normalization
+- [ ] **Phase 32: Pipeline Wiring and Observability** - Wire Derive into live multi-venue pipeline with subscription management and metrics
+- [ ] **Phase 33: Discovery and Matching** - REST-based instrument discovery with cross-venue matching and proposal workflow
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -82,3 +92,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
 | 26-29 | v1.4 Analysis Tooling | 7/7 | Complete | 2026-03-02 |
+| 30. Venue Type Foundation | v1.5 | 0/? | Not started | - |
+| 31. Derive Feed and Normalization | v1.5 | 0/? | Not started | - |
+| 32. Pipeline Wiring and Observability | v1.5 | 0/? | Not started | - |
+| 33. Discovery and Matching | v1.5 | 0/? | Not started | - |

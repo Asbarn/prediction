@@ -60,30 +60,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FEED-01 | — | Pending |
-| FEED-02 | — | Pending |
-| FEED-03 | — | Pending |
-| FEED-04 | — | Pending |
-| FEED-05 | — | Pending |
-| NORM-01 | — | Pending |
-| NORM-02 | — | Pending |
-| NORM-03 | — | Pending |
-| NORM-04 | — | Pending |
-| PIPE-01 | — | Pending |
-| PIPE-02 | — | Pending |
-| PIPE-03 | — | Pending |
-| PIPE-04 | — | Pending |
-| PIPE-05 | — | Pending |
-| DISC-01 | — | Pending |
-| DISC-02 | — | Pending |
-| DISC-03 | — | Pending |
-| DISC-04 | — | Pending |
+| FEED-01 | Phase 31 | Pending |
+| FEED-02 | Phase 31 | Pending |
+| FEED-03 | Phase 31 | Pending |
+| FEED-04 | Phase 31 | Pending |
+| FEED-05 | Phase 31 | Pending |
+| NORM-01 | Phase 31 | Pending |
+| NORM-02 | Phase 31 | Pending |
+| NORM-03 | Phase 31 | Pending |
+| NORM-04 | Phase 31 | Pending |
+| PIPE-01 | Phase 30 | Pending |
+| PIPE-02 | Phase 30 | Pending |
+| PIPE-03 | Phase 32 | Pending |
+| PIPE-04 | Phase 32 | Pending |
+| PIPE-05 | Phase 32 | Pending |
+| DISC-01 | Phase 33 | Pending |
+| DISC-02 | Phase 33 | Pending |
+| DISC-03 | Phase 33 | Pending |
+| DISC-04 | Phase 33 | Pending |
 
 **Coverage:**
 - v1.5 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18 (pending roadmap creation)
+- Mapped to phases: 18
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-03*
-*Last updated: 2026-03-03 after initial definition*
+*Last updated: 2026-03-03 after roadmap creation*
