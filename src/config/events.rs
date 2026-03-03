@@ -286,8 +286,8 @@ fn default_partial_response_threshold() -> f64 { 0.2 }
 fn default_expiry_tolerance_days() -> i64 { 7 }
 fn default_polymarket_event_slugs() -> Vec<String> {
     vec![
-        "what-price-will-bitcoin-hit-in-{month}".to_string(),
-        "what-price-will-bitcoin-hit-in-{year}".to_string(),
+        "what-price-will-bitcoin-hit-in-{month}-{year}".to_string(),
+        "what-price-will-bitcoin-hit-before-{next_year}".to_string(),
     ]
 }
 fn default_archive_retention_days() -> u32 { 30 }

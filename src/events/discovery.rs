@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 
@@ -139,18 +139,21 @@ pub fn compute_expiry_confidence(expiries: &[NaiveDate]) -> ExpiryConfidence {
 
 /// Generate concrete Polymarket event slugs from base patterns.
 ///
-/// Replaces `{month}` with the current month name (lowercase) and
-/// `{year}` with the current four-digit year string.
+/// Replaces `{month}` with the current month name (lowercase),
+/// `{year}` with the current four-digit year string, and
+/// `{next_year}` with next year's four-digit string.
 pub fn generate_polymarket_slugs(base_patterns: &[String]) -> Vec<String> {
     let now = chrono::Utc::now();
     let month_name = now.format("%B").to_string().to_lowercase();
     let year = now.format("%Y").to_string();
+    let next_year = (now.date_naive().year() + 1).to_string();
 
     base_patterns
         .iter()
         .map(|pattern| {
             pattern
                 .replace("{month}", &month_name)
+                .replace("{next_year}", &next_year)
                 .replace("{year}", &year)
         })
         .collect()
@@ -1505,17 +1508,20 @@ mod tests {
 
     #[test]
     fn generate_slugs_test() {
-        let patterns = vec!["{month}".to_string(), "{year}".to_string()];
+        let patterns = vec![
+            "{month}-{year}".to_string(),
+            "before-{next_year}".to_string(),
+        ];
         let slugs = generate_polymarket_slugs(&patterns);
         assert_eq!(slugs.len(), 2);
 
-        // Should contain current month name (lowercase)
         let now = chrono::Utc::now();
         let expected_month = now.format("%B").to_string().to_lowercase();
         let expected_year = now.format("%Y").to_string();
+        let expected_next_year = (chrono::Datelike::year(&now.date_naive()) + 1).to_string();
 
-        assert_eq!(slugs[0], expected_month);
-        assert_eq!(slugs[1], expected_year);
+        assert_eq!(slugs[0], format!("{}-{}", expected_month, expected_year));
+        assert_eq!(slugs[1], format!("before-{}", expected_next_year));
     }
 
     // --- ExpiryConfidence Display tests ---
