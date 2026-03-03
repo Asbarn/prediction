@@ -37,6 +37,7 @@ ws_url = "wss://trading-api.kalshi.com/trade-api/ws/v2"
 staleness_threshold_ms = 5000
 rate_limit_per_second = 10
 market_tickers = []
+private_key_path = "/app/secrets/kalshi_private_key.pem"
 
 [kalshi.reconnect]
 initial_backoff_ms = 1000
