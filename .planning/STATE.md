@@ -2,16 +2,17 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-02)
+See: .planning/PROJECT.md (updated 2026-03-03)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Planning next milestone
+**Current focus:** v1.5 Derive.xyz Venue Integration
 
 ## Current Position
 
-Phase: Between milestones (v1.4 complete, next milestone not yet defined)
-Status: v1.4 Analysis Tooling milestone shipped 2026-03-02
-Last activity: 2026-03-02 — Completed v1.4 milestone archival
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-03 — Milestone v1.5 started
 
 Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 69 plans
 
@@ -63,9 +64,10 @@ None.
 - DualTimestamp::deserialize calls tokio::time::Instant::now() -- may pull tokio dep into sync-only CLI binaries
 - Polymarket groupItemTitle format is not guaranteed stable (permissionless market creation)
 - Windows atomic rename produces DELETE + RENAME events that may race with file watcher debouncer
+- Kalshi inaccessible from Poland (US-only) -- Derive.xyz replaces it as active third venue
 
 ## Session Continuity
 
-Last session: 2026-03-02
-Stopped at: Completed v1.4 milestone archival
-Next action: /gsd:new-milestone to plan next milestone
+Last session: 2026-03-03
+Stopped at: Defining v1.5 requirements
+Next action: Complete requirements and roadmap for v1.5

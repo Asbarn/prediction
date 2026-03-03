@@ -61,7 +61,11 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ### Active
 
-(No active requirements -- next milestone not yet defined)
+- v1.5 Derive.xyz WebSocket feed with options order book maintenance and JSON-RPC subscription
+- v1.5 Derive options-implied probability extraction via same Black-76/call spread pipeline as Deribit
+- v1.5 Cross-venue spread/signal generation including Derive as third venue
+- v1.5 Dynamic subscription support for Derive instruments via SubscriptionManager
+- v1.5 Discovery and matching for Derive BTC options against Deribit and Polymarket instruments
 
 ### Out of Scope
 
@@ -92,9 +96,19 @@ Automated event management: three-venue discovery with fuzzy matching, confidenc
 Settlement tracking: 3 venue resolution checkers with 4-tier polling cadence, startup backfill, and auto-settlement.
 Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and `signal-scoring` CLI (hit rate, Sharpe, PSR, drawdown, edge t-test) with E2E golden-value tests.
 
-**System status:** Fully operational with analysis capability. System runs unattended for paper trading with self-managing event lifecycle, self-managing feed subscriptions, and offline analysis CLIs for soak test evaluation. Ready for extended soak testing to gather settlement data for go/no-go decision.
+**Current milestone: v1.5 Derive.xyz Venue Integration**
 
-**Next priority:** Extended soak testing to gather sufficient settlement data, then evaluate results with analysis CLIs to make a statistically rigorous go/no-go decision for v2 execution engine.
+**Goal:** Add Derive.xyz (formerly Lyra v2) as a fourth venue — a decentralized options exchange on Ethereum L2 with CLOB orderbook, WebSocket API, and deep BTC options liquidity. Replaces Kalshi (inaccessible from Poland) as active third data source for cross-venue arbitrage signals.
+
+**Target features:**
+- Derive WebSocket feed with BTC options order book data
+- Options-implied probability extraction through existing Black-76 pipeline
+- Three-way cross-venue spread/signal comparison (Deribit vs Derive vs Polymarket)
+- Dynamic subscription and discovery integration
+
+**System status:** Fully operational with analysis capability. System runs unattended for paper trading with self-managing event lifecycle, self-managing feed subscriptions, and offline analysis CLIs for soak test evaluation.
+
+**Next priority:** Complete Derive venue integration, then deploy to soak test instance alongside existing Deribit + Polymarket feeds.
 
 **Known tech debt:** 10 non-blocking items from v1.0 + 2 low-severity from v1.2 + 3 non-critical from v1.3 audit. See MILESTONES.md for full list.
 
@@ -155,4 +169,4 @@ Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and 
 | Generated JSONL fixtures (not hand-written) | Prevents schema drift between struct definitions and test data | v1.4 Validated -- reliable E2E tests |
 
 ---
-*Last updated: 2026-03-02 after v1.4 milestone*
+*Last updated: 2026-03-03 after starting v1.5 milestone*
