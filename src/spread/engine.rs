@@ -535,7 +535,7 @@ impl SpreadEngine {
                 // Kalshi fee uses contracts (filled_notional) and probability
                 kalshi_taker_fee(walk.filled_notional, price, &self.config.kalshi_fees)
             }
-            Venue::Deribit => Decimal::ZERO, // Not used in prediction market spreads
+            Venue::Deribit | Venue::Derive => Decimal::ZERO, // Not used in prediction market spreads
         }
     }
 

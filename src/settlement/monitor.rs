@@ -841,6 +841,18 @@ fn check_trigger(
             }
             PollingTier::Waiting
         }
+        Venue::Derive => {
+            // Derive uses same settlement model as Deribit (options expiry at 08:00 UTC).
+            if let Ok(expiry_date) = NaiveDate::parse_from_str(&tracked.expiry, "%Y-%m-%d") {
+                let expiry_datetime = expiry_date.and_hms_opt(8, 0, 0).map(|ndt| ndt.and_utc());
+                if let Some(expiry_dt) = expiry_datetime {
+                    if now >= expiry_dt {
+                        return PollingTier::Aggressive { started_at: now };
+                    }
+                }
+            }
+            PollingTier::Waiting
+        }
     }
 }
 
@@ -850,6 +862,7 @@ fn resolution_source_for_venue(venue: &Venue) -> ResolutionSource {
         Venue::Deribit => ResolutionSource::DeribitDelivery,
         Venue::Kalshi => ResolutionSource::KalshiSettlement,
         Venue::Polymarket => ResolutionSource::GammaApi,
+        Venue::Derive => ResolutionSource::DeribitDelivery, // Derive uses same options delivery model
     }
 }
 

@@ -230,6 +230,9 @@ pub async fn run_replay_pipeline(
                 );
                 (rx, tokio::spawn(processor.run()))
             }
+            Venue::Derive => {
+                anyhow::bail!("Derive venue replay not yet implemented (planned for v1.5 Phase 31)");
+            }
         };
 
         // Hold the processor task handle to suppress unused warnings

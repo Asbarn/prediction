@@ -704,6 +704,7 @@ pub fn filter_new_candidates(
                 Venue::Deribit => deribit = Some(inst.instrument_id.clone()),
                 Venue::Kalshi => kalshi = Some(inst.instrument_id.clone()),
                 Venue::Polymarket => {} // Excluded from auto-matching in v1
+                Venue::Derive => {} // Derive matching deferred to v1.5 Phase 31
             }
         }
 
@@ -825,6 +826,7 @@ pub fn filter_new_candidates_fuzzy(
                         inst.extra_venue_id.clone().unwrap_or_default(),
                     ));
                 }
+                Venue::Derive => {} // Derive matching deferred to v1.5 Phase 31
             }
         }
 

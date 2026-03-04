@@ -884,7 +884,7 @@ impl PaperTradeTracker {
         // The settlement net_pnl computation handles this via the entry_fee field.
         // TODO: In v2, propagate per-venue fees from SpreadEngine to position.
         match outcome.venue {
-            Venue::Polymarket | Venue::Kalshi | Venue::Deribit => Decimal::ZERO,
+            Venue::Polymarket | Venue::Kalshi | Venue::Deribit | Venue::Derive => Decimal::ZERO,
         }
     }
 
