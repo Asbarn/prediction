@@ -926,6 +926,7 @@ mod tests {
                 kalshi: kalshi.map(|t| KalshiMapping {
                     ticker: t.to_string(),
                 }),
+                derive: None,
             },
             approved: true,
             status: LifecycleStatus::Active,

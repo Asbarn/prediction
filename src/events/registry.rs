@@ -124,6 +124,10 @@ impl EventRegistry {
                 self.instrument_index
                     .insert((Venue::Kalshi, kalshi.ticker.clone()), idx);
             }
+            if let Some(ref derive) = mapping.venues.derive {
+                self.instrument_index
+                    .insert((Venue::Derive, derive.instrument.clone()), idx);
+            }
 
             // Index by event_id
             self.event_index
@@ -176,6 +180,7 @@ mod tests {
                 kalshi: kalshi.map(|t| KalshiMapping {
                     ticker: t.to_string(),
                 }),
+                derive: None,
             },
             approved,
             status,

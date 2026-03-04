@@ -982,6 +982,7 @@ impl ContractLifecycleManager {
                     deribit: Some(inst.instrument_id.clone()),
                     polymarket: None,
                     kalshi: None,
+                    derive: None,
                 },
                 expiry_confidence: ExpiryConfidence::High,
             });
@@ -1158,6 +1159,7 @@ mod tests {
                     }),
                     polymarket: None,
                     kalshi: None,
+                    derive: None,
                 },
                 approved: true,
                 status: LifecycleStatus::Active,
@@ -1212,6 +1214,7 @@ mod tests {
                 }),
                 polymarket: None,
                 kalshi: None,
+                derive: None,
             },
             approved: true,
             status: LifecycleStatus::Active,

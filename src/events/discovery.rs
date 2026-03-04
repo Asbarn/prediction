@@ -718,6 +718,7 @@ pub fn filter_new_candidates(
                 deribit,
                 polymarket: None, // Polymarket excluded in v1
                 kalshi,
+                derive: None, // Derive matching deferred to v1.5 Phase 31
             },
             expiry_confidence: ExpiryConfidence::High,
         });
@@ -840,6 +841,7 @@ pub fn filter_new_candidates_fuzzy(
                 deribit,
                 polymarket,
                 kalshi,
+                derive: None, // Derive matching deferred to v1.5 Phase 31
             },
             expiry_confidence: *confidence,
         });
@@ -969,6 +971,7 @@ mod tests {
                 }),
                 polymarket: None,
                 kalshi: None,
+                derive: None,
             },
             approved: true,
             status: LifecycleStatus::Active,

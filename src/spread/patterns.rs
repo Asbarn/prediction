@@ -77,6 +77,11 @@ impl SpreadPattern {
                 "deribit_polymarket"
             }
             (Venue::Deribit, Venue::Kalshi) | (Venue::Kalshi, Venue::Deribit) => "deribit_kalshi",
+            (Venue::Deribit, Venue::Derive) | (Venue::Derive, Venue::Deribit) => "deribit_derive",
+            (Venue::Derive, Venue::Polymarket) | (Venue::Polymarket, Venue::Derive) => {
+                "derive_polymarket"
+            }
+            (Venue::Derive, Venue::Kalshi) | (Venue::Kalshi, Venue::Derive) => "derive_kalshi",
             _ => "unknown",
         }
     }

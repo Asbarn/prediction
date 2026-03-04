@@ -36,6 +36,8 @@ pub struct CandidateVenues {
     pub polymarket: Option<(String, String)>,
     /// Kalshi ticker (e.g., "KXBTCD-25JUN30-T100000").
     pub kalshi: Option<String>,
+    /// Derive instrument name (e.g., "BTC-20250627-100000-C").
+    pub derive: Option<String>,
 }
 
 /// Build a TOML `Table` for a candidate mapping with all standard fields.
@@ -74,6 +76,12 @@ fn build_candidate_table(candidate: &CandidateMapping) -> Table {
         let mut kalshi = Table::new();
         kalshi["ticker"] = value(ticker);
         venues["kalshi"] = toml_edit::Item::Table(kalshi);
+    }
+
+    if let Some(ref instrument) = candidate.venues.derive {
+        let mut derive = Table::new();
+        derive["instrument"] = value(instrument);
+        venues["derive"] = toml_edit::Item::Table(derive);
     }
 
     entry["venues"] = toml_edit::Item::Table(venues);
@@ -398,6 +406,7 @@ instrument = "BTC-27JUN25-100000-C"
                 deribit: Some("BTC-25JUL25-120000-C".to_string()),
                 polymarket: None,
                 kalshi: None,
+                derive: None,
             },
             expiry_confidence: ExpiryConfidence::High,
         };
@@ -427,6 +436,7 @@ instrument = "BTC-27JUN25-100000-C"
                 deribit: Some("ETH-01AUG25-5000-P".to_string()),
                 polymarket: Some(("0xdef".to_string(), "67890".to_string())),
                 kalshi: None,
+                derive: None,
             },
             expiry_confidence: ExpiryConfidence::High,
         };
@@ -460,6 +470,7 @@ instrument = "BTC-27JUN25-100000-C"
                 deribit: Some("BTC-26DEC25-150000-C".to_string()),
                 polymarket: Some(("0xaaa".to_string(), "99999".to_string())),
                 kalshi: Some("KXBTCD-25DEC30-T150000".to_string()),
+                derive: None,
             },
             expiry_confidence: ExpiryConfidence::High,
         };
@@ -507,6 +518,7 @@ instrument = "BTC-27JUN25-100000-C"
                 deribit: None,
                 polymarket: None,
                 kalshi: None,
+                derive: None,
             },
             expiry_confidence: ExpiryConfidence::High,
         };
@@ -529,6 +541,7 @@ instrument = "BTC-27JUN25-100000-C"
                 deribit: None,
                 polymarket: None,
                 kalshi: None,
+                derive: None,
             },
             expiry_confidence: ExpiryConfidence::High,
         };

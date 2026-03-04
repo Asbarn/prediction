@@ -182,9 +182,9 @@ fn validate_https_url(url: &str, file: &str, field: &str) -> Result<(), ConfigEr
 mod tests {
     use super::*;
     use crate::config::{
-        DeribitConfig, DeribitMapping, Direction, EventMapping, EventVenues, EventsConfig,
-        KalshiConfig, KalshiMapping, LifecycleStatus, PolymarketConfig, PolymarketMapping,
-        SystemConfig, VenuesConfig,
+        DeriveConfig, DeribitConfig, DeribitMapping, Direction, EventMapping, EventVenues,
+        EventsConfig, KalshiConfig, KalshiMapping, LifecycleStatus, PolymarketConfig,
+        PolymarketMapping, SystemConfig, VenuesConfig,
     };
 
     /// Construct a minimal valid SystemConfig for validation tests.
@@ -240,6 +240,14 @@ mod tests {
                 private_key_path: None,
                 heartbeat_timeout_ms: 30_000,
             },
+            derive: DeriveConfig {
+                ws_url: "wss://api.lyra.finance/ws".to_string(),
+                rate_limit_per_second: 10,
+                book_depth_levels: 20,
+                staleness_threshold_ms: 5000,
+                reconnect: Default::default(),
+                instruments: vec![],
+            },
         }
     }
 
@@ -291,6 +299,7 @@ mod tests {
                 } else {
                     None
                 },
+                derive: None,
             },
             approved,
             status: LifecycleStatus::Active,

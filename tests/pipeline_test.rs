@@ -5,7 +5,7 @@
 
 use tokio_util::sync::CancellationToken;
 
-use prediction::config::DeribitConfig;
+use prediction::config::{DeriveConfig, DeribitConfig};
 use prediction::feed::pipeline::{self, DataMode};
 use prediction::types::Venue;
 
@@ -308,6 +308,14 @@ async fn multi_venue_replay_pipeline_processes_deribit_recordings() {
             private_key_path: None,
             heartbeat_timeout_ms: 30_000,
         },
+        derive: DeriveConfig {
+            ws_url: "wss://api.lyra.finance/ws".to_string(),
+            rate_limit_per_second: 10,
+            book_depth_levels: 20,
+            staleness_threshold_ms: 5000,
+            reconnect: Default::default(),
+            instruments: vec![],
+        },
     };
 
     let cancel = CancellationToken::new();
@@ -392,6 +400,14 @@ async fn multi_venue_replay_graceful_empty_dir() {
             market_tickers: vec![],
             private_key_path: None,
             heartbeat_timeout_ms: 30_000,
+        },
+        derive: DeriveConfig {
+            ws_url: "wss://api.lyra.finance/ws".to_string(),
+            rate_limit_per_second: 10,
+            book_depth_levels: 20,
+            staleness_threshold_ms: 5000,
+            reconnect: Default::default(),
+            instruments: vec![],
         },
     };
 
