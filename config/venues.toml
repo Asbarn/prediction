@@ -43,3 +43,15 @@ private_key_path = "/app/secrets/kalshi_private_key.pem"
 initial_backoff_ms = 1000
 max_backoff_ms = 60000
 randomization_factor = 0.5
+
+[derive]
+ws_url = "wss://api.lyra.finance/ws"
+rate_limit_per_second = 10
+book_depth_levels = 20
+staleness_threshold_ms = 5000
+instruments = []
+
+[derive.reconnect]
+initial_backoff_ms = 1000
+max_backoff_ms = 60000
+randomization_factor = 0.5

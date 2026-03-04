@@ -7,6 +7,7 @@ pub enum Venue {
     Deribit,
     Polymarket,
     Kalshi,
+    Derive,
 }
 
 impl fmt::Display for Venue {
@@ -15,6 +16,7 @@ impl fmt::Display for Venue {
             Venue::Deribit => write!(f, "deribit"),
             Venue::Polymarket => write!(f, "polymarket"),
             Venue::Kalshi => write!(f, "kalshi"),
+            Venue::Derive => write!(f, "derive"),
         }
     }
 }
@@ -26,6 +28,7 @@ impl Venue {
             Venue::Deribit => "DERIBIT",
             Venue::Polymarket => "POLYMARKET",
             Venue::Kalshi => "KALSHI",
+            Venue::Derive => "DERIVE",
         }
     }
 }

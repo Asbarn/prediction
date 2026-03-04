@@ -7,15 +7,17 @@ mod venues;
 
 pub use credentials::Credentials;
 pub use events::{
-    DeribitMapping, Direction, DiscoveryConfig, EventMapping, EventVenues, EventsConfig,
-    ExpiryThreshold, KalshiMapping, LifecycleStatus, PolymarketMapping, RiskWeightsConfig,
-    SettlementMetadata, SourcePairWeights,
+    DeribitMapping, DeriveMapping, Direction, DiscoveryConfig, EventMapping, EventVenues,
+    EventsConfig, ExpiryThreshold, KalshiMapping, LifecycleStatus, PolymarketMapping,
+    RiskWeightsConfig, SettlementMetadata, SourcePairWeights,
 };
 pub use system::{
     AnalysisConfig, LoggingConfig, PaperTradeConfig, PrometheusConfig, SignalConfig,
     StalenessConfig, SystemConfig,
 };
-pub use venues::{DeribitConfig, KalshiConfig, PolymarketAsset, PolymarketConfig, VenuesConfig};
+pub use venues::{
+    DeriveConfig, DeribitConfig, KalshiConfig, PolymarketAsset, PolymarketConfig, VenuesConfig,
+};
 
 use crate::error::ConfigError;
 use serde::de::DeserializeOwned;

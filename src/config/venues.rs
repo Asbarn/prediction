@@ -10,6 +10,7 @@ pub struct VenuesConfig {
     pub deribit: DeribitConfig,
     pub polymarket: PolymarketConfig,
     pub kalshi: KalshiConfig,
+    pub derive: DeriveConfig,
 }
 
 /// Reconnection configuration for exponential backoff.
@@ -176,4 +177,32 @@ fn default_kalshi_rate_limit() -> u32 {
 
 fn default_kalshi_heartbeat_timeout() -> u64 {
     30_000
+}
+
+/// Derive connection settings.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DeriveConfig {
+    /// WebSocket URL (e.g., "wss://api.lyra.finance/ws").
+    pub ws_url: String,
+    /// Maximum API requests per second.
+    #[serde(default = "default_derive_rate_limit")]
+    pub rate_limit_per_second: u32,
+    /// Number of book depth levels for order book subscription.
+    /// Default: 20.
+    #[serde(default = "default_book_depth_levels")]
+    pub book_depth_levels: u32,
+    /// Staleness threshold in milliseconds. Data older than this is marked
+    /// `is_stale = true` on `MarketSnapshot`.
+    #[serde(default = "default_staleness_threshold")]
+    pub staleness_threshold_ms: u64,
+    /// Reconnection configuration for exponential backoff with jitter.
+    #[serde(default)]
+    pub reconnect: ReconnectConfig,
+    /// Instrument names to subscribe to (e.g., ["BTC-20250627-100000-C"]).
+    #[serde(default)]
+    pub instruments: Vec<String>,
+}
+
+fn default_derive_rate_limit() -> u32 {
+    10
 }

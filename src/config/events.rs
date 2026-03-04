@@ -321,6 +321,7 @@ pub struct EventVenues {
     pub deribit: Option<DeribitMapping>,
     pub polymarket: Option<PolymarketMapping>,
     pub kalshi: Option<KalshiMapping>,
+    pub derive: Option<DeriveMapping>,
 }
 
 /// Deribit instrument mapping.
@@ -344,4 +345,11 @@ pub struct PolymarketMapping {
 pub struct KalshiMapping {
     /// Kalshi ticker (e.g., "KXBTCD-25JUN30-T100000").
     pub ticker: String,
+}
+
+/// Derive instrument mapping.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DeriveMapping {
+    /// Derive instrument name (e.g., "BTC-20250627-100000-C").
+    pub instrument: String,
 }
