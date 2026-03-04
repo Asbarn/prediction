@@ -100,7 +100,7 @@ Plans:
 **Goal**: A standalone Derive feed emits correctly normalized MarketSnapshot with USDC-to-BTC price conversion
 **Depends on**: Phase 30
 **Requirements**: FEED-01, FEED-02, FEED-03, FEED-04, FEED-05, NORM-01, NORM-02, NORM-03, NORM-04
-**Plans:** 4 plans
+**Plans:** 2/4 plans executed
 Plans:
 - [ ] 31-01-PLAN.md -- Create Derive message types, channel helpers, and book state (messages.rs, channels.rs, book.rs)
 - [ ] 31-02-PLAN.md -- Add Derive instrument parser and PricingEngine USDC venue gate
@@ -142,6 +142,6 @@ Plans:
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
 | 26-29 | v1.4 Analysis Tooling | 7/7 | Complete | 2026-03-02 |
 | 30. Venue Type Foundation | v1.5 | Complete    | 2026-03-04 | 2026-03-04 |
-| 31. Derive Feed and Normalization | v1.5 | 0/4 | Not started | - |
+| 31. Derive Feed and Normalization | 2/4 | In Progress|  | - |
 | 32. Pipeline Wiring and Observability | v1.5 | 0/? | Not started | - |
 | 33. Discovery and Matching | v1.5 | 0/? | Not started | - |

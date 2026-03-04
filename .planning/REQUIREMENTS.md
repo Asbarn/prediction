@@ -17,8 +17,8 @@ Requirements for Derive.xyz venue integration. Each maps to roadmap phases.
 
 ### Data Normalization
 
-- [ ] **NORM-01**: USDC-linear to normalized price conversion for Derive option premiums (Derive quotes in USDC, system needs consistent denomination)
-- [ ] **NORM-02**: Derive instrument name parser for `BTC-YYYYMMDD-STRIKE-C/P` format with unit tests
+- [x] **NORM-01**: USDC-linear to normalized price conversion for Derive option premiums (Derive quotes in USDC, system needs consistent denomination)
+- [x] **NORM-02**: Derive instrument name parser for `BTC-YYYYMMDD-STRIKE-C/P` format with unit tests
 - [ ] **NORM-03**: MarketSnapshot emission from Derive data with all required fields (venue, instrument, bids, asks, IV, greeks, timestamps)
 - [ ] **NORM-04**: Staleness detection for Derive snapshots using configurable threshold
 
@@ -65,8 +65,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FEED-03 | Phase 31 | Pending |
 | FEED-04 | Phase 31 | Pending |
 | FEED-05 | Phase 31 | Pending |
-| NORM-01 | Phase 31 | Pending |
-| NORM-02 | Phase 31 | Pending |
+| NORM-01 | Phase 31 | Complete |
+| NORM-02 | Phase 31 | Complete |
 | NORM-03 | Phase 31 | Pending |
 | NORM-04 | Phase 31 | Pending |
 | PIPE-01 | Phase 30 | Complete |
