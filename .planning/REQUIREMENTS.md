@@ -10,8 +10,8 @@ Requirements for Derive.xyz venue integration. Each maps to roadmap phases.
 ### Feed Infrastructure
 
 - [ ] **FEED-01**: Derive WebSocket client connects to `wss://api.lyra.finance/ws` with JSON-RPC 2.0 and auto-reconnection
-- [ ] **FEED-02**: Derive orderbook state maintenance from WebSocket subscription with bid/ask depth
-- [ ] **FEED-03**: Derive ticker data parsing (mark price, mark IV, bid IV, ask IV, underlying price, greeks)
+- [x] **FEED-02**: Derive orderbook state maintenance from WebSocket subscription with bid/ask depth
+- [x] **FEED-03**: Derive ticker data parsing (mark price, mark IV, bid IV, ask IV, underlying price, greeks)
 - [ ] **FEED-04**: DeriveSupervisor with heartbeat monitoring, reconnection, and watch channel for dynamic subscriptions
 - [ ] **FEED-05**: JSONL raw feed recording for Derive messages (same pattern as Deribit/Polymarket/Kalshi)
 
@@ -61,8 +61,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | FEED-01 | Phase 31 | Pending |
-| FEED-02 | Phase 31 | Pending |
-| FEED-03 | Phase 31 | Pending |
+| FEED-02 | Phase 31 | Complete |
+| FEED-03 | Phase 31 | Complete |
 | FEED-04 | Phase 31 | Pending |
 | FEED-05 | Phase 31 | Pending |
 | NORM-01 | Phase 31 | Complete |

@@ -35,7 +35,7 @@ Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 73 plans
 | v1.4 | 4 | 7 | 1 day |
 | Phase 30 P01 | 21min | 2 tasks | 14 files |
 | Phase 30 P02 | 15min | 2 tasks | 2 files |
-| Phase 31 P01 | - | - | - |
+| Phase 31 P01 | 7min | 2 tasks | 5 files |
 | Phase 31 P02 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
@@ -54,6 +54,8 @@ Recent decisions affecting current work:
 - [Phase 30]: Derive book model is snapshot-only (~100ms updates); no delta reconciliation needed
 - [Phase 30]: No k256/auth dependency for v1.5; public channels work without authentication
 - [Phase 30]: Derive prices/amounts are strings; parser must convert to Decimal
+- [Phase 31]: DeriveBook uses Decimal::from_str (not f64) for string price precision
+- [Phase 31]: DeriveMessage has 2 variants only (no heartbeat -- WS PING/PONG)
 - [Phase 31]: Venue-aware parser routing in PricingEngine (match on snapshot.venue)
 - [Phase 31]: Venue-gated price conversion: Deribit BTC-inverse (price*forward), Derive USDC pass-through
 - [Phase 31]: process_near_expiry does not need venue gating (forward used for intrinsic, not price conversion)
