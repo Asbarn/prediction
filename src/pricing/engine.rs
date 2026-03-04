@@ -15,7 +15,7 @@ use tracing::{debug, info, warn};
 use crate::pricing::confidence::{compute_confidence, solver_quality_score};
 use crate::pricing::config::PricingConfig;
 use crate::pricing::greeks::compute_greeks;
-use crate::pricing::instrument::parse_deribit_instrument;
+use crate::pricing::instrument::{parse_deribit_instrument, parse_derive_instrument};
 use crate::pricing::iv_solver::solve_iv_triple;
 use crate::pricing::probability::extract_probabilities;
 use crate::pricing::types::{
@@ -142,8 +142,8 @@ impl PricingEngine {
                         break;
                     };
 
-                    // Only process Deribit snapshots (options venue)
-                    if snapshot.venue != Venue::Deribit {
+                    // Only process options venue snapshots (Deribit + Derive)
+                    if snapshot.venue != Venue::Deribit && snapshot.venue != Venue::Derive {
                         continue;
                     }
 
@@ -158,9 +158,14 @@ impl PricingEngine {
         snapshot: MarketSnapshot,
         probability_tx: &mpsc::Sender<ImpliedProbability>,
     ) {
-        // a. Parse instrument name -- skip non-options (futures, perpetuals)
+        // a. Parse instrument name -- route to venue-specific parser
         let instrument_name = snapshot.instrument_id.to_string();
-        let parsed = match parse_deribit_instrument(&instrument_name) {
+        let parsed = match snapshot.venue {
+            Venue::Deribit => parse_deribit_instrument(&instrument_name),
+            Venue::Derive => parse_derive_instrument(&instrument_name),
+            _ => None,
+        };
+        let parsed = match parsed {
             Some(p) => p,
             None => return, // Not an option -- skip silently
         };
@@ -226,10 +231,16 @@ impl PricingEngine {
 
         let mid_price_btc = (bid_price_btc + ask_price_btc) / 2.0;
 
-        // e. Deribit inverse option convention: price_usd = price_btc * forward
-        let bid_price_usd = bid_price_btc * forward;
-        let ask_price_usd = ask_price_btc * forward;
-        let mid_price_usd = mid_price_btc * forward;
+        // e. Venue-gated price conversion:
+        //    Deribit inverse: price is in BTC, multiply by forward to get USD
+        //    Derive (USDC linear): prices are already in USD terms, use as-is
+        let (bid_price_usd, ask_price_usd, mid_price_usd) = if snapshot.venue == Venue::Deribit {
+            (bid_price_btc * forward, ask_price_btc * forward, mid_price_btc * forward)
+        } else {
+            // Derive: prices are USDC, already in USD terms
+            // (variable names say _btc but for Derive they are actually USDC)
+            (bid_price_btc, ask_price_btc, mid_price_btc)
+        };
 
         let rate = self.config.risk_free_rate;
 
