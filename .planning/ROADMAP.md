@@ -87,7 +87,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 **Goal**: Codebase compiles with Derive awareness and all API unknowns are resolved
 **Depends on**: Nothing (first phase of v1.5)
 **Requirements**: PIPE-01, PIPE-02
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [x] 30-01-PLAN.md -- Add Venue::Derive enum variant, config structs, venues.toml section, and resolve all exhaustive match arms
 - [x] 30-02-PLAN.md -- Live API verification: probe Derive WebSocket, document channel format, book model, heartbeat, auth requirement
@@ -135,7 +135,7 @@ Plans:
 | 18-21 | v1.2 Automated Event Mgmt | 8/8 | Complete | 2026-02-27 |
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
 | 26-29 | v1.4 Analysis Tooling | 7/7 | Complete | 2026-03-02 |
-| 30. Venue Type Foundation | v1.5 | 2/2 | Complete | 2026-03-04 |
+| 30. Venue Type Foundation | v1.5 | Complete    | 2026-03-04 | 2026-03-04 |
 | 31. Derive Feed and Normalization | v1.5 | 0/? | Not started | - |
 | 32. Pipeline Wiring and Observability | v1.5 | 0/? | Not started | - |
 | 33. Discovery and Matching | v1.5 | 0/? | Not started | - |
