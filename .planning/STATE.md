@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-03-03)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.5 Derive.xyz Venue Integration -- Phase 30: Venue Type Foundation
+**Current focus:** v1.5 Derive.xyz Venue Integration -- Phase 30 complete, ready for Phase 31
 
 ## Current Position
 
-Phase: 30 of 33 (Venue Type Foundation)
-Plan: 1 of 2 in current phase
-Status: Executing
-Last activity: 2026-03-04 -- Completed 30-01 Venue Type Foundation plan
+Phase: 30 of 33 (Venue Type Foundation) -- COMPLETE
+Plan: 2 of 2 in current phase (all plans complete)
+Status: Phase complete -- ready for Phase 31
+Last activity: 2026-03-04 -- Completed 30-02 Derive API live probe
 
-Progress (v1.5): [#.........] 10%
-Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 69 plans
+Progress (v1.5): [##........] 20%
+Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 71 plans
 
 ## Performance Metrics
 
@@ -34,6 +34,7 @@ Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 69 plans
 | v1.3 | 4 | 7 | 2 days |
 | v1.4 | 4 | 7 | 1 day |
 | Phase 30 P01 | 21min | 2 tasks | 14 files |
+| Phase 30 P02 | 15min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -47,6 +48,10 @@ Recent decisions affecting current work:
 - v1.5: USDC price normalization required (Derive linear/USDC vs Deribit inverse/BTC denomination)
 - v1.5: Live API verification before implementation (channel names, book model, auth requirement all LOW confidence)
 - [Phase 30]: Derive follows Deribit pattern for options venue (zero fee, 08:00 UTC expiry, DeribitDelivery resolution)
+- [Phase 30]: ticker channel deprecated on Derive; must use ticker_slim with abbreviated keys
+- [Phase 30]: Derive book model is snapshot-only (~100ms updates); no delta reconciliation needed
+- [Phase 30]: No k256/auth dependency for v1.5; public channels work without authentication
+- [Phase 30]: Derive prices/amounts are strings; parser must convert to Decimal
 
 ### Pending Todos
 
@@ -54,12 +59,10 @@ None.
 
 ### Blockers/Concerns
 
-- Derive API specifics at MEDIUM/LOW confidence -- channel names, book update model, rate limits need live verification
 - USDC-to-BTC price normalization is new logic with no precedent in codebase -- correctness gate required
-- k256 dependency may or may not be needed depending on whether public channels require authentication
 
 ## Session Continuity
 
 Last session: 2026-03-04
-Stopped at: Completed 30-01-PLAN.md (Venue::Derive type foundation)
-Next action: Execute 30-02-PLAN.md
+Stopped at: Completed 30-02-PLAN.md (Derive API live probe -- Phase 30 complete)
+Next action: Plan and execute Phase 31 (Derive Feed and Normalization)
