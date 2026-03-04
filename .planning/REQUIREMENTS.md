@@ -13,14 +13,14 @@ Requirements for Derive.xyz venue integration. Each maps to roadmap phases.
 - [x] **FEED-02**: Derive orderbook state maintenance from WebSocket subscription with bid/ask depth
 - [x] **FEED-03**: Derive ticker data parsing (mark price, mark IV, bid IV, ask IV, underlying price, greeks)
 - [x] **FEED-04**: DeriveSupervisor with heartbeat monitoring, reconnection, and watch channel for dynamic subscriptions
-- [ ] **FEED-05**: JSONL raw feed recording for Derive messages (same pattern as Deribit/Polymarket/Kalshi)
+- [x] **FEED-05**: JSONL raw feed recording for Derive messages (same pattern as Deribit/Polymarket/Kalshi)
 
 ### Data Normalization
 
 - [x] **NORM-01**: USDC-linear to normalized price conversion for Derive option premiums (Derive quotes in USDC, system needs consistent denomination)
 - [x] **NORM-02**: Derive instrument name parser for `BTC-YYYYMMDD-STRIKE-C/P` format with unit tests
-- [ ] **NORM-03**: MarketSnapshot emission from Derive data with all required fields (venue, instrument, bids, asks, IV, greeks, timestamps)
-- [ ] **NORM-04**: Staleness detection for Derive snapshots using configurable threshold
+- [x] **NORM-03**: MarketSnapshot emission from Derive data with all required fields (venue, instrument, bids, asks, IV, greeks, timestamps)
+- [x] **NORM-04**: Staleness detection for Derive snapshots using configurable threshold
 
 ### Pipeline Integration
 
@@ -64,11 +64,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FEED-02 | Phase 31 | Complete |
 | FEED-03 | Phase 31 | Complete |
 | FEED-04 | Phase 31 | Complete |
-| FEED-05 | Phase 31 | Pending |
+| FEED-05 | Phase 31 | Complete |
 | NORM-01 | Phase 31 | Complete |
 | NORM-02 | Phase 31 | Complete |
-| NORM-03 | Phase 31 | Pending |
-| NORM-04 | Phase 31 | Pending |
+| NORM-03 | Phase 31 | Complete |
+| NORM-04 | Phase 31 | Complete |
 | PIPE-01 | Phase 30 | Complete |
 | PIPE-02 | Phase 30 | Complete |
 | PIPE-03 | Phase 32 | Pending |
