@@ -28,6 +28,7 @@ pub struct CleanupEvent {
     pub deribit_instruments: Vec<String>,
     pub kalshi_tickers: Vec<String>,
     pub polymarket_token_ids: Vec<String>,
+    pub derive_instruments: Vec<String>,
     pub event_ids: Vec<String>,
 }
 
@@ -298,6 +299,7 @@ impl SubscriptionManager {
                 deribit_instruments: removed_d,
                 kalshi_tickers: removed_k,
                 polymarket_token_ids: removed_p.iter().map(|s| s.token_id.clone()).collect(),
+                derive_instruments: Vec::new(), // Populated in Phase 32 when Derive is wired to SubscriptionManager
                 event_ids: Vec::new(), // Populated by Plan 02 when wiring is complete
             };
             for tx in &self.cleanup_txs {
