@@ -79,7 +79,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 **Milestone Goal:** Add Derive.xyz as fourth venue -- decentralized options exchange on Ethereum L2 with BTC options CLOB. Enables Deribit vs Derive options spread and three-way cross-venue signals.
 
 - [x] **Phase 30: Venue Type Foundation** - Add Venue::Derive enum, resolve all match arms, add config section, verify live API (completed 2026-03-04)
-- [ ] **Phase 31: Derive Feed and Normalization** - Complete standalone feed emitting correct MarketSnapshot with USDC normalization
+- [x] **Phase 31: Derive Feed and Normalization** - Complete standalone feed emitting correct MarketSnapshot with USDC normalization (completed 2026-03-04)
 - [ ] **Phase 32: Pipeline Wiring and Observability** - Wire Derive into live multi-venue pipeline with subscription management and metrics
 - [ ] **Phase 33: Discovery and Matching** - REST-based instrument discovery with cross-venue matching and proposal workflow
 
@@ -100,7 +100,7 @@ Plans:
 **Goal**: A standalone Derive feed emits correctly normalized MarketSnapshot with USDC-to-BTC price conversion
 **Depends on**: Phase 30
 **Requirements**: FEED-01, FEED-02, FEED-03, FEED-04, FEED-05, NORM-01, NORM-02, NORM-03, NORM-04
-**Plans:** 2/4 plans executed
+**Plans:** 4/4 plans complete
 Plans:
 - [ ] 31-01-PLAN.md -- Create Derive message types, channel helpers, and book state (messages.rs, channels.rs, book.rs)
 - [ ] 31-02-PLAN.md -- Add Derive instrument parser and PricingEngine USDC venue gate
@@ -142,6 +142,6 @@ Plans:
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
 | 26-29 | v1.4 Analysis Tooling | 7/7 | Complete | 2026-03-02 |
 | 30. Venue Type Foundation | v1.5 | Complete    | 2026-03-04 | 2026-03-04 |
-| 31. Derive Feed and Normalization | 2/4 | In Progress|  | - |
+| 31. Derive Feed and Normalization | 4/4 | Complete   | 2026-03-04 | - |
 | 32. Pipeline Wiring and Observability | v1.5 | 0/? | Not started | - |
 | 33. Discovery and Matching | v1.5 | 0/? | Not started | - |

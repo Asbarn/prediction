@@ -5,22 +5,22 @@
 See: .planning/PROJECT.md (updated 2026-03-03)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.5 Derive.xyz Venue Integration -- Phase 31 in progress (plan 02 of 04 complete)
+**Current focus:** v1.5 Derive.xyz Venue Integration -- Phase 31 complete, ready for Phase 32
 
 ## Current Position
 
 Phase: 31 of 33 (Derive Feed and Normalization)
-Plan: 2 of 4 in current phase
-Status: Executing Phase 31
-Last activity: 2026-03-04 -- Completed 31-02 instrument parser and price normalization
+Plan: 4 of 4 in current phase (COMPLETE)
+Status: Phase 31 Complete
+Last activity: 2026-03-04 -- Completed 31-04 DeriveProcessor and normalization
 
-Progress (v1.5): [####......] 40%
-Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 73 plans
+Progress (v1.5): [########..] 80%
+Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 75 plans
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 71
+- Total plans completed: 75
 - Total phases completed: 29
 - Total execution time: ~10 days across 5 milestones
 
@@ -37,6 +37,8 @@ Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 73 plans
 | Phase 30 P02 | 15min | 2 tasks | 2 files |
 | Phase 31 P01 | 7min | 2 tasks | 5 files |
 | Phase 31 P02 | 5min | 2 tasks | 2 files |
+| Phase 31 P03 | 7min | 2 tasks | 3 files |
+| Phase 31 P04 | 8min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -59,6 +61,11 @@ Recent decisions affecting current work:
 - [Phase 31]: Venue-aware parser routing in PricingEngine (match on snapshot.venue)
 - [Phase 31]: Venue-gated price conversion: Deribit BTC-inverse (price*forward), Derive USDC pass-through
 - [Phase 31]: process_near_expiry does not need venue gating (forward used for intrinsic, not price conversion)
+- [Phase 31]: DeriveClient uses Option<VenueRateLimiter> constructor param (simpler than Deribit builder pattern)
+- [Phase 31]: Empty instrument list in supervisor triggers 1s sleep+retry (avoids connecting with no subscriptions)
+- [Phase 31]: DeriveProcessor dual-source gating: snapshot requires both book AND ticker data
+- [Phase 31]: USDC prices pass through without conversion (no BTC-inverse transform needed)
+- [Phase 31]: Stale Derive data skips snapshot emission entirely (not emitted with is_stale flag)
 
 ### Pending Todos
 
@@ -71,5 +78,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-04
-Stopped at: Completed 31-02-PLAN.md (instrument parser and price normalization)
-Next action: Execute 31-03-PLAN.md (Derive WebSocket feed client)
+Stopped at: Completed 31-04-PLAN.md (DeriveProcessor and normalization)
+Next action: Execute Phase 32 (Derive subscription wiring and pipeline integration)
