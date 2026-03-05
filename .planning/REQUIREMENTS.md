@@ -32,9 +32,9 @@ Requirements for Derive.xyz venue integration. Each maps to roadmap phases.
 
 ### Discovery & Matching
 
-- [ ] **DISC-01**: Derive REST-based instrument listing via `public/get_instruments` endpoint
-- [ ] **DISC-02**: Cross-venue matching between Derive BTC options and Deribit/Polymarket instruments using existing FuzzyMatchKey
-- [ ] **DISC-03**: Proposal writing for discovered Derive matches to events.toml (approved = false)
+- [x] **DISC-01**: Derive REST-based instrument listing via `public/get_instruments` endpoint
+- [x] **DISC-02**: Cross-venue matching between Derive BTC options and Deribit/Polymarket instruments using existing FuzzyMatchKey
+- [x] **DISC-03**: Proposal writing for discovered Derive matches to events.toml (approved = false)
 - [ ] **DISC-04**: Discovery integrated into ContractLifecycleManager periodic background pipeline
 
 ## Future Requirements
@@ -74,9 +74,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PIPE-03 | Phase 32 | Complete |
 | PIPE-04 | Phase 32 | Complete |
 | PIPE-05 | Phase 32 | Complete |
-| DISC-01 | Phase 33 | Pending |
-| DISC-02 | Phase 33 | Pending |
-| DISC-03 | Phase 33 | Pending |
+| DISC-01 | Phase 33 | Complete |
+| DISC-02 | Phase 33 | Complete |
+| DISC-03 | Phase 33 | Complete |
 | DISC-04 | Phase 33 | Pending |
 
 **Coverage:**

@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-03-03)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.5 Derive.xyz Venue Integration -- Phase 32 in progress
+**Current focus:** v1.5 Derive.xyz Venue Integration -- Phase 33 in progress
 
 ## Current Position
 
-Phase: 32 of 33 (Pipeline Wiring and Observability)
-Plan: 2 of 2 in current phase (COMPLETE)
-Status: Phase 32 Complete
-Last activity: 2026-03-05 -- Completed 32-02 Pipeline wiring and Derive supervisor integration
+Phase: 33 of 33 (Discovery and Matching)
+Plan: 1 of 1 in current phase (COMPLETE)
+Status: Phase 33 Complete
+Last activity: 2026-03-06 -- Completed 33-01 Derive discovery and cross-venue matching
 
-Progress (v1.5): [#########.] 92%
-Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 78 plans
+Progress (v1.5): [##########] 100%
+Progress (overall): 5 milestones shipped (v1.0-v1.4), 30 phases, 79 plans
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 76
-- Total phases completed: 29
+- Total plans completed: 77
+- Total phases completed: 30
 - Total execution time: ~10 days across 5 milestones
 
 **By Milestone:**
@@ -41,6 +41,7 @@ Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 78 plans
 | Phase 31 P04 | 8min | 2 tasks | 3 files |
 | Phase 32 P01 | 7min | 2 tasks | 4 files |
 | Phase 32 P02 | 5min | 2 tasks | 3 files |
+| Phase 33 P01 | 4min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,9 @@ Recent decisions affecting current work:
 - [Phase 32]: Pipeline.rs extracts _derive_rx with underscore prefix (supervisor wiring in Plan 02)
 - [Phase 32]: Derive pipeline follows identical Deribit 7-step block pattern (health, cancel, recording, rate-limiter, supervisor, processor, forward)
 - [Phase 32]: feed_reconnections_total is venue-generic counter (not Derive-specific), benefits all 4 venues
+- [Phase 33]: Derive discovery uses POST method (not GET) per API requirement (405 on GET)
+- [Phase 33]: String strikes parsed via Decimal::from_str for precision (not f64)
+- [Phase 33]: Epoch expiry auto-detects seconds vs milliseconds (threshold 10 billion)
 
 ### Pending Todos
 
@@ -83,6 +87,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-05
-Stopped at: Completed 32-02-PLAN.md (Pipeline wiring and Derive supervisor integration)
-Next action: Execute Phase 33 (Final integration testing)
+Last session: 2026-03-06
+Stopped at: Completed 33-01-PLAN.md (Derive discovery and cross-venue matching)
+Next action: v1.5 integration complete -- all phases done
