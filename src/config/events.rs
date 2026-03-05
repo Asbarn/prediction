@@ -214,6 +214,9 @@ pub struct DiscoveryConfig {
     /// Poll interval for Polymarket market discovery (seconds).
     #[serde(default = "default_polymarket_poll")]
     pub polymarket_poll_interval_secs: u64,
+    /// Poll interval for Derive instrument discovery (seconds).
+    #[serde(default = "default_derive_poll")]
+    pub derive_poll_interval_secs: u64,
     /// Deribit currencies to discover options for.
     #[serde(default = "default_deribit_currencies")]
     pub deribit_currencies: Vec<String>,
@@ -256,6 +259,7 @@ impl DiscoveryConfig {
         self.deribit_poll_interval_secs
             .min(self.kalshi_poll_interval_secs)
             .min(self.polymarket_poll_interval_secs)
+            .min(self.derive_poll_interval_secs)
     }
 }
 
@@ -265,6 +269,7 @@ impl Default for DiscoveryConfig {
             deribit_poll_interval_secs: 300,
             kalshi_poll_interval_secs: 600,
             polymarket_poll_interval_secs: 600,
+            derive_poll_interval_secs: 300,
             deribit_currencies: vec!["BTC".to_string()],
             kalshi_series_tickers: vec!["KXBTC".to_string()],
             consecutive_absence_threshold: default_consecutive_absence_threshold(),
@@ -279,6 +284,7 @@ impl Default for DiscoveryConfig {
 fn default_deribit_poll() -> u64 { 300 }
 fn default_kalshi_poll() -> u64 { 600 }
 fn default_polymarket_poll() -> u64 { 600 }
+fn default_derive_poll() -> u64 { 300 }
 fn default_deribit_currencies() -> Vec<String> { vec!["BTC".to_string()] }
 fn default_kalshi_series() -> Vec<String> { vec!["KXBTC".to_string()] }
 fn default_consecutive_absence_threshold() -> u32 { 3 }
