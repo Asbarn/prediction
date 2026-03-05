@@ -152,4 +152,4 @@ Plans:
 | 30. Venue Type Foundation | v1.5 | Complete    | 2026-03-04 | 2026-03-04 |
 | 31. Derive Feed and Normalization | 4/4 | Complete    | 2026-03-04 | - |
 | 32. Pipeline Wiring and Observability | 2/2 | Complete    | 2026-03-05 | - |
-| 33. Discovery and Matching | 2/2 | Complete   | 2026-03-05 | - |
+| 33. Discovery and Matching | 2/2 | Complete    | 2026-03-05 | - |
