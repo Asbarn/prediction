@@ -27,8 +27,8 @@ Requirements for Derive.xyz venue integration. Each maps to roadmap phases.
 - [x] **PIPE-01**: `Venue::Derive` enum variant added with all exhaustive match arms resolved across codebase
 - [x] **PIPE-02**: Derive config section in venues.toml (WebSocket URL, rate limits, book depth, staleness threshold)
 - [x] **PIPE-03**: SubscriptionManager extended with Derive venue support (HashSet diff, watch channel, Notify ordering)
-- [ ] **PIPE-04**: Derive wired into `run_live_multi_venue()` pipeline -- SpreadEngine, SignalEngine, PaperTradeTracker receive Derive snapshots automatically
-- [ ] **PIPE-05**: Prometheus metrics for Derive feed (connection state, message rate, subscription count)
+- [x] **PIPE-04**: Derive wired into `run_live_multi_venue()` pipeline -- SpreadEngine, SignalEngine, PaperTradeTracker receive Derive snapshots automatically
+- [x] **PIPE-05**: Prometheus metrics for Derive feed (connection state, message rate, subscription count)
 
 ### Discovery & Matching
 
@@ -72,8 +72,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PIPE-01 | Phase 30 | Complete |
 | PIPE-02 | Phase 30 | Complete |
 | PIPE-03 | Phase 32 | Complete |
-| PIPE-04 | Phase 32 | Pending |
-| PIPE-05 | Phase 32 | Pending |
+| PIPE-04 | Phase 32 | Complete |
+| PIPE-05 | Phase 32 | Complete |
 | DISC-01 | Phase 33 | Pending |
 | DISC-02 | Phase 33 | Pending |
 | DISC-03 | Phase 33 | Pending |
