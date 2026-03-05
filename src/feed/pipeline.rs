@@ -153,9 +153,9 @@ async fn run_live_multi_venue(
     // When SubscriptionManager provides receivers (live mode with subscription management),
     // they are passed to each supervisor. When None (no subscription management),
     // one-shot watch channels seeded with config values are created instead.
-    let (deribit_rx, polymarket_rx, kalshi_rx) = match subscription_rx {
-        Some(rx) => (Some(rx.deribit), Some(rx.polymarket), Some(rx.kalshi)),
-        None => (None, None, None),
+    let (deribit_rx, polymarket_rx, kalshi_rx, _derive_rx) = match subscription_rx {
+        Some(rx) => (Some(rx.deribit), Some(rx.polymarket), Some(rx.kalshi), Some(rx.derive)),
+        None => (None, None, None, None),
     };
 
     // --- Deribit pipeline ---

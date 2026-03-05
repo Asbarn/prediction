@@ -40,6 +40,7 @@ pub struct SubscriptionSenders {
     pub deribit: watch::Sender<Vec<String>>,
     pub polymarket: watch::Sender<Vec<PolymarketSubscription>>,
     pub kalshi: watch::Sender<Vec<String>>,
+    pub derive: watch::Sender<Vec<String>>,
 }
 
 /// Receiver handles for per-venue instrument watch channels.
@@ -50,6 +51,7 @@ pub struct SubscriptionReceivers {
     pub deribit: watch::Receiver<Vec<String>>,
     pub polymarket: watch::Receiver<Vec<PolymarketSubscription>>,
     pub kalshi: watch::Receiver<Vec<String>>,
+    pub derive: watch::Receiver<Vec<String>>,
 }
 
 /// Reconciliation engine that bridges config hot-reload to feed supervisors.
@@ -77,9 +79,11 @@ pub struct SubscriptionManager {
     deribit_tx: watch::Sender<Vec<String>>,
     polymarket_tx: watch::Sender<Vec<PolymarketSubscription>>,
     kalshi_tx: watch::Sender<Vec<String>>,
+    derive_tx: watch::Sender<Vec<String>>,
     current_deribit: HashSet<String>,
     current_polymarket: HashSet<PolymarketSubscription>,
     current_kalshi: HashSet<String>,
+    current_derive: HashSet<String>,
     dry_run: bool,
     cleanup_txs: Vec<mpsc::Sender<CleanupEvent>>,
 }
@@ -104,9 +108,11 @@ impl SubscriptionManager {
             deribit_tx: senders.deribit,
             polymarket_tx: senders.polymarket,
             kalshi_tx: senders.kalshi,
+            derive_tx: senders.derive,
             current_deribit: HashSet::new(),
             current_polymarket: HashSet::new(),
             current_kalshi: HashSet::new(),
+            current_derive: HashSet::new(),
             dry_run,
             cleanup_txs,
         }
@@ -119,10 +125,11 @@ impl SubscriptionManager {
     /// non-Active lifecycle statuses are excluded.
     fn compute_desired_instruments(
         registry: &EventRegistry,
-    ) -> (HashSet<String>, HashSet<PolymarketSubscription>, HashSet<String>) {
+    ) -> (HashSet<String>, HashSet<PolymarketSubscription>, HashSet<String>, HashSet<String>) {
         let mut deribit = HashSet::new();
         let mut polymarket = HashSet::new();
         let mut kalshi = HashSet::new();
+        let mut derive = HashSet::new();
 
         for mapping in registry.active_approved() {
             if let Some(ref d) = mapping.venues.deribit {
@@ -137,9 +144,12 @@ impl SubscriptionManager {
             if let Some(ref k) = mapping.venues.kalshi {
                 kalshi.insert(k.ticker.clone());
             }
+            if let Some(ref dr) = mapping.venues.derive {
+                derive.insert(dr.instrument.clone());
+            }
         }
 
-        (deribit, polymarket, kalshi)
+        (deribit, polymarket, kalshi, derive)
     }
 
     /// Compute the set difference between current and desired instrument sets.
@@ -168,7 +178,7 @@ impl SubscriptionManager {
     async fn reconcile(&mut self) {
         // Acquire registry read lock and compute desired instruments.
         let reg = self.registry.read().await;
-        let (desired_d, desired_p, desired_k) = Self::compute_desired_instruments(&reg);
+        let (desired_d, desired_p, desired_k, desired_dr) = Self::compute_desired_instruments(&reg);
         // CRITICAL: Drop read lock before watch send to avoid priority inversion
         // with the config reload subscriber's write lock acquisition.
         drop(reg);
@@ -378,7 +388,7 @@ impl SubscriptionManager {
     /// Returns `(senders, receivers)` -- senders go to `SubscriptionManager::new()`,
     /// receivers go to supervisors (wired in Phase 23).
     pub fn create_channels(registry: &EventRegistry) -> (SubscriptionSenders, SubscriptionReceivers) {
-        let (desired_d, desired_p, desired_k) = Self::compute_desired_instruments(registry);
+        let (desired_d, desired_p, desired_k, desired_dr) = Self::compute_desired_instruments(registry);
 
         let mut initial_deribit: Vec<String> = desired_d.into_iter().collect();
         initial_deribit.sort();
@@ -389,20 +399,26 @@ impl SubscriptionManager {
         let mut initial_kalshi: Vec<String> = desired_k.into_iter().collect();
         initial_kalshi.sort();
 
+        let mut initial_derive: Vec<String> = desired_dr.into_iter().collect();
+        initial_derive.sort();
+
         let (deribit_tx, deribit_rx) = watch::channel(initial_deribit);
         let (polymarket_tx, polymarket_rx) = watch::channel(initial_polymarket);
         let (kalshi_tx, kalshi_rx) = watch::channel(initial_kalshi);
+        let (derive_tx, derive_rx) = watch::channel(initial_derive);
 
         let senders = SubscriptionSenders {
             deribit: deribit_tx,
             polymarket: polymarket_tx,
             kalshi: kalshi_tx,
+            derive: derive_tx,
         };
 
         let receivers = SubscriptionReceivers {
             deribit: deribit_rx,
             polymarket: polymarket_rx,
             kalshi: kalshi_rx,
+            derive: derive_rx,
         };
 
         (senders, receivers)
