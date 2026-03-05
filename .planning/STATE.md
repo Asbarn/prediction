@@ -5,22 +5,22 @@
 See: .planning/PROJECT.md (updated 2026-03-03)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.5 Derive.xyz Venue Integration -- Phase 31 complete, ready for Phase 32
+**Current focus:** v1.5 Derive.xyz Venue Integration -- Phase 32 in progress
 
 ## Current Position
 
-Phase: 31 of 33 (Derive Feed and Normalization)
-Plan: 4 of 4 in current phase (COMPLETE)
-Status: Phase 31 Complete
-Last activity: 2026-03-04 -- Completed 31-04 DeriveProcessor and normalization
+Phase: 32 of 33 (Pipeline Wiring and Observability)
+Plan: 1 of 2 in current phase (COMPLETE)
+Status: Executing Phase 32
+Last activity: 2026-03-05 -- Completed 32-01 SubscriptionManager Derive venue support
 
-Progress (v1.5): [########..] 80%
-Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 75 plans
+Progress (v1.5): [########..] 85%
+Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 76 plans
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 75
+- Total plans completed: 76
 - Total phases completed: 29
 - Total execution time: ~10 days across 5 milestones
 
@@ -39,6 +39,7 @@ Progress (overall): 5 milestones shipped (v1.0-v1.4), 29 phases, 75 plans
 | Phase 31 P02 | 5min | 2 tasks | 2 files |
 | Phase 31 P03 | 7min | 2 tasks | 3 files |
 | Phase 31 P04 | 8min | 2 tasks | 3 files |
+| Phase 32 P01 | 7min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ Recent decisions affecting current work:
 - [Phase 31]: DeriveProcessor dual-source gating: snapshot requires both book AND ticker data
 - [Phase 31]: USDC prices pass through without conversion (no BTC-inverse transform needed)
 - [Phase 31]: Stale Derive data skips snapshot emission entirely (not emitted with is_stale flag)
+- [Phase 32]: Derive follows identical Deribit pattern for subscription management (HashSet diff, sorted Vec send, gauge+counter metrics)
+- [Phase 32]: Pipeline.rs extracts _derive_rx with underscore prefix (supervisor wiring in Plan 02)
 
 ### Pending Todos
 
@@ -77,6 +80,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-04
-Stopped at: Completed 31-04-PLAN.md (DeriveProcessor and normalization)
-Next action: Execute Phase 32 (Derive subscription wiring and pipeline integration)
+Last session: 2026-03-05
+Stopped at: Completed 32-01-PLAN.md (SubscriptionManager Derive venue support)
+Next action: Execute 32-02-PLAN.md (Pipeline wiring and Derive supervisor integration)
