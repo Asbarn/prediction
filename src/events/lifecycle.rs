@@ -22,7 +22,7 @@ use crate::config::{
     RiskWeightsConfig, VenuesConfig,
 };
 use crate::events::discovery::{
-    discover_deribit, discover_kalshi, discover_polymarket,
+    discover_deribit, discover_derive, discover_kalshi, discover_polymarket,
     discover_polymarket_structured, filter_new_candidates_fuzzy,
     find_cross_venue_candidates_fuzzy, flag_novel_instruments,
     generate_polymarket_slugs, DiscoveredInstrument, ExpiryConfidence,
@@ -164,6 +164,7 @@ impl ContractLifecycleManager {
         let mut last_deribit_poll = Instant::now() - Duration::from_secs(min_interval + 1);
         let mut last_kalshi_poll = Instant::now() - Duration::from_secs(min_interval + 1);
         let mut last_polymarket_poll = Instant::now() - Duration::from_secs(min_interval + 1);
+        let mut last_derive_poll = Instant::now() - Duration::from_secs(min_interval + 1);
 
         loop {
             tokio::select! {
@@ -177,6 +178,7 @@ impl ContractLifecycleManager {
                         &mut last_deribit_poll,
                         &mut last_kalshi_poll,
                         &mut last_polymarket_poll,
+                        &mut last_derive_poll,
                     ).await;
                 }
             }
@@ -201,6 +203,7 @@ impl ContractLifecycleManager {
         last_deribit_poll: &mut Instant,
         last_kalshi_poll: &mut Instant,
         last_polymarket_poll: &mut Instant,
+        last_derive_poll: &mut Instant,
     ) {
         let mut all_discovered: Vec<DiscoveredInstrument> = Vec::new();
         let mut deribit_polled = false;
@@ -436,6 +439,62 @@ impl ContractLifecycleManager {
             }
         }
 
+        // --- Derive ---
+        let mut derive_polled = false;
+        let mut derive_suspect = false;
+        if last_derive_poll.elapsed()
+            >= Duration::from_secs(self.discovery_config.derive_poll_interval_secs)
+        {
+            *last_derive_poll = Instant::now();
+            metrics::counter!("lifecycle_discovery_polls", "venue" => "derive").increment(1);
+            let derive_rest_url = format!(
+                "https://{}",
+                self.venues_config
+                    .derive
+                    .ws_url
+                    .trim_start_matches("wss://")
+                    .trim_start_matches("ws://")
+                    .split("/ws")
+                    .next()
+                    .unwrap_or("api.lyra.finance")
+            );
+            let derive_limiter = self.venue_rate_limiters.get(&Venue::Derive);
+            match discover_derive(&self.http_client, &derive_rest_url, derive_limiter).await {
+                Ok(instruments) => {
+                    let count = instruments.len();
+                    tracing::info!(
+                        venue = "derive",
+                        count = count,
+                        "discovered instruments"
+                    );
+                    if self.previous_poll_counts.is_suspect(
+                        Venue::Derive,
+                        count,
+                        self.discovery_config.partial_response_threshold,
+                    ) {
+                        tracing::warn!(
+                            venue = "derive",
+                            previous = ?self.previous_poll_counts.counts.get(&Venue::Derive),
+                            current = count,
+                            "suspect partial API response -- skipping expiry evaluation for Derive"
+                        );
+                        derive_suspect = true;
+                    } else {
+                        self.previous_poll_counts.update(Venue::Derive, count);
+                    }
+                    derive_polled = true;
+                    all_discovered.extend(instruments);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        venue = "derive",
+                        error = %e,
+                        "Derive discovery failed, continuing"
+                    );
+                }
+            }
+        }
+
         // 1b. Check approved mapping instrument activity against latest discovery data.
         // Only check venues that actually returned data this cycle to avoid false warnings.
         {
@@ -445,6 +504,8 @@ impl ContractLifecycleManager {
                 && all_discovered.iter().any(|d| d.venue == Venue::Kalshi);
             let polymarket_has_data = polymarket_polled
                 && all_discovered.iter().any(|d| d.venue == Venue::Polymarket);
+            let derive_has_data = derive_polled
+                && all_discovered.iter().any(|d| d.venue == Venue::Derive);
 
             let registry = self.registry.read().await;
             for mapping in registry.all_mappings() {
@@ -490,6 +551,20 @@ impl ContractLifecycleManager {
                             event_id = %mapping.id,
                             venue = "polymarket",
                             instrument = %polymarket.condition_id,
+                            "approved mapping instrument not found in latest discovery data"
+                        );
+                    }
+                }
+                if let Some(ref derive_inst) = mapping.venues.derive {
+                    if derive_has_data
+                        && !all_discovered
+                            .iter()
+                            .any(|d| d.venue == Venue::Derive && d.instrument_id == derive_inst.instrument)
+                    {
+                        tracing::warn!(
+                            event_id = %mapping.id,
+                            venue = "derive",
+                            instrument = %derive_inst.instrument,
                             "approved mapping instrument not found in latest discovery data"
                         );
                     }
@@ -611,6 +686,24 @@ impl ContractLifecycleManager {
                         if should_expire {
                             events_to_expire.push(mapping.id.clone());
                             self.absence_tracker.remove(Venue::Polymarket, &polymarket.condition_id);
+                        }
+                    }
+                }
+            }
+
+            // Check Derive absence (only if Derive was polled and not suspect)
+            if let Some(ref derive_inst) = mapping.venues.derive {
+                if derive_polled && !derive_suspect {
+                    if discovered_ids.contains(&(Venue::Derive, derive_inst.instrument.as_str())) {
+                        self.absence_tracker.record_present(Venue::Derive, &derive_inst.instrument);
+                    } else if !events_to_expire.contains(&mapping.id) {
+                        // Don't double-expire if another venue already triggered
+                        let should_expire = self.absence_tracker.record_absent(
+                            Venue::Derive, &derive_inst.instrument,
+                        );
+                        if should_expire {
+                            events_to_expire.push(mapping.id.clone());
+                            self.absence_tracker.remove(Venue::Derive, &derive_inst.instrument);
                         }
                     }
                 }
