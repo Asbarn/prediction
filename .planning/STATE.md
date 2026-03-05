@@ -10,17 +10,17 @@ See: .planning/PROJECT.md (updated 2026-03-03)
 ## Current Position
 
 Phase: 33 of 33 (Discovery and Matching)
-Plan: 1 of 1 in current phase (COMPLETE)
+Plan: 2 of 2 in current phase (COMPLETE)
 Status: Phase 33 Complete
-Last activity: 2026-03-06 -- Completed 33-01 Derive discovery and cross-venue matching
+Last activity: 2026-03-06 -- Completed 33-02 Derive lifecycle integration
 
 Progress (v1.5): [##########] 100%
-Progress (overall): 5 milestones shipped (v1.0-v1.4), 30 phases, 79 plans
+Progress (overall): 5 milestones shipped (v1.0-v1.4), 30 phases, 80 plans
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 77
+- Total plans completed: 78
 - Total phases completed: 30
 - Total execution time: ~10 days across 5 milestones
 
@@ -42,6 +42,7 @@ Progress (overall): 5 milestones shipped (v1.0-v1.4), 30 phases, 79 plans
 | Phase 32 P01 | 7min | 2 tasks | 4 files |
 | Phase 32 P02 | 5min | 2 tasks | 3 files |
 | Phase 33 P01 | 4min | 2 tasks | 1 files |
+| Phase 33 P02 | 4min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,8 @@ Recent decisions affecting current work:
 - [Phase 33]: Derive discovery uses POST method (not GET) per API requirement (405 on GET)
 - [Phase 33]: String strikes parsed via Decimal::from_str for precision (not f64)
 - [Phase 33]: Epoch expiry auto-detects seconds vs milliseconds (threshold 10 billion)
+- [Phase 33]: Derive poll interval 300s (same as Deribit -- both options exchanges)
+- [Phase 33]: Derive REST URL derived from ws_url by stripping wss:// and /ws path
 
 ### Pending Todos
 
@@ -88,5 +91,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 33-01-PLAN.md (Derive discovery and cross-venue matching)
+Stopped at: Completed 33-02-PLAN.md (Derive lifecycle integration)
 Next action: v1.5 integration complete -- all phases done
