@@ -72,9 +72,10 @@ impl VenueHealth {
         *self.last_message_at.lock().unwrap() = Some(Utc::now());
     }
 
-    /// Increment the connection attempt counter.
+    /// Increment the connection attempt counter and emit reconnection metric.
     pub fn increment_connections(&self) {
         self.connection_count.fetch_add(1, Ordering::Relaxed);
+        metrics::counter!("feed_reconnections_total", "venue" => self.venue.to_string()).increment(1);
     }
 
     /// Get the venue this health tracker is for.
