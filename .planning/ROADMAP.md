@@ -130,6 +130,10 @@ Plans:
 **Goal**: System automatically discovers Derive BTC options and proposes cross-venue matches for human approval
 **Depends on**: Phase 32
 **Requirements**: DISC-01, DISC-02, DISC-03, DISC-04
+**Plans:** 2 plans
+Plans:
+- [ ] 33-01-PLAN.md -- Implement discover_derive() and replace Venue::Derive matching stubs
+- [ ] 33-02-PLAN.md -- Wire Derive discovery into ContractLifecycleManager poll_cycle with config and absence checking
 **Success Criteria**:
   1. `discover_derive()` fetches BTC options instruments from Derive REST API and returns `Vec<DiscoveredInstrument>` with correct strike, expiry, and direction
   2. Cross-venue matching between Derive and Deribit/Polymarket instruments uses existing FuzzyMatchKey with exact-date expiry matching
@@ -148,4 +152,4 @@ Plans:
 | 30. Venue Type Foundation | v1.5 | Complete    | 2026-03-04 | 2026-03-04 |
 | 31. Derive Feed and Normalization | 4/4 | Complete    | 2026-03-04 | - |
 | 32. Pipeline Wiring and Observability | 2/2 | Complete    | 2026-03-05 | - |
-| 33. Discovery and Matching | v1.5 | 0/? | Not started | - |
+| 33. Discovery and Matching | v1.5 | 0/2 | Planning complete | - |
