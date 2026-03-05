@@ -8,7 +8,9 @@
 //! to extract asset, strike, direction, and uses `endDateIso` for expiry.
 
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
+use anyhow::Context;
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -633,6 +635,119 @@ pub async fn discover_polymarket_structured(
         instruments_discovered = all.len(),
         "Polymarket structured discovery complete"
     );
+
+    Ok(all)
+}
+
+// ---------------------------------------------------------------------------
+// Derive discovery (public endpoint, no auth)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct DeriveInstrumentsResponse {
+    result: Vec<DeriveInstrumentInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeriveInstrumentInfo {
+    instrument_name: String,
+    is_active: bool,
+    option_details: Option<DeriveOptionDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeriveOptionDetails {
+    strike: String,
+    expiry: u64,
+    option_type: String,
+}
+
+/// Discover active Derive option instruments via the public REST API.
+///
+/// POST `{base_url}/public/get_instruments` with JSON body specifying
+/// BTC options. No authentication required for public endpoints.
+///
+/// Uses `Decimal::from_str` for string strike prices (Derive returns strings,
+/// not floats) per Phase 31 decision.
+pub async fn discover_derive(
+    client: &reqwest::Client,
+    base_url: &str,
+    rate_limiter: Option<&VenueRateLimiter>,
+) -> anyhow::Result<Vec<DiscoveredInstrument>> {
+    if let Some(limiter) = rate_limiter {
+        limiter.wait().await;
+    }
+
+    let url = format!("{}/public/get_instruments", base_url);
+    let body = serde_json::json!({
+        "instrument_type": "option",
+        "currency": "BTC",
+        "expired": false
+    });
+
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .context("Derive get_instruments request failed")?;
+
+    let response: DeriveInstrumentsResponse = resp
+        .json()
+        .await
+        .context("Failed to parse Derive instruments response")?;
+
+    let mut all = Vec::new();
+
+    for info in response.result {
+        if !info.is_active {
+            continue;
+        }
+
+        let details = match &info.option_details {
+            Some(d) => d,
+            None => continue,
+        };
+
+        let strike = match Decimal::from_str(&details.strike) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        let direction = match details.option_type.as_str() {
+            "C" | "call" => Direction::Above,
+            "P" | "put" => Direction::Below,
+            _ => continue,
+        };
+
+        // Detect seconds vs milliseconds: if > 10 billion, treat as millis
+        let expiry_ms = if details.expiry > 10_000_000_000 {
+            details.expiry as i64
+        } else {
+            (details.expiry as i64) * 1000
+        };
+
+        let expiry_dt = match DateTime::from_timestamp_millis(expiry_ms) {
+            Some(dt) => dt,
+            None => continue,
+        };
+        let expiry = expiry_dt.date_naive();
+
+        all.push(DiscoveredInstrument {
+            venue: Venue::Derive,
+            instrument_id: info.instrument_name,
+            asset: "BTC".to_string(),
+            strike,
+            expiry,
+            direction,
+            is_active: true,
+            raw_expiry_timestamp: expiry_ms,
+            extra_venue_id: None,
+        });
+    }
+
+    let count = all.len();
+    tracing::info!(venue = "derive", count, "discovered Derive instruments");
 
     Ok(all)
 }
