@@ -79,7 +79,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 **Milestone Goal:** Add Derive.xyz as fourth venue -- decentralized options exchange on Ethereum L2 with BTC options CLOB. Enables Deribit vs Derive options spread and three-way cross-venue signals.
 
 - [x] **Phase 30: Venue Type Foundation** - Add Venue::Derive enum, resolve all match arms, add config section, verify live API (completed 2026-03-04)
-- [x] **Phase 31: Derive Feed and Normalization** - Complete standalone feed emitting correct MarketSnapshot with USDC normalization (completed 2026-03-04)
+- [x] **Phase 31: Derive Feed and Normalization** - Complete standalone feed emitting correct MarketSnapshot with USDC normalization (completed 2026-03-04)
 - [ ] **Phase 32: Pipeline Wiring and Observability** - Wire Derive into live multi-venue pipeline with subscription management and metrics
 - [ ] **Phase 33: Discovery and Matching** - REST-based instrument discovery with cross-venue matching and proposal workflow
 
@@ -117,6 +117,10 @@ Plans:
 **Goal**: Derive snapshots flow through the live multi-venue pipeline and SpreadEngine/SignalEngine produce cross-venue signals automatically
 **Depends on**: Phase 31
 **Requirements**: PIPE-03, PIPE-04, PIPE-05
+**Plans:** 2 plans
+Plans:
+- [ ] 32-01-PLAN.md -- Extend SubscriptionManager with Derive venue support (HashSet diff, watch channel, reconciliation metrics)
+- [ ] 32-02-PLAN.md -- Wire Derive pipeline block into run_live_multi_venue and add reconnection metrics
 **Success Criteria**:
   1. SubscriptionManager handles Derive instruments with HashSet diff reconciliation, watch channel push, and Notify ordering
   2. SpreadEngine, SignalEngine, and PaperTradeTracker receive and process Derive MarketSnapshots via `run_live_multi_venue()` without any downstream engine changes
@@ -143,5 +147,5 @@ Plans:
 | 26-29 | v1.4 Analysis Tooling | 7/7 | Complete | 2026-03-02 |
 | 30. Venue Type Foundation | v1.5 | Complete    | 2026-03-04 | 2026-03-04 |
 | 31. Derive Feed and Normalization | 4/4 | Complete    | 2026-03-04 | - |
-| 32. Pipeline Wiring and Observability | v1.5 | 0/? | Not started | - |
+| 32. Pipeline Wiring and Observability | v1.5 | 0/2 | Not started | - |
 | 33. Discovery and Matching | v1.5 | 0/? | Not started | - |
