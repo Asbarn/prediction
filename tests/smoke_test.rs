@@ -279,7 +279,8 @@ fn config_validation_rejects_zero_threshold() {
          heartbeat_interval_ms = 10000\n\n\
          [polymarket]\nws_url = \"wss://poly.com/ws\"\nrest_url = \"https://poly.com\"\n\
          chain_id = 137\n\n\
-         [kalshi]\nrest_url = \"https://kalshi.com\"\nws_url = \"wss://kalshi.com/ws\"\n",
+         [kalshi]\nrest_url = \"https://kalshi.com\"\nws_url = \"wss://kalshi.com/ws\"\n\n\
+         [derive]\nws_url = \"wss://api.lyra.finance/ws\"\n",
     )
     .expect("write venues");
 
@@ -323,7 +324,8 @@ fn config_validation_rejects_event_without_venues() {
          heartbeat_interval_ms = 10000\n\n\
          [polymarket]\nws_url = \"wss://poly.com/ws\"\nrest_url = \"https://poly.com\"\n\
          chain_id = 137\n\n\
-         [kalshi]\nrest_url = \"https://kalshi.com\"\nws_url = \"wss://kalshi.com/ws\"\n",
+         [kalshi]\nrest_url = \"https://kalshi.com\"\nws_url = \"wss://kalshi.com/ws\"\n\n\
+         [derive]\nws_url = \"wss://api.lyra.finance/ws\"\n",
     )
     .expect("write venues");
 
