@@ -187,11 +187,13 @@ impl SubscriptionManager {
         let (added_d, removed_d) = Self::compute_diff(&self.current_deribit, &desired_d);
         let (added_p, removed_p) = Self::compute_diff(&self.current_polymarket, &desired_p);
         let (added_k, removed_k) = Self::compute_diff(&self.current_kalshi, &desired_k);
+        let (added_dr, removed_dr) = Self::compute_diff(&self.current_derive, &desired_dr);
 
         // Log structured diffs per venue (OBS-03).
         let deribit_changed = !added_d.is_empty() || !removed_d.is_empty();
         let polymarket_changed = !added_p.is_empty() || !removed_p.is_empty();
         let kalshi_changed = !added_k.is_empty() || !removed_k.is_empty();
+        let derive_changed = !added_dr.is_empty() || !removed_dr.is_empty();
 
         if deribit_changed {
             tracing::info!(
@@ -250,6 +252,24 @@ impl SubscriptionManager {
             );
         }
 
+        if derive_changed {
+            tracing::info!(
+                venue = %"derive",
+                added_count = added_dr.len(),
+                removed_count = removed_dr.len(),
+                total = desired_dr.len(),
+                added = ?added_dr,
+                removed = ?removed_dr,
+                "subscription reconciliation: diff computed"
+            );
+        } else {
+            tracing::debug!(
+                venue = %"derive",
+                total = self.current_derive.len(),
+                "subscription reconciliation: no changes"
+            );
+        }
+
         // Dry-run guard: update internal state so subsequent diffs are meaningful
         // (Pitfall 3), but skip watch sends, cleanup sends, and metrics.
         if self.dry_run {
@@ -260,12 +280,15 @@ impl SubscriptionManager {
                 polymarket_remove = removed_p.len(),
                 kalshi_add = added_k.len(),
                 kalshi_remove = removed_k.len(),
+                derive_add = added_dr.len(),
+                derive_remove = removed_dr.len(),
                 "DRY RUN: reconciliation would apply these changes"
             );
             // Update internal state so subsequent diffs are meaningful (Pitfall 3)
             self.current_deribit = desired_d;
             self.current_polymarket = desired_p;
             self.current_kalshi = desired_k;
+            self.current_derive = desired_dr;
             return;
         }
 
@@ -289,8 +312,14 @@ impl SubscriptionManager {
             self.kalshi_tx.send_replace(tickers);
         }
 
-        // If ALL three venues have empty diffs, log at debug level.
-        if !deribit_changed && !polymarket_changed && !kalshi_changed {
+        if derive_changed {
+            let mut instruments: Vec<String> = desired_dr.iter().cloned().collect();
+            instruments.sort();
+            self.derive_tx.send_replace(instruments);
+        }
+
+        // If ALL four venues have empty diffs, log at debug level.
+        if !deribit_changed && !polymarket_changed && !kalshi_changed && !derive_changed {
             tracing::debug!("subscription reconciliation: no changes across all venues");
         }
 
@@ -301,15 +330,17 @@ impl SubscriptionManager {
         let removed_p_len = removed_p.len();
         let added_k_len = added_k.len();
         let removed_k_len = removed_k.len();
+        let added_dr_len = added_dr.len();
+        let removed_dr_len = removed_dr.len();
 
         // Send cleanup events for removed instruments (SUB-05).
-        let has_removals = !removed_d.is_empty() || !removed_p.is_empty() || !removed_k.is_empty();
+        let has_removals = !removed_d.is_empty() || !removed_p.is_empty() || !removed_k.is_empty() || !removed_dr.is_empty();
         if has_removals {
             let cleanup = CleanupEvent {
                 deribit_instruments: removed_d,
                 kalshi_tickers: removed_k,
                 polymarket_token_ids: removed_p.iter().map(|s| s.token_id.clone()).collect(),
-                derive_instruments: Vec::new(), // Populated in Phase 32 when Derive is wired to SubscriptionManager
+                derive_instruments: removed_dr.into_iter().collect(),
                 event_ids: Vec::new(), // Populated by Plan 02 when wiring is complete
             };
             for tx in &self.cleanup_txs {
@@ -323,6 +354,7 @@ impl SubscriptionManager {
         self.current_deribit = desired_d;
         self.current_polymarket = desired_p;
         self.current_kalshi = desired_k;
+        self.current_derive = desired_dr;
 
         // Emit subscription metrics (OBS-01: gauges, OBS-02: counters).
         metrics::gauge!("subscription_active", "venue" => "deribit")
@@ -331,6 +363,8 @@ impl SubscriptionManager {
             .set(self.current_polymarket.len() as f64);
         metrics::gauge!("subscription_active", "venue" => "kalshi")
             .set(self.current_kalshi.len() as f64);
+        metrics::gauge!("subscription_active", "venue" => "derive")
+            .set(self.current_derive.len() as f64);
 
         if deribit_changed {
             metrics::counter!("subscription_activations_total", "venue" => "deribit")
@@ -354,6 +388,14 @@ impl SubscriptionManager {
             if removed_k_len > 0 {
                 metrics::counter!("subscription_removals_total", "venue" => "kalshi")
                     .increment(removed_k_len as u64);
+            }
+        }
+        if derive_changed {
+            metrics::counter!("subscription_activations_total", "venue" => "derive")
+                .increment(added_dr_len as u64);
+            if removed_dr_len > 0 {
+                metrics::counter!("subscription_removals_total", "venue" => "derive")
+                    .increment(removed_dr_len as u64);
             }
         }
     }
