@@ -813,13 +813,14 @@ pub fn filter_new_candidates(
         // Build CandidateMapping from the group
         let mut deribit: Option<String> = None;
         let mut kalshi: Option<String> = None;
+        let mut derive: Option<String> = None;
 
         for inst in instruments {
             match inst.venue {
                 Venue::Deribit => deribit = Some(inst.instrument_id.clone()),
                 Venue::Kalshi => kalshi = Some(inst.instrument_id.clone()),
                 Venue::Polymarket => {} // Excluded from auto-matching in v1
-                Venue::Derive => {} // Derive matching deferred to v1.5 Phase 31
+                Venue::Derive => derive = Some(inst.instrument_id.clone()),
             }
         }
 
@@ -833,7 +834,7 @@ pub fn filter_new_candidates(
                 deribit,
                 polymarket: None, // Polymarket excluded in v1
                 kalshi,
-                derive: None, // Derive matching deferred to v1.5 Phase 31
+                derive,
             },
             expiry_confidence: ExpiryConfidence::High,
         });
@@ -931,6 +932,7 @@ pub fn filter_new_candidates_fuzzy(
         let mut deribit: Option<String> = None;
         let mut kalshi: Option<String> = None;
         let mut polymarket: Option<(String, String)> = None;
+        let mut derive: Option<String> = None;
 
         for inst in instruments {
             match inst.venue {
@@ -942,7 +944,7 @@ pub fn filter_new_candidates_fuzzy(
                         inst.extra_venue_id.clone().unwrap_or_default(),
                     ));
                 }
-                Venue::Derive => {} // Derive matching deferred to v1.5 Phase 31
+                Venue::Derive => derive = Some(inst.instrument_id.clone()),
             }
         }
 
@@ -956,7 +958,7 @@ pub fn filter_new_candidates_fuzzy(
                 deribit,
                 polymarket,
                 kalshi,
-                derive: None, // Derive matching deferred to v1.5 Phase 31
+                derive,
             },
             expiry_confidence: *confidence,
         });
