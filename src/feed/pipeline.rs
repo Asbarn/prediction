@@ -10,6 +10,7 @@
 //! [DeribitSupervisor]      --RawMessage-->  [DeribitProcessor]      --+
 //! [PolymarketSupervisor]   --RawMessage-->  [PolymarketProcessor]  --+--> shared mpsc --> [downstream]
 //! [KalshiSupervisor]       --RawMessage-->  [KalshiProcessor]      --+
+//! [DeriveSupervisor]       --RawMessage-->  [DeriveProcessor]      --+
 //!
 //! Mock/Replay mode (single-venue Deribit):
 //!
@@ -24,6 +25,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::{Credentials, VenuesConfig, DeribitConfig};
 use crate::events::registry::EventRegistry;
+use crate::feed::derive::normalize::DeriveProcessor;
+use crate::feed::derive::supervisor::DeriveSupervisor;
 use crate::feed::deribit::normalize::DeribitProcessor;
 use crate::feed::deribit::supervisor::DeribitSupervisor;
 use crate::feed::health::VenueHealth;
@@ -58,7 +61,7 @@ pub struct PipelineHandles {
     pub subscription_rx: Option<SubscriptionReceivers>,
     /// Cleanup channel senders for downstream engine state eviction.
     /// Passed to SubscriptionManager for broadcasting cleanup events.
-    /// Contains senders for: [spread, signal, pricing, deribit, kalshi].
+    /// Contains senders for: [spread, signal, pricing, deribit, kalshi, derive].
     pub cleanup_txs: Vec<mpsc::Sender<CleanupEvent>>,
     /// Cleanup receivers for engines spawned in main.rs.
     /// Order: [spread, signal, pricing]. None in Mock/Replay modes.
@@ -148,12 +151,13 @@ async fn run_live_multi_venue(
     let (pricing_cleanup_tx, pricing_cleanup_rx) = mpsc::channel::<CleanupEvent>(8);
     let (deribit_cleanup_tx, deribit_cleanup_rx) = mpsc::channel::<CleanupEvent>(8);
     let (kalshi_cleanup_tx, kalshi_cleanup_rx) = mpsc::channel::<CleanupEvent>(8);
+    let (derive_cleanup_tx, derive_cleanup_rx) = mpsc::channel::<CleanupEvent>(8);
 
     // Destructure per-venue subscription receivers.
     // When SubscriptionManager provides receivers (live mode with subscription management),
     // they are passed to each supervisor. When None (no subscription management),
     // one-shot watch channels seeded with config values are created instead.
-    let (deribit_rx, polymarket_rx, kalshi_rx, _derive_rx) = match subscription_rx {
+    let (deribit_rx, polymarket_rx, kalshi_rx, derive_rx) = match subscription_rx {
         Some(rx) => (Some(rx.deribit), Some(rx.polymarket), Some(rx.kalshi), Some(rx.derive)),
         None => (None, None, None, None),
     };
@@ -363,6 +367,65 @@ async fn run_live_multi_venue(
         }
     }
 
+    // --- Derive pipeline ---
+    {
+        let health = VenueHealth::new(Venue::Derive);
+        venue_health_handles.push(health.clone());
+        let venue_cancel = cancel.child_token();
+        let derive_recording = RecordingService::start(
+            recording_dir.join("derive"),
+            Venue::Derive,
+            venue_cancel.clone(),
+        );
+
+        let rate_limiter =
+            VenueRateLimiter::new("derive", config.derive.rate_limit_per_second);
+        rate_limiters.insert(Venue::Derive, rate_limiter.clone());
+        tracing::info!(
+            venue = "derive",
+            rate_limit = config.derive.rate_limit_per_second,
+            "Derive rate limiter configured"
+        );
+
+        let (supervisor_tx, supervisor_rx) = mpsc::channel::<RawMessage>(1024);
+        let instruments_rx = match derive_rx {
+            Some(rx) => rx,
+            None => {
+                let (_tx, rx) = watch::channel(config.derive.instruments.clone());
+                rx
+            }
+        };
+        let supervisor = DeriveSupervisor::new(
+            config.derive.clone(),
+            instruments_rx,
+            venue_cancel.clone(),
+            rate_limiter,
+            health.clone(),
+        );
+        tokio::spawn(supervisor.run(supervisor_tx));
+
+        let (processor, venue_snapshot_rx) = DeriveProcessor::new(
+            supervisor_rx,
+            Some(derive_recording.sender()),
+            venue_cancel.clone(),
+            &config.derive,
+            derive_cleanup_rx,
+        );
+        tokio::spawn(processor.run());
+
+        let fan_in_tx = snapshot_tx.clone();
+        tokio::spawn(forward_snapshots(
+            venue_snapshot_rx,
+            fan_in_tx,
+            Venue::Derive,
+            venue_cancel,
+            Some(health.clone()),
+            event_registry.clone(),
+        ));
+
+        tracing::info!(venue = "derive", "Derive pipeline started");
+    }
+
     // Drop the original sender so the channel closes when all venue tasks complete
     drop(snapshot_tx);
 
@@ -373,6 +436,7 @@ async fn run_live_multi_venue(
         pricing_cleanup_tx,
         deribit_cleanup_tx,
         kalshi_cleanup_tx,
+        derive_cleanup_tx,
     ];
 
     tracing::info!("multi-venue pipeline started");

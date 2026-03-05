@@ -150,6 +150,7 @@ async fn main() -> anyhow::Result<()> {
                     } else {
                         "skipped (KALSHI_API_KEY_ID / KALSHI_PRIVATE_KEY not set)"
                     },
+                    derive = "available (public, no auth)",
                     "venue availability"
                 );
                 DataMode::Live
