@@ -104,3 +104,24 @@
 
 ---
 
+
+## v1.5 Derive.xyz Venue Integration (Shipped: 2026-03-06)
+
+**Phases completed:** 4 phases, 10 plans, 20 tasks
+**LOC delta:** +8,164 lines (39,176 LOC Rust total)
+**Timeline:** 2 days (2026-03-04 to 2026-03-06)
+**Commits:** 43
+**Requirements:** 18/18 satisfied
+
+**Key accomplishments:**
+- Venue::Derive enum variant with full type system integration across 14+ files, DeriveConfig/DeriveMapping structs, and [derive] venues.toml section — zero todo!() placeholders
+- Derive WebSocket feed with snapshot-only book model (~100ms updates), ticker_slim parsing with abbreviated single-letter keys, USDC price pass-through normalization, and JSONL recording
+- 4-venue live pipeline with DeriveSupervisor/DeriveProcessor wired into run_live_multi_venue via 7-step block pattern (health, cancel, recording, rate-limiter, supervisor, processor, forward) with crash isolation via child CancellationToken
+- SubscriptionManager extended from 3-venue to 4-venue with Derive HashSet diff reconciliation, watch channel push, CleanupEvent.derive_instruments populated from actual diff, and subscription metrics with venue=derive label
+- Prometheus observability: feed_latency_ms, feed_messages_total, subscription_active/activations/removals with venue=derive, and feed_reconnections_total counter benefiting all 4 venues
+- REST-based discover_derive() with POST to Lyra's /public/get_instruments, Decimal strike parsing, epoch-to-date conversion, cross-venue fuzzy matching, and lifecycle integration with configurable 300s poll interval
+
+**Tech debt carried forward:** Same as v1.4 (no new items)
+
+---
+

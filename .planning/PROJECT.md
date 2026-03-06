@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A production-grade cross-venue arbitrage signal generator in Rust that detects pricing discrepancies between crypto prediction markets (Polymarket, Kalshi) and options markets (Deribit). Compares prediction market binary contract prices against options-implied probabilities derived via Black-76 pricing with call spread replication, generates trading signals when spreads exceed cost-adjusted thresholds, tracks settlement outcomes for signal validation, computes statistical evidence of signal quality, automatically discovers new cross-venue instrument matches with operator-approved proposals, dynamically manages feed subscriptions as instruments are approved or retired, and provides offline CLI analysis tools for statistically rigorous go/no-go decisions. Built as a single-binary service for a solo trader with 36,507 lines of Rust and full deterministic replay capability.
+A production-grade cross-venue arbitrage signal generator in Rust that detects pricing discrepancies between crypto prediction markets (Polymarket, Kalshi) and options markets (Deribit, Derive). Compares prediction market binary contract prices against options-implied probabilities derived via Black-76 pricing with call spread replication, generates trading signals when spreads exceed cost-adjusted thresholds, tracks settlement outcomes for signal validation, computes statistical evidence of signal quality, automatically discovers new cross-venue instrument matches with operator-approved proposals, dynamically manages feed subscriptions as instruments are approved or retired, and provides offline CLI analysis tools for statistically rigorous go/no-go decisions. Built as a single-binary service for a solo trader with 36,507 lines of Rust and full deterministic replay capability.
 
 ## Core Value
 
@@ -59,13 +59,15 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 - v1.4 `signal-scoring` CLI: hit rate with Wilson CIs, cost-adjusted edge t-test, Sharpe/PSR, max drawdown with recovery dates, --by-event and --output json support
 - v1.4 13 E2E golden-value integration tests proving computation correctness for both CLIs
 
+- v1.5 Derive.xyz WebSocket feed with snapshot-only book model, ticker_slim parsing, USDC pass-through normalization, and auto-reconnection supervisor
+- v1.5 Derive options-implied probability extraction via same Black-76/call spread pipeline as Deribit (venue-gated price conversion)
+- v1.5 4-venue live pipeline: Derive snapshots flow through run_live_multi_venue to SpreadEngine/SignalEngine/PaperTradeTracker without downstream changes
+- v1.5 Dynamic subscription support for Derive instruments via SubscriptionManager with HashSet diff, watch channels, and CleanupEvent population
+- v1.5 REST-based Derive BTC options discovery with cross-venue fuzzy matching and lifecycle integration (300s poll interval)
+
 ### Active
 
-- v1.5 Derive.xyz WebSocket feed with options order book maintenance and JSON-RPC subscription
-- v1.5 Derive options-implied probability extraction via same Black-76/call spread pipeline as Deribit
-- v1.5 Cross-venue spread/signal generation including Derive as third venue
-- v1.5 Dynamic subscription support for Derive instruments via SubscriptionManager
-- v1.5 Discovery and matching for Derive BTC options against Deribit and Polymarket instruments
+(None — planning next milestone)
 
 ### Out of Scope
 
@@ -88,27 +90,17 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ## Context
 
-**Shipped v1.4 Analysis Tooling** (2026-03-02) with 36,507 LOC Rust across 29 phases (5 milestones).
+**Shipped v1.5 Derive.xyz Venue Integration** (2026-03-06) with 39,176 LOC Rust across 33 phases (6 milestones).
 Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prometheus, statrs, comfy-table, tracing, strsim.
-3 venues operational: Deribit (WebSocket + REST settlement + discovery), Polymarket (CLOB WebSocket + Gamma API discovery), Kalshi (WebSocket + REST + discovery).
-Dynamic subscription: SubscriptionManager with per-venue reconciliation, watch channels to supervisors, Notify ordering, dry-run mode, and stale state cleanup across 5 engines.
-Automated event management: three-venue discovery with fuzzy matching, confidence-scored proposals, approved-mapping validation, expired event archival, and periodic background pipeline.
-Settlement tracking: 3 venue resolution checkers with 4-tier polling cadence, startup backfill, and auto-settlement.
+4 venues operational: Deribit (WebSocket + REST settlement + discovery), Polymarket (CLOB WebSocket + Gamma API discovery), Kalshi (WebSocket + REST + discovery), Derive (WebSocket + REST discovery).
+Dynamic subscription: SubscriptionManager with 4-venue reconciliation, watch channels to supervisors, Notify ordering, dry-run mode, and stale state cleanup across 5 engines.
+Automated event management: four-venue discovery with fuzzy matching, confidence-scored proposals, approved-mapping validation, expired event archival, and periodic background pipeline.
+Settlement tracking: 3 venue resolution checkers with 4-tier polling cadence, startup backfill, and auto-settlement (Derive settlement deferred to future).
 Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and `signal-scoring` CLI (hit rate, Sharpe, PSR, drawdown, edge t-test) with E2E golden-value tests.
 
-**Current milestone: v1.5 Derive.xyz Venue Integration**
+**System status:** Fully operational with 4-venue capability. System runs unattended for paper trading with self-managing event lifecycle, self-managing feed subscriptions, and offline analysis CLIs for soak test evaluation. Derive adds third options data source alongside Deribit for cross-venue options spread detection.
 
-**Goal:** Add Derive.xyz (formerly Lyra v2) as a fourth venue — a decentralized options exchange on Ethereum L2 with CLOB orderbook, WebSocket API, and deep BTC options liquidity. Replaces Kalshi (inaccessible from Poland) as active third data source for cross-venue arbitrage signals.
-
-**Target features:**
-- Derive WebSocket feed with BTC options order book data
-- Options-implied probability extraction through existing Black-76 pipeline
-- Three-way cross-venue spread/signal comparison (Deribit vs Derive vs Polymarket)
-- Dynamic subscription and discovery integration
-
-**System status:** Fully operational with analysis capability. System runs unattended for paper trading with self-managing event lifecycle, self-managing feed subscriptions, and offline analysis CLIs for soak test evaluation.
-
-**Next priority:** Complete Derive venue integration, then deploy to soak test instance alongside existing Deribit + Polymarket feeds.
+**Next priority:** Deploy to soak test instance with Derive feed active. Evaluate signal quality with 4 venues before deciding on v1.6 scope.
 
 **Known tech debt:** 10 non-blocking items from v1.0 + 2 low-severity from v1.2 + 3 non-critical from v1.3 audit. See MILESTONES.md for full list.
 
@@ -167,6 +159,14 @@ Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and 
 | PSR via Bailey & Lopez de Prado formula | Accounts for non-normal return distribution (skewness/kurtosis) | v1.4 Validated -- robust statistical inference |
 | statrs for t-distribution and normal CDF | Standard library for statistical distributions | v1.4 Validated -- correct p-values |
 | Generated JSONL fixtures (not hand-written) | Prevents schema drift between struct definitions and test data | v1.4 Validated -- reliable E2E tests |
+| Snapshot-only book model for Derive | No delta reconciliation needed; simpler than Deribit | v1.5 Validated -- clean feed implementation |
+| ticker_slim over deprecated ticker channel | Derive deprecated ticker; ticker_slim uses abbreviated keys | v1.5 Validated -- discovered via live API probe |
+| No k256/auth for v1.5 (public channels only) | Trading/private endpoints deferred to v2 execution | v1.5 Validated -- zero auth complexity |
+| USDC price pass-through (no inverse transform) | Derive quotes in USDC linear; Deribit BTC-inverse needs transform | v1.5 Validated -- venue-gated in PricingEngine |
+| POST for Derive REST discovery (not GET) | Derive API returns 405 on GET requests | v1.5 Validated -- confirmed at runtime |
+| Epoch expiry auto-detect (seconds vs millis) | Threshold at 10 billion handles both formats | v1.5 Validated -- robust parsing |
+| feed_reconnections_total as venue-generic metric | Benefits all 4 venues, not Derive-specific | v1.5 Validated -- clean observability |
+| Copy-and-adapt Deribit feed stack pattern | 7-step pipeline block identical across venues | v1.5 Validated -- consistent architecture |
 
 ---
-*Last updated: 2026-03-03 after starting v1.5 milestone*
+*Last updated: 2026-03-06 after v1.5 milestone*
