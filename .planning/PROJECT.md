@@ -67,7 +67,18 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ### Active
 
-(None — planning next milestone)
+## Current Milestone: v1.6 Production Deployment
+
+**Goal:** Deploy the system to production-hardened AWS infrastructure with CI/CD, monitoring, log aggregation, and infrastructure as code.
+
+**Target features:**
+- AWS CDK infrastructure (VPC, security groups, EC2, ECR, Secrets Manager, CloudWatch, Managed Grafana)
+- GitLab CI pipeline (build, test, Docker push to ECR, deploy to EC2)
+- Amazon Managed Grafana dashboards consuming Prometheus metrics
+- CloudWatch log aggregation from Docker containers
+- AWS Secrets Manager for API keys injected at runtime
+- Grafana alert rules for dashboard-only alerting
+- Production hardening (auto-restart, log rotation, health checks)
 
 ### Out of Scope
 
@@ -100,7 +111,7 @@ Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and 
 
 **System status:** Fully operational with 4-venue capability. System runs unattended for paper trading with self-managing event lifecycle, self-managing feed subscriptions, and offline analysis CLIs for soak test evaluation. Derive adds third options data source alongside Deribit for cross-venue options spread detection.
 
-**Next priority:** Deploy to soak test instance with Derive feed active. Evaluate signal quality with 4 venues before deciding on v1.6 scope.
+**Next priority:** Production-harden the deployment with IaC, CI/CD, monitoring dashboards, and centralized logging. Current deployment is manual (local build → ECR push → SSH deploy).
 
 **Known tech debt:** 10 non-blocking items from v1.0 + 2 low-severity from v1.2 + 3 non-critical from v1.3 audit. See MILESTONES.md for full list.
 
@@ -169,4 +180,4 @@ Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and 
 | Copy-and-adapt Deribit feed stack pattern | 7-step pipeline block identical across venues | v1.5 Validated -- consistent architecture |
 
 ---
-*Last updated: 2026-03-06 after v1.5 milestone*
+*Last updated: 2026-03-07 after v1.6 milestone start*

@@ -2,15 +2,17 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-06)
+See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Planning next milestone
+**Current focus:** v1.6 Production Deployment
 
 ## Current Position
 
-Status: v1.5 Derive.xyz Venue Integration shipped
-Last activity: 2026-03-06 -- Milestone v1.5 archived
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-07 — Milestone v1.6 started
 
 Progress (overall): 6 milestones shipped (v1.0-v1.5), 33 phases, 90 plans
 
@@ -49,6 +51,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-06
-Stopped at: v1.5 milestone archived
-Next action: /gsd:new-milestone to plan next milestone
+Last session: 2026-03-07
+Stopped at: Defining v1.6 requirements
+Next action: Complete requirements and roadmap for v1.6
