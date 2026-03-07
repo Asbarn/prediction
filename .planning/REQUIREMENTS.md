@@ -74,36 +74,36 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | TBD | Pending |
-| INFRA-02 | TBD | Pending |
-| INFRA-03 | TBD | Pending |
-| INFRA-04 | TBD | Pending |
-| INFRA-05 | TBD | Pending |
-| INFRA-06 | TBD | Pending |
-| INFRA-07 | TBD | Pending |
-| CICD-01 | TBD | Pending |
-| CICD-02 | TBD | Pending |
-| CICD-03 | TBD | Pending |
-| CICD-04 | TBD | Pending |
-| CICD-05 | TBD | Pending |
-| MON-01 | TBD | Pending |
-| MON-02 | TBD | Pending |
-| MON-03 | TBD | Pending |
-| MON-04 | TBD | Pending |
-| MON-05 | TBD | Pending |
-| MON-06 | TBD | Pending |
-| MON-07 | TBD | Pending |
-| MON-08 | TBD | Pending |
-| MON-09 | TBD | Pending |
-| HARD-01 | TBD | Pending |
-| HARD-02 | TBD | Pending |
-| HARD-03 | TBD | Pending |
+| INFRA-01 | Phase 34 | Pending |
+| INFRA-02 | Phase 34 | Pending |
+| INFRA-03 | Phase 35 | Pending |
+| INFRA-04 | Phase 34 | Pending |
+| INFRA-05 | Phase 34 | Pending |
+| INFRA-06 | Phase 34 | Pending |
+| INFRA-07 | Phase 34 | Pending |
+| CICD-01 | Phase 38 | Pending |
+| CICD-02 | Phase 38 | Pending |
+| CICD-03 | Phase 38 | Pending |
+| CICD-04 | Phase 38 | Pending |
+| CICD-05 | Phase 38 | Pending |
+| MON-01 | Phase 36 | Pending |
+| MON-02 | Phase 37 | Pending |
+| MON-03 | Phase 37 | Pending |
+| MON-04 | Phase 39 | Pending |
+| MON-05 | Phase 39 | Pending |
+| MON-06 | Phase 39 | Pending |
+| MON-07 | Phase 39 | Pending |
+| MON-08 | Phase 39 | Pending |
+| MON-09 | Phase 36 | Pending |
+| HARD-01 | Phase 35 | Pending |
+| HARD-02 | Phase 35 | Pending |
+| HARD-03 | Phase 35 | Pending |
 
 **Coverage:**
 - v1.6 requirements: 24 total
-- Mapped to phases: 0
-- Unmapped: 24
+- Mapped to phases: 24
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-07 after initial definition*
+*Last updated: 2026-03-07 after roadmap creation*
