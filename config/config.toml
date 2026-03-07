@@ -2,6 +2,7 @@
 log_dir = "logs"
 stdout_level = "info"
 file_level = "debug"
+stdout_json = false        # true in production for CloudWatch JSON ingestion
 
 [staleness]
 threshold_ms = 5000

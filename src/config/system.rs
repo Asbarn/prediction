@@ -118,6 +118,10 @@ pub struct LoggingConfig {
     pub stdout_level: String,
     /// Filter level for file output (e.g., "debug", "trace").
     pub file_level: String,
+    /// Whether stdout emits structured JSON (true) or human-readable format (false).
+    /// Default false for local development; set true in production for CloudWatch ingestion.
+    #[serde(default)]
+    pub stdout_json: bool,
 }
 
 /// Data staleness detection configuration.

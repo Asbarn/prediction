@@ -85,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
                 &config.system.logging.log_dir,
                 &config.system.logging.stdout_level,
                 &config.system.logging.file_level,
+                config.system.logging.stdout_json,
             )?;
 
             tracing::info!(

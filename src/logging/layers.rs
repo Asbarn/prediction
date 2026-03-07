@@ -1,11 +1,12 @@
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter, Registry};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter, Layer, Registry};
 
 /// Initialize the dual-output logging system with per-layer filtering.
 ///
 /// Creates two independent output layers:
-/// - **Stdout**: Human-readable format, filtered to `stdout_level` (e.g., "info").
-///   Shows signals, errors, and connection state changes to the operator.
+/// - **Stdout**: Filtered to `stdout_level` (e.g., "info"). Emits structured
+///   JSON when `stdout_json` is true (for CloudWatch ingestion via awslogs
+///   driver), or human-readable format when false (local development).
 /// - **File**: Structured JSON format, daily-rotating, filtered to `file_level`
 ///   (e.g., "debug"). Captures everything for post-hoc analysis.
 ///
@@ -28,6 +29,7 @@ pub fn init_logging(
     log_dir: &str,
     stdout_level: &str,
     file_level: &str,
+    stdout_json: bool,
 ) -> anyhow::Result<WorkerGuard> {
     // Create the log directory if it doesn't exist
     std::fs::create_dir_all(log_dir)?;
@@ -36,7 +38,9 @@ pub fn init_logging(
     let stdout_filter_str = format!("prediction={stdout_level}");
     let file_filter_str = format!("prediction={file_level}");
 
-    // Stdout layer: human-readable, per-layer filter
+    // Stdout layer: conditional JSON or human-readable, per-layer filter.
+    // Because `.json()` changes the concrete layer type, we must box both
+    // branches to unify them as `Box<dyn Layer<_> + Send + Sync>`.
     let stdout_filter = EnvFilter::try_new(&stdout_filter_str).map_err(|e| {
         anyhow::anyhow!(
             "invalid stdout filter '{}': {}",
@@ -44,10 +48,22 @@ pub fn init_logging(
             e
         )
     })?;
-    let stdout_layer = fmt::layer()
-        .with_target(true)
-        .with_level(true)
-        .with_filter(stdout_filter);
+    let stdout_layer: Box<dyn Layer<_> + Send + Sync> = if stdout_json {
+        Box::new(
+            fmt::layer()
+                .json()
+                .with_target(true)
+                .with_level(true)
+                .with_filter(stdout_filter),
+        )
+    } else {
+        Box::new(
+            fmt::layer()
+                .with_target(true)
+                .with_level(true)
+                .with_filter(stdout_filter),
+        )
+    };
 
     // File layer: structured JSON, daily rotation, per-layer filter
     let file_appender = tracing_appender::rolling::daily(log_dir, "prediction.log");
