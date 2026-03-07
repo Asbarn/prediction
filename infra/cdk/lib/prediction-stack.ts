@@ -5,7 +5,6 @@ import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as aps from 'aws-cdk-lib/aws-aps';
-import * as grafana from 'aws-cdk-lib/aws-grafana';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
@@ -33,6 +32,13 @@ export class PredictionStack extends cdk.Stack {
       description: 'Prediction EC2 instance security group',
       allowAllOutbound: true,
     });
+
+    // Grafana web UI access (self-hosted Grafana OSS on port 3000)
+    sg.addIngressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(3000),
+      'Grafana web UI access'
+    );
 
     // === ECR Import (INFRA-02) ===
     // Import existing repository by name -- do NOT create a new one.
@@ -68,35 +74,11 @@ export class PredictionStack extends cdk.Stack {
       alias: 'prediction-metrics',
     });
 
-    // === Grafana IAM Role (MON-03) ===
-    const grafanaRole = new iam.Role(this, 'GrafanaRole', {
-      assumedBy: new iam.ServicePrincipal('grafana.amazonaws.com'),
-      description: 'Amazon Managed Grafana workspace role',
-    });
-
-    grafanaRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'aps:QueryMetrics',
-        'aps:GetSeries',
-        'aps:GetLabels',
-        'aps:GetMetricMetadata',
-      ],
-      resources: [ampWorkspace.attrArn],
-    }));
-
-    // === Amazon Managed Grafana (MON-03) ===
-    // NOTE: AMG requires IAM Identity Center (SSO) to be enabled in the AWS account.
-    // Deploy fails with 403 "needs a subscription for the service" without it.
-    // Uncomment after enabling IAM Identity Center in the AWS console.
-    // const grafanaWorkspace = new grafana.CfnWorkspace(this, 'GrafanaWorkspace', {
-    //   accountAccessType: 'CURRENT_ACCOUNT',
-    //   authenticationProviders: ['AWS_SSO'],
-    //   permissionType: 'CUSTOMER_MANAGED',
-    //   name: 'prediction-dashboards',
-    //   dataSources: ['PROMETHEUS'],
-    //   roleArn: grafanaRole.roleArn,
-    // });
+    // === Grafana (MON-03) ===
+    // Self-hosted Grafana OSS container replaces Amazon Managed Grafana.
+    // AMG was deferred because it requires IAM Identity Center (SSO) subscription.
+    // Grafana OSS runs in docker-compose alongside prometheus, uses EC2 instance role
+    // for SigV4 auth to query AMP metrics.
 
     // === SSM Parameter for AMP Workspace ID ===
     const ssmParam = new ssm.StringParameter(this, 'AmpWorkspaceIdParam', {
@@ -138,6 +120,18 @@ export class PredictionStack extends cdk.Stack {
     // SSM Parameter read (for AMP workspace ID retrieval)
     ssmParam.grantRead(instanceRole);
 
+    // AMP query access (for self-hosted Grafana SigV4 auth via EC2 instance role)
+    instanceRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'aps:QueryMetrics',
+        'aps:GetSeries',
+        'aps:GetLabels',
+        'aps:GetMetricMetadata',
+      ],
+      resources: [ampWorkspace.attrArn],
+    }));
+
     // === Compute (INFRA-05) ===
     const instance = new ec2.Instance(this, 'Instance2', {
       vpc,
@@ -162,6 +156,16 @@ export class PredictionStack extends cdk.Stack {
           }),
         },
       ],
+    });
+
+    // IMDSv2 hop limit must be 2 for Docker containers to access instance metadata
+    // (default hop limit of 1 blocks containers from reaching the metadata endpoint).
+    // Required for Grafana SigV4 auth via EC2 instance role.
+    const cfnInstance = instance.node.defaultChild as ec2.CfnInstance;
+    cfnInstance.addPropertyOverride('MetadataOptions', {
+      HttpEndpoint: 'enabled',
+      HttpTokens: 'required',
+      HttpPutResponseHopLimit: 2,
     });
 
     // User-data: format and mount data volume (idempotent)
@@ -282,6 +286,26 @@ export class PredictionStack extends cdk.Stack {
       '      region: us-east-1',
       'PROMEOF',
       '',
+      '# === Write Grafana provisioning config ===',
+      'mkdir -p /opt/prediction/grafana/provisioning/datasources',
+      '',
+      'cat > /opt/prediction/grafana/provisioning/datasources/amp.yml <<GRAFEOF',
+      'apiVersion: 1',
+      '',
+      'datasources:',
+      '  - name: AMP',
+      '    type: prometheus',
+      '    access: proxy',
+      '    url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/${AMP_WORKSPACE_ID}/',
+      '    isDefault: true',
+      '    jsonData:',
+      '      httpMethod: POST',
+      '      sigV4Auth: true',
+      '      sigV4AuthType: default',
+      '      sigV4Region: us-east-1',
+      '    editable: true',
+      'GRAFEOF',
+      '',
       '# === Write docker-compose.yml ===',
       'cat > /opt/prediction/docker-compose.yml <<\'DCEOF\'',
       'services:',
@@ -326,6 +350,22 @@ export class PredictionStack extends cdk.Stack {
       '      prediction:',
       '        condition: service_healthy',
       '    restart: "no"',
+      '  grafana:',
+      '    image: grafana/grafana-oss:11.5.2',
+      '    ports:',
+      '      - "3000:3000"',
+      '    environment:',
+      '      - GF_SECURITY_ADMIN_PASSWORD=admin',
+      '      - GF_AUTH_SIGV4_AUTH_ENABLED=true',
+      '      - AWS_SDK_LOAD_CONFIG=true',
+      '    volumes:',
+      '      - /opt/prediction/grafana/provisioning:/etc/grafana/provisioning:ro',
+      '      - grafana-data:/var/lib/grafana',
+      '    depends_on:',
+      '      - prometheus',
+      '    restart: "no"',
+      'volumes:',
+      '  grafana-data:',
       'DCEOF',
       '',
       '# === Create systemd unit ===',
@@ -370,8 +410,6 @@ export class PredictionStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'VpcId', { value: vpc.vpcId });
     new cdk.CfnOutput(this, 'AmpWorkspaceId', { value: ampWorkspace.attrWorkspaceId });
     new cdk.CfnOutput(this, 'AmpPrometheusEndpoint', { value: ampWorkspace.attrPrometheusEndpoint });
-    // Grafana outputs commented out until IAM Identity Center is enabled:
-    // new cdk.CfnOutput(this, 'GrafanaEndpoint', { value: grafanaWorkspace.attrEndpoint });
-    // new cdk.CfnOutput(this, 'GrafanaWorkspaceId', { value: grafanaWorkspace.attrId });
+    // Grafana is self-hosted on EC2 port 3000 (no separate endpoint output needed)
   }
 }
