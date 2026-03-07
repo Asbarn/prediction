@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 34 of 39 (CDK Infrastructure Foundation)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-07 -- Roadmap created for v1.6 Production Deployment (6 phases, 24 requirements)
+Plan: 1 of 2 in current phase
+Status: Executing
+Last activity: 2026-03-07 -- Completed 34-01 (CDK project scaffold + PredictionStack)
 
-Progress (overall): 6 milestones shipped (v1.0-v1.5), 33 phases, 90 plans complete
-Progress (v1.6): [----------] 0%
+Progress (overall): 6 milestones shipped (v1.0-v1.5), 33 phases, 91 plans complete
+Progress (v1.6): [#---------] 10%
 
 ## Performance Metrics
 
@@ -41,7 +41,11 @@ Progress (v1.6): [----------] 0%
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-No v1.6 decisions yet -- first phase not started.
+
+- Phase 34-01: Single CDK stack with all resources (no multi-stack for single-developer project)
+- Phase 34-01: ECR imported by name not created (preserves existing image history)
+- Phase 34-01: No NAT gateway -- public subnet only saves $32/month
+- Phase 34-01: Grant helpers for IAM (correctly scoped including ecr:GetAuthorizationToken)
 
 ### Pending Todos
 
@@ -55,5 +59,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Roadmap created for v1.6
-Next action: Plan Phase 34 (CDK Infrastructure Foundation)
+Stopped at: Completed 34-01-PLAN.md (CDK project + PredictionStack)
+Next action: Execute 34-02-PLAN.md

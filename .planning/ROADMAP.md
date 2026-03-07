@@ -108,7 +108,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   3. IAM instance profile grants least-privilege access (ECR pull, CloudWatch Logs, Secrets Manager read, AMP remote write) and nothing else
   4. Separate EBS data volume is provisioned with RemovalPolicy.RETAIN so persistent data survives instance replacement
   5. Running `cdk destroy` and `cdk deploy` again produces identical infrastructure (idempotent)
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 34-01-PLAN.md -- Initialize CDK project and implement PredictionStack with all resources
 - [ ] 34-02-PLAN.md -- Validate synthesized template and deploy to AWS
@@ -182,7 +182,7 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
 | 26-29 | v1.4 Analysis Tooling | 7/7 | Complete | 2026-03-02 |
 | 30-33 | v1.5 Derive Integration | 10/10 | Complete | 2026-03-06 |
-| 34. CDK Infrastructure Foundation | v1.6 | 0/2 | In progress | - |
+| 34. CDK Infrastructure Foundation | 1/2 | In Progress|  | - |
 | 35. Compute, Secrets, Hardening | v1.6 | 0/TBD | Not started | - |
 | 36. CloudWatch Logging | v1.6 | 0/TBD | Not started | - |
 | 37. Prometheus + AMP + Grafana | v1.6 | 0/TBD | Not started | - |

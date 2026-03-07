@@ -9,13 +9,13 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: CDK stack provisions VPC, security groups, EC2 instance, and IAM instance profile in a single `cdk deploy`
-- [ ] **INFRA-02**: CDK imports existing ECR repository rather than creating a duplicate
+- [x] **INFRA-01**: CDK stack provisions VPC, security groups, EC2 instance, and IAM instance profile in a single `cdk deploy`
+- [x] **INFRA-02**: CDK imports existing ECR repository rather than creating a duplicate
 - [ ] **INFRA-03**: EC2 user-data installs Docker, CloudWatch agent, and configures systemd service for docker-compose auto-start
-- [ ] **INFRA-04**: IAM instance profile grants least-privilege access to ECR pull, CloudWatch Logs, Secrets Manager read, and AMP remote write
-- [ ] **INFRA-05**: Separate EBS volume for persistent data (state, logs, config) survives instance replacement
-- [ ] **INFRA-06**: CDK provisions CloudWatch log group with 14-day retention policy
-- [ ] **INFRA-07**: CDK provisions Secrets Manager secrets for venue API credentials
+- [x] **INFRA-04**: IAM instance profile grants least-privilege access to ECR pull, CloudWatch Logs, Secrets Manager read, and AMP remote write
+- [x] **INFRA-05**: Separate EBS volume for persistent data (state, logs, config) survives instance replacement
+- [x] **INFRA-06**: CDK provisions CloudWatch log group with 14-day retention policy
+- [x] **INFRA-07**: CDK provisions Secrets Manager secrets for venue API credentials
 
 ### CI/CD
 
@@ -74,13 +74,13 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 34 | Pending |
-| INFRA-02 | Phase 34 | Pending |
+| INFRA-01 | Phase 34 | Complete |
+| INFRA-02 | Phase 34 | Complete |
 | INFRA-03 | Phase 35 | Pending |
-| INFRA-04 | Phase 34 | Pending |
-| INFRA-05 | Phase 34 | Pending |
-| INFRA-06 | Phase 34 | Pending |
-| INFRA-07 | Phase 34 | Pending |
+| INFRA-04 | Phase 34 | Complete |
+| INFRA-05 | Phase 34 | Complete |
+| INFRA-06 | Phase 34 | Complete |
+| INFRA-07 | Phase 34 | Complete |
 | CICD-01 | Phase 38 | Pending |
 | CICD-02 | Phase 38 | Pending |
 | CICD-03 | Phase 38 | Pending |
