@@ -402,6 +402,55 @@ export class PredictionStack extends cdk.Stack {
       'systemctl start prediction',
     );
 
+    // === CI/CD Deploy User (CICD-01) ===
+    // IAM user for GitLab CI/CD pipeline -- access keys created manually in IAM console.
+    // Do NOT create access keys in CDK (they'd appear in CloudFormation outputs in plaintext).
+    const ciDeployUser = new iam.User(this, 'CiDeployUser', {
+      userName: 'prediction-ci-deploy',
+    });
+
+    // ECR push permissions (scoped to prediction repo)
+    ciDeployUser.addToPolicy(new iam.PolicyStatement({
+      sid: 'ECRAuth',
+      effect: iam.Effect.ALLOW,
+      actions: ['ecr:GetAuthorizationToken'],
+      resources: ['*'], // Required by AWS -- GetAuthorizationToken does not support resource scoping
+    }));
+
+    ciDeployUser.addToPolicy(new iam.PolicyStatement({
+      sid: 'ECRPush',
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ecr:BatchCheckLayerAvailability',
+        'ecr:InitiateLayerUpload',
+        'ecr:UploadLayerPart',
+        'ecr:CompleteLayerUpload',
+        'ecr:PutImage',
+      ],
+      resources: [ecrRepo.repositoryArn],
+    }));
+
+    // SSM deploy permissions (send commands to EC2 instance)
+    ciDeployUser.addToPolicy(new iam.PolicyStatement({
+      sid: 'SSMSendCommand',
+      effect: iam.Effect.ALLOW,
+      actions: ['ssm:SendCommand'],
+      resources: [
+        `arn:aws:ec2:${this.region}:${this.account}:instance/${instance.instanceId}`,
+        `arn:aws:ssm:${this.region}::document/AWS-RunShellScript`,
+      ],
+    }));
+
+    ciDeployUser.addToPolicy(new iam.PolicyStatement({
+      sid: 'SSMCommandStatus',
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'ssm:GetCommandInvocation',
+        'ssm:ListCommandInvocations',
+      ],
+      resources: ['*'],
+    }));
+
     // === Outputs ===
     new cdk.CfnOutput(this, 'InstanceId', { value: instance.instanceId });
     new cdk.CfnOutput(this, 'EcrRepoUri', { value: ecrRepo.repositoryUri });
@@ -410,6 +459,10 @@ export class PredictionStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'VpcId', { value: vpc.vpcId });
     new cdk.CfnOutput(this, 'AmpWorkspaceId', { value: ampWorkspace.attrWorkspaceId });
     new cdk.CfnOutput(this, 'AmpPrometheusEndpoint', { value: ampWorkspace.attrPrometheusEndpoint });
+    new cdk.CfnOutput(this, 'CiDeployUserName', {
+      value: ciDeployUser.userName,
+      description: 'IAM user for GitLab CI/CD pipeline -- create access keys in IAM console',
+    });
     // Grafana is self-hosted on EC2 port 3000 (no separate endpoint output needed)
   }
 }
