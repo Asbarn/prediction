@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.6 Production Deployment -- Phase 35 (Compute, Secrets, and Hardening)
+**Current focus:** v1.6 Production Deployment -- Phase 36 (CloudWatch Logging)
 
 ## Current Position
 
-Phase: 35 of 39 (Compute, Secrets, and Hardening)
-Plan: 2 of 2 in current phase (COMPLETE)
-Status: Phase 35 complete -- all plans executed
-Last activity: 2026-03-07 -- Completed 35-02 (deploy and verify full bootstrap chain)
+Phase: 36 of 39 (CloudWatch Logging)
+Plan: 1 of 2 in current phase (36-01 complete)
+Status: Executing Phase 36 -- plan 01 complete
+Last activity: 2026-03-07 -- Completed 36-01 (conditional JSON stdout layer and CloudWatch config)
 
-Progress (overall): 6 milestones shipped (v1.0-v1.5), 35 phases, 95 plans complete
-Progress (v1.6): [####------] 40%
+Progress (overall): 6 milestones shipped (v1.0-v1.5), 35 phases, 96 plans complete
+Progress (v1.6): [#####-----] 50%
 
 ## Performance Metrics
 
@@ -53,6 +53,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Phase 35-01: ECR login in fetch-secrets.sh for token refresh on every start
 - Phase 35-02: Changed CDK Instance logical ID to force EC2 replacement after terminated instance drift
 - Phase 35-02: Verified SIGTERM graceful shutdown produces exit code 0 (HARD-03 confirmed)
+- Phase 36-01: Boxed Layer trait objects for conditional JSON/human-readable stdout output
+- Phase 36-01: stdout_json defaults false via serde(default) for backward compatibility
 
 ### Pending Todos
 
@@ -66,5 +68,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 35-02-PLAN.md (deploy and verify full bootstrap chain)
-Next action: Begin Phase 36 planning
+Stopped at: Completed 36-01-PLAN.md (conditional JSON stdout layer and CloudWatch config)
+Next action: Execute 36-02-PLAN.md
