@@ -135,7 +135,10 @@ Plans:
   1. Structured JSON log lines from the prediction container appear in the CloudWatch log group within seconds of emission
   2. CloudWatch Logs Insights queries can filter by structured fields (level, target, correlation_id) across container logs
   3. EC2 host metrics (CPU utilization, memory usage, disk usage) appear in CloudWatch Metrics via the CloudWatch agent
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 36-01-PLAN.md -- Add conditional JSON stdout layer, awslogs driver config, and CloudWatch Agent IAM policy
+- [ ] 36-02-PLAN.md -- Deploy CDK changes, rebuild image, and verify CloudWatch logs and metrics
 
 ### Phase 37: Prometheus + AMP + Managed Grafana
 **Goal**: All 80+ Prometheus metrics flow from the application through a sidecar to Amazon Managed Prometheus with Grafana connected as visualization layer
@@ -187,7 +190,7 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 30-33 | v1.5 Derive Integration | 10/10 | Complete | 2026-03-06 |
 | 34. CDK Infrastructure Foundation | v1.6 | Complete    | 2026-03-07 | 2026-03-07 |
 | 35. Compute, Secrets, Hardening | 2/2 | Complete    | 2026-03-07 | - |
-| 36. CloudWatch Logging | v1.6 | 0/TBD | Not started | - |
+| 36. CloudWatch Logging | v1.6 | 0/2 | Not started | - |
 | 37. Prometheus + AMP + Grafana | v1.6 | 0/TBD | Not started | - |
 | 38. GitLab CI/CD Pipeline | v1.6 | 0/TBD | Not started | - |
 | 39. Grafana Dashboards + Alerts | v1.6 | 0/TBD | Not started | - |
