@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 35 of 39 (Compute, Secrets, and Hardening)
-Plan: 1 of 2 in current phase
-Status: Phase 35 in progress, Plan 01 complete
-Last activity: 2026-03-07 -- Completed 35-01 (EC2 bootstrap, secrets, docker-compose)
+Plan: 2 of 2 in current phase (COMPLETE)
+Status: Phase 35 complete -- all plans executed
+Last activity: 2026-03-07 -- Completed 35-02 (deploy and verify full bootstrap chain)
 
-Progress (overall): 6 milestones shipped (v1.0-v1.5), 34 phases, 93 plans complete
-Progress (v1.6): [###-------] 30%
+Progress (overall): 6 milestones shipped (v1.0-v1.5), 35 phases, 95 plans complete
+Progress (v1.6): [####------] 40%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 92
-- Total phases completed: 34
+- Total plans completed: 95
+- Total phases completed: 35
 - Total execution time: ~12 days across 6 milestones
 
 **By Milestone:**
@@ -51,6 +51,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Phase 35-01: Secrets injected via .env from Secrets Manager, not mounted volume
 - Phase 35-01: systemd manages restart (Restart=on-failure), docker restart="no"
 - Phase 35-01: ECR login in fetch-secrets.sh for token refresh on every start
+- Phase 35-02: Changed CDK Instance logical ID to force EC2 replacement after terminated instance drift
+- Phase 35-02: Verified SIGTERM graceful shutdown produces exit code 0 (HARD-03 confirmed)
 
 ### Pending Todos
 
@@ -58,11 +60,11 @@ None.
 
 ### Blockers/Concerns
 
-- HARD-03 (SIGTERM handler): Research notes existing `tokio::signal::ctrl_c()` may not catch SIGTERM on Unix. Verify during Phase 35 planning whether `signal::unix::signal(SignalKind::terminate())` is needed.
+- HARD-03 (SIGTERM handler): RESOLVED -- Verified exit code 0 on SIGTERM, all subsystems flush cleanly.
 - CDK clean slate: RESOLVED -- Manual infrastructure torn down and CDK deployed successfully.
 
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 35-01-PLAN.md (EC2 bootstrap, secrets, docker-compose)
-Next action: Execute 35-02-PLAN.md (SIGTERM handler and remaining hardening)
+Stopped at: Completed 35-02-PLAN.md (deploy and verify full bootstrap chain)
+Next action: Begin Phase 36 planning

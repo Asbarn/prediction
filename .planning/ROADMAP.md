@@ -90,7 +90,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 **Milestone Goal:** Deploy the system to production-hardened AWS infrastructure with CI/CD, monitoring, log aggregation, and infrastructure as code. Replace manual build-push-SSH workflow with automated pipeline and enable remote observability without SSH access.
 
 - [x] **Phase 34: CDK Infrastructure Foundation** - VPC, security groups, IAM, EBS, log groups, secrets, and ECR import via CDK -- completed 2026-03-07
-- [ ] **Phase 35: Compute, Secrets, and Hardening** - EC2 instance, user-data bootstrap, secrets injection, systemd service, and SIGTERM graceful shutdown
+- [x] **Phase 35: Compute, Secrets, and Hardening** - EC2 instance, user-data bootstrap, secrets injection, systemd service, and SIGTERM graceful shutdown (completed 2026-03-07)
 - [ ] **Phase 36: CloudWatch Logging** - Docker awslogs driver and EC2 host metrics for remote log access
 - [ ] **Phase 37: Prometheus + AMP + Managed Grafana** - Metrics pipeline from app through Prometheus sidecar to AMP with Grafana workspace
 - [ ] **Phase 38: GitLab CI/CD Pipeline** - Automated test, build, push, and deploy with cargo-chef caching
@@ -122,7 +122,7 @@ Plans:
   2. `fetch-secrets.sh` retrieves venue API credentials from Secrets Manager and exports them as environment variables before container start
   3. Sending SIGTERM to the container flushes checkpoints, closes WebSocket connections, and exits with code 0 (not killed by SIGKILL after timeout)
   4. After EC2 reboot, the systemd service automatically starts docker-compose and the application resumes operation without manual intervention
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 35-01-PLAN.md -- CDK user-data bootstrap, secrets template fix, and production docker-compose
 - [ ] 35-02-PLAN.md -- Deploy to AWS and verify full bootstrap chain with graceful shutdown
@@ -186,7 +186,7 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 26-29 | v1.4 Analysis Tooling | 7/7 | Complete | 2026-03-02 |
 | 30-33 | v1.5 Derive Integration | 10/10 | Complete | 2026-03-06 |
 | 34. CDK Infrastructure Foundation | v1.6 | Complete    | 2026-03-07 | 2026-03-07 |
-| 35. Compute, Secrets, Hardening | 1/2 | In Progress|  | - |
+| 35. Compute, Secrets, Hardening | 2/2 | Complete   | 2026-03-07 | - |
 | 36. CloudWatch Logging | v1.6 | 0/TBD | Not started | - |
 | 37. Prometheus + AMP + Grafana | v1.6 | 0/TBD | Not started | - |
 | 38. GitLab CI/CD Pipeline | v1.6 | 0/TBD | Not started | - |
