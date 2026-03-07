@@ -28,8 +28,8 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 ### Monitoring
 
 - [x] **MON-01**: Docker Compose uses awslogs driver to ship structured JSON logs to CloudWatch
-- [ ] **MON-02**: Prometheus sidecar scrapes :9001/metrics and remote_writes to Amazon Managed Prometheus with SigV4 auth
-- [ ] **MON-03**: Amazon Managed Grafana workspace connects to AMP as data source
+- [x] **MON-02**: Prometheus sidecar scrapes :9001/metrics and remote_writes to Amazon Managed Prometheus with SigV4 auth
+- [x] **MON-03**: Amazon Managed Grafana workspace connects to AMP as data source
 - [ ] **MON-04**: Grafana dashboard: Feed Health (feed_available per venue, reconnection rate, message latency)
 - [ ] **MON-05**: Grafana dashboard: Signal Quality (arb_signals_emitted, net_edge_bps, confidence, staleness rejections)
 - [ ] **MON-06**: Grafana dashboard: Paper Trade P&L (daily_pnl, win_rate, net_pnl, settlement latency)
@@ -87,8 +87,8 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 | CICD-04 | Phase 38 | Pending |
 | CICD-05 | Phase 38 | Pending |
 | MON-01 | Phase 36 | Complete |
-| MON-02 | Phase 37 | Pending |
-| MON-03 | Phase 37 | Pending |
+| MON-02 | Phase 37 | Complete |
+| MON-03 | Phase 37 | Complete |
 | MON-04 | Phase 39 | Pending |
 | MON-05 | Phase 39 | Pending |
 | MON-06 | Phase 39 | Pending |

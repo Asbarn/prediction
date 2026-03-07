@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.6 Production Deployment -- Phase 36 (CloudWatch Logging)
+**Current focus:** v1.6 Production Deployment -- Phase 37 (Prometheus + AMP + Managed Grafana)
 
 ## Current Position
 
-Phase: 36 of 39 (CloudWatch Logging)
-Plan: 1 of 2 in current phase (36-01 complete)
-Status: Executing Phase 36 -- plan 01 complete
-Last activity: 2026-03-07 -- Completed 36-01 (conditional JSON stdout layer and CloudWatch config)
+Phase: 37 of 39 (Prometheus + AMP + Managed Grafana)
+Plan: 1 of 2 in current phase (37-01 complete)
+Status: Executing Phase 37 -- plan 01 complete
+Last activity: 2026-03-07 -- Completed 37-01 (AMP workspace + Grafana role + SSM parameter)
 
-Progress (overall): 6 milestones shipped (v1.0-v1.5), 35 phases, 96 plans complete
-Progress (v1.6): [#####-----] 50%
+Progress (overall): 6 milestones shipped (v1.0-v1.5), 37 phases, 97 plans complete
+Progress (v1.6): [######----] 60%
 
 ## Performance Metrics
 
@@ -55,6 +55,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Phase 35-02: Verified SIGTERM graceful shutdown produces exit code 0 (HARD-03 confirmed)
 - Phase 36-01: Boxed Layer trait objects for conditional JSON/human-readable stdout output
 - Phase 36-01: stdout_json defaults false via serde(default) for backward compatibility
+- Phase 37-01: AMG workspace deferred -- requires IAM Identity Center (SSO) subscription
+- Phase 37-01: AMP workspace ID stored in SSM Parameter Store for EC2 retrieval
+- Phase 37-01: Grafana role deployed with scoped APS query permissions even with AMG deferred
 
 ### Pending Todos
 
@@ -68,5 +71,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 36-01-PLAN.md (conditional JSON stdout layer and CloudWatch config)
-Next action: Execute 36-02-PLAN.md
+Stopped at: Completed 37-01-PLAN.md (AMP workspace + Grafana role + SSM parameter)
+Next action: Execute 37-02-PLAN.md (Prometheus sidecar)

@@ -148,7 +148,7 @@ Plans:
   1. Prometheus sidecar container scrapes the application's :9001/metrics endpoint and remote_writes to AMP with SigV4 authentication
   2. Amazon Managed Grafana workspace connects to AMP as a data source and can query all application metrics (feed_available, arb_signals_emitted, etc.)
   3. Metrics persist in AMP beyond EC2 instance lifecycle -- redeploying the instance does not lose historical metrics
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 37-01-PLAN.md -- Add AMP workspace, AMG workspace, Grafana IAM role, and SSM parameter to CDK stack and deploy
 - [ ] 37-02-PLAN.md -- Add Prometheus sidecar to docker-compose, deploy to EC2, verify metrics flow, connect Grafana
@@ -194,6 +194,6 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 34. CDK Infrastructure Foundation | v1.6 | Complete    | 2026-03-07 | 2026-03-07 |
 | 35. Compute, Secrets, Hardening | 2/2 | Complete    | 2026-03-07 | - |
 | 36. CloudWatch Logging | 1/2 | In Progress|  | - |
-| 37. Prometheus + AMP + Grafana | v1.6 | 0/2 | Not started | - |
+| 37. Prometheus + AMP + Grafana | 1/2 | In Progress|  | - |
 | 38. GitLab CI/CD Pipeline | v1.6 | 0/TBD | Not started | - |
 | 39. Grafana Dashboards + Alerts | v1.6 | 0/TBD | Not started | - |
