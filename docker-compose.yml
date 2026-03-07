@@ -1,19 +1,18 @@
 services:
   prediction:
     image: 606103597377.dkr.ecr.us-east-1.amazonaws.com/prediction:latest
+    env_file: .env
+    stop_grace_period: 30s
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - ./config:/app/config
-      - ./secrets:/app/secrets:ro
-      - ./spread_logs:/app/spread_logs
-      - ./settlement_logs:/app/settlement_logs
-      - ./paper_trades:/app/paper_trades
-      - ./state:/app/state
-      - ./logs:/app/logs
-    # Kalshi disabled — geo-blocked from Poland account
-    environment: []
+      - /opt/prediction/data/config:/app/config
+      - /opt/prediction/data/spread_logs:/app/spread_logs
+      - /opt/prediction/data/settlement_logs:/app/settlement_logs
+      - /opt/prediction/data/paper_trades:/app/paper_trades
+      - /opt/prediction/data/state:/app/state
+      - /opt/prediction/data/logs:/app/logs
     logging:
       driver: json-file
       options:
@@ -25,5 +24,4 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
-    restart: unless-stopped
-
+    restart: "no"
