@@ -9,3 +9,5 @@ secrets/
 .idea/
 *.iml
 .kalshi.demo.env
+infra/cdk/node_modules/
+infra/cdk/cdk.out/
