@@ -86,14 +86,17 @@ export class PredictionStack extends cdk.Stack {
     }));
 
     // === Amazon Managed Grafana (MON-03) ===
-    const grafanaWorkspace = new grafana.CfnWorkspace(this, 'GrafanaWorkspace', {
-      accountAccessType: 'CURRENT_ACCOUNT',
-      authenticationProviders: ['AWS_SSO'],
-      permissionType: 'CUSTOMER_MANAGED',
-      name: 'prediction-dashboards',
-      dataSources: ['PROMETHEUS'],
-      roleArn: grafanaRole.roleArn,
-    });
+    // NOTE: AMG requires IAM Identity Center (SSO) to be enabled in the AWS account.
+    // Deploy fails with 403 "needs a subscription for the service" without it.
+    // Uncomment after enabling IAM Identity Center in the AWS console.
+    // const grafanaWorkspace = new grafana.CfnWorkspace(this, 'GrafanaWorkspace', {
+    //   accountAccessType: 'CURRENT_ACCOUNT',
+    //   authenticationProviders: ['AWS_SSO'],
+    //   permissionType: 'CUSTOMER_MANAGED',
+    //   name: 'prediction-dashboards',
+    //   dataSources: ['PROMETHEUS'],
+    //   roleArn: grafanaRole.roleArn,
+    // });
 
     // === SSM Parameter for AMP Workspace ID ===
     const ssmParam = new ssm.StringParameter(this, 'AmpWorkspaceIdParam', {
@@ -322,7 +325,8 @@ export class PredictionStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'VpcId', { value: vpc.vpcId });
     new cdk.CfnOutput(this, 'AmpWorkspaceId', { value: ampWorkspace.attrWorkspaceId });
     new cdk.CfnOutput(this, 'AmpPrometheusEndpoint', { value: ampWorkspace.attrPrometheusEndpoint });
-    new cdk.CfnOutput(this, 'GrafanaEndpoint', { value: grafanaWorkspace.attrEndpoint });
-    new cdk.CfnOutput(this, 'GrafanaWorkspaceId', { value: grafanaWorkspace.attrId });
+    // Grafana outputs commented out until IAM Identity Center is enabled:
+    // new cdk.CfnOutput(this, 'GrafanaEndpoint', { value: grafanaWorkspace.attrEndpoint });
+    // new cdk.CfnOutput(this, 'GrafanaWorkspaceId', { value: grafanaWorkspace.attrId });
   }
 }
