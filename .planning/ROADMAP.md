@@ -89,7 +89,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 **Milestone Goal:** Deploy the system to production-hardened AWS infrastructure with CI/CD, monitoring, log aggregation, and infrastructure as code. Replace manual build-push-SSH workflow with automated pipeline and enable remote observability without SSH access.
 
-- [ ] **Phase 34: CDK Infrastructure Foundation** - VPC, security groups, IAM, EBS, log groups, secrets, and ECR import via CDK
+- [x] **Phase 34: CDK Infrastructure Foundation** - VPC, security groups, IAM, EBS, log groups, secrets, and ECR import via CDK -- completed 2026-03-07
 - [ ] **Phase 35: Compute, Secrets, and Hardening** - EC2 instance, user-data bootstrap, secrets injection, systemd service, and SIGTERM graceful shutdown
 - [ ] **Phase 36: CloudWatch Logging** - Docker awslogs driver and EC2 host metrics for remote log access
 - [ ] **Phase 37: Prometheus + AMP + Managed Grafana** - Metrics pipeline from app through Prometheus sidecar to AMP with Grafana workspace
@@ -108,10 +108,10 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   3. IAM instance profile grants least-privilege access (ECR pull, CloudWatch Logs, Secrets Manager read, AMP remote write) and nothing else
   4. Separate EBS data volume is provisioned with RemovalPolicy.RETAIN so persistent data survives instance replacement
   5. Running `cdk destroy` and `cdk deploy` again produces identical infrastructure (idempotent)
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 Plans:
-- [ ] 34-01-PLAN.md -- Initialize CDK project and implement PredictionStack with all resources
-- [ ] 34-02-PLAN.md -- Validate synthesized template and deploy to AWS
+- [x] 34-01-PLAN.md -- Initialize CDK project and implement PredictionStack with all resources
+- [x] 34-02-PLAN.md -- Validate synthesized template and deploy to AWS
 
 ### Phase 35: Compute, Secrets, and Hardening
 **Goal**: Application runs on CDK-managed EC2 with secrets injected from Secrets Manager, auto-restarts on failure, and shuts down gracefully on SIGTERM
@@ -182,7 +182,7 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 22-25 | v1.3 Subscription Mgmt | 7/7 | Complete | 2026-02-28 |
 | 26-29 | v1.4 Analysis Tooling | 7/7 | Complete | 2026-03-02 |
 | 30-33 | v1.5 Derive Integration | 10/10 | Complete | 2026-03-06 |
-| 34. CDK Infrastructure Foundation | 1/2 | In Progress|  | - |
+| 34. CDK Infrastructure Foundation | v1.6 | 2/2 | Complete | 2026-03-07 |
 | 35. Compute, Secrets, Hardening | v1.6 | 0/TBD | Not started | - |
 | 36. CloudWatch Logging | v1.6 | 0/TBD | Not started | - |
 | 37. Prometheus + AMP + Grafana | v1.6 | 0/TBD | Not started | - |
