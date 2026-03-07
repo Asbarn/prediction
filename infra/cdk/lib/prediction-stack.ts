@@ -86,7 +86,7 @@ export class PredictionStack extends cdk.Stack {
     logGroup.grantWrite(instanceRole);
 
     // === Compute (INFRA-05) ===
-    const instance = new ec2.Instance(this, 'Instance', {
+    const instance = new ec2.Instance(this, 'Instance2', {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.SMALL),
