@@ -11,7 +11,7 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 
 - [x] **INFRA-01**: CDK stack provisions VPC, security groups, EC2 instance, and IAM instance profile in a single `cdk deploy`
 - [x] **INFRA-02**: CDK imports existing ECR repository rather than creating a duplicate
-- [ ] **INFRA-03**: EC2 user-data installs Docker, CloudWatch agent, and configures systemd service for docker-compose auto-start
+- [x] **INFRA-03**: EC2 user-data installs Docker, CloudWatch agent, and configures systemd service for docker-compose auto-start
 - [x] **INFRA-04**: IAM instance profile grants least-privilege access to ECR pull, CloudWatch Logs, Secrets Manager read, and AMP remote write
 - [x] **INFRA-05**: Separate EBS volume for persistent data (state, logs, config) survives instance replacement
 - [x] **INFRA-06**: CDK provisions CloudWatch log group with 14-day retention policy
@@ -39,9 +39,9 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 
 ### Hardening
 
-- [ ] **HARD-01**: fetch-secrets.sh script retrieves credentials from Secrets Manager and exports as environment variables before container start
-- [ ] **HARD-02**: Systemd unit runs docker-compose, auto-starts on boot, restarts on failure
-- [ ] **HARD-03**: Container handles SIGTERM gracefully (flush checkpoints, close WebSocket connections, exit cleanly)
+- [x] **HARD-01**: fetch-secrets.sh script retrieves credentials from Secrets Manager and exports as environment variables before container start
+- [x] **HARD-02**: Systemd unit runs docker-compose, auto-starts on boot, restarts on failure
+- [x] **HARD-03**: Container handles SIGTERM gracefully (flush checkpoints, close WebSocket connections, exit cleanly)
 
 ## Future Requirements
 
@@ -76,7 +76,7 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 |-------------|-------|--------|
 | INFRA-01 | Phase 34 | Complete |
 | INFRA-02 | Phase 34 | Complete |
-| INFRA-03 | Phase 35 | Pending |
+| INFRA-03 | Phase 35 | Complete |
 | INFRA-04 | Phase 34 | Complete |
 | INFRA-05 | Phase 34 | Complete |
 | INFRA-06 | Phase 34 | Complete |
@@ -95,9 +95,9 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 | MON-07 | Phase 39 | Pending |
 | MON-08 | Phase 39 | Pending |
 | MON-09 | Phase 36 | Pending |
-| HARD-01 | Phase 35 | Pending |
-| HARD-02 | Phase 35 | Pending |
-| HARD-03 | Phase 35 | Pending |
+| HARD-01 | Phase 35 | Complete |
+| HARD-02 | Phase 35 | Complete |
+| HARD-03 | Phase 35 | Complete |
 
 **Coverage:**
 - v1.6 requirements: 24 total
