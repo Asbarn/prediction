@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 
 ## Current Position
 
-Phase: 37 of 39 (Prometheus + AMP + Managed Grafana)
-Plan: 1 of 2 in current phase (37-01 complete)
-Status: Executing Phase 37 -- plan 01 complete
-Last activity: 2026-03-07 -- Completed 37-01 (AMP workspace + Grafana role + SSM parameter)
+Phase: 37 of 39 (Prometheus + AMP + Managed Grafana) -- COMPLETE
+Plan: 2 of 2 in current phase (37-02 complete)
+Status: Phase 37 complete -- all plans executed
+Last activity: 2026-03-08 -- Completed 37-02 (Prometheus sidecar + self-hosted Grafana)
 
-Progress (overall): 6 milestones shipped (v1.0-v1.5), 37 phases, 97 plans complete
-Progress (v1.6): [######----] 60%
+Progress (overall): 6 milestones shipped (v1.0-v1.5), 37 phases, 99 plans complete
+Progress (v1.6): [########--] 80%
 
 ## Performance Metrics
 
@@ -59,6 +59,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Phase 37-01: AMG workspace deferred -- requires IAM Identity Center (SSO) subscription
 - Phase 37-01: AMP workspace ID stored in SSM Parameter Store for EC2 retrieval
 - Phase 37-01: Grafana role deployed with scoped APS query permissions even with AMG deferred
+- Phase 37-02: Self-hosted Grafana OSS replaces AMG (avoids IAM Identity Center requirement)
+- Phase 37-02: SigV4AuthType=default for EC2 instance role credential chain
+- Phase 37-02: IMDSv2 hop limit=2 for Docker container metadata access
 - [Phase 36]: Replaced awslogs-stream-prefix with tag option (ECS-only limitation)
 
 ### Pending Todos
@@ -72,6 +75,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-07
-Stopped at: Completed 37-01-PLAN.md (AMP workspace + Grafana role + SSM parameter)
-Next action: Execute 37-02-PLAN.md (Prometheus sidecar)
+Last session: 2026-03-08
+Stopped at: Completed 37-02-PLAN.md (Prometheus sidecar + self-hosted Grafana)
+Next action: Execute Phase 38

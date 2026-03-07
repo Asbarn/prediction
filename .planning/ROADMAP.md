@@ -92,7 +92,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - [x] **Phase 34: CDK Infrastructure Foundation** - VPC, security groups, IAM, EBS, log groups, secrets, and ECR import via CDK -- completed 2026-03-07
 - [x] **Phase 35: Compute, Secrets, and Hardening** - EC2 instance, user-data bootstrap, secrets injection, systemd service, and SIGTERM graceful shutdown (completed 2026-03-07)
 - [x] **Phase 36: CloudWatch Logging** - Docker awslogs driver and EC2 host metrics for remote log access (completed 2026-03-07)
-- [ ] **Phase 37: Prometheus + AMP + Managed Grafana** - Metrics pipeline from app through Prometheus sidecar to AMP with Grafana workspace
+- [x] **Phase 37: Prometheus + AMP + Managed Grafana** - Metrics pipeline from app through Prometheus sidecar to AMP with Grafana workspace (completed 2026-03-07)
 - [ ] **Phase 38: GitLab CI/CD Pipeline** - Automated test, build, push, and deploy with cargo-chef caching
 - [ ] **Phase 39: Grafana Dashboards and Alert Rules** - Five operational dashboards and critical alert rules
 
@@ -148,7 +148,7 @@ Plans:
   1. Prometheus sidecar container scrapes the application's :9001/metrics endpoint and remote_writes to AMP with SigV4 authentication
   2. Amazon Managed Grafana workspace connects to AMP as a data source and can query all application metrics (feed_available, arb_signals_emitted, etc.)
   3. Metrics persist in AMP beyond EC2 instance lifecycle -- redeploying the instance does not lose historical metrics
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 37-01-PLAN.md -- Add AMP workspace, AMG workspace, Grafana IAM role, and SSM parameter to CDK stack and deploy
 - [ ] 37-02-PLAN.md -- Add Prometheus sidecar to docker-compose, deploy to EC2, verify metrics flow, connect Grafana
@@ -194,6 +194,6 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 34. CDK Infrastructure Foundation | v1.6 | Complete    | 2026-03-07 | 2026-03-07 |
 | 35. Compute, Secrets, Hardening | 2/2 | Complete    | 2026-03-07 | - |
 | 36. CloudWatch Logging | 2/2 | Complete    | 2026-03-07 | - |
-| 37. Prometheus + AMP + Grafana | 1/2 | In Progress|  | - |
+| 37. Prometheus + AMP + Grafana | 2/2 | Complete   | 2026-03-07 | - |
 | 38. GitLab CI/CD Pipeline | v1.6 | 0/TBD | Not started | - |
 | 39. Grafana Dashboards + Alerts | v1.6 | 0/TBD | Not started | - |
