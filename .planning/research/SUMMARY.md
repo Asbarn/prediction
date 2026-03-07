@@ -1,197 +1,180 @@
 # Project Research Summary
 
-**Project:** v1.5 Derive.xyz Venue Integration
-**Domain:** Cross-venue options arbitrage — DeFi venue feed addition (Rust, multi-venue, real-time)
-**Researched:** 2026-03-03
-**Confidence:** MEDIUM-HIGH (architecture HIGH from direct codebase analysis; API specifics MEDIUM/LOW pending live verification)
+**Project:** v1.6 Production Deployment
+**Domain:** AWS infrastructure-as-code, CI/CD, and observability for a Rust single-binary crypto arbitrage service
+**Researched:** 2026-03-07
+**Confidence:** HIGH
 
 ## Executive Summary
 
-v1.5 adds Derive.xyz (formerly Lyra v2) as a fourth venue to an existing, production-validated cross-venue options arbitrage system. Derive is a decentralized CLOB options exchange running on an Ethereum OP Stack L2, with a JSON-RPC WebSocket API structurally similar to Deribit. The integration is architecturally additive: no changes to downstream engines, no changes to the MarketSnapshot schema, no changes to existing venue supervisors. Every new component mirrors an existing one, with six new source files modeled directly on `src/feed/deribit/`. The primary value delivered is a **Deribit vs Derive options spread** — a direct options-vs-options arbitrage signal uncontaminated by prediction market basis risk — plus a three-way spread (Deribit vs Derive vs Polymarket) that activates automatically once the feed is wired in.
+v1.6 wraps a fully operational 39,176 LOC Rust arbitrage system (v1.0-v1.5 complete) in production-grade AWS infrastructure. The milestone requires zero Rust code changes -- every addition is external to the application binary: AWS CDK (TypeScript) for infrastructure provisioning, GitLab CI for automated build/test/deploy, Prometheus remote_write to Amazon Managed Prometheus for durable metrics, CloudWatch for centralized logging, and AWS Secrets Manager for credential injection. The system already has a multi-stage Dockerfile, Docker Compose orchestration, 80+ Prometheus metrics, structured JSON logging, environment-variable credential loading, and health endpoints. v1.6 codifies the manually-created infrastructure, automates the manual build-push-SSH cycle, and enables remote observability without SSH access.
 
-The recommended approach is a strict copy-and-adapt of the Deribit feed stack, with two critical deviations: (1) instrument name parsing must independently handle Derive's `YYYYMMDD` date format (`BTC-20250627-100000-C`) vs Deribit's `DDMMMYY` format (`BTC-27JUN25-100000-C`) — the formats look similar but require completely separate parsers; and (2) Derive prices are USDC-denominated (linear/cash-settled contracts) while Deribit prices are BTC-denominated (inverse contracts), requiring normalization before probability extraction. One new Cargo dependency is required — `k256 = "0.13"` for secp256k1 ECDSA signing — though pre-implementation live API testing should first confirm whether `public/login` authentication is actually needed for read-only orderbook data, as it may not be required.
+The recommended approach uses AWS CDK with TypeScript for all infrastructure (VPC, EC2, IAM, Secrets Manager, AMP, AMG), GitLab CI with Docker-in-Docker for the pipeline, the Docker `awslogs` driver for log aggregation (zero agent installation), a Prometheus sidecar container for metrics remote_write to AMP with native SigV4, and SSM Run Command for deployments (no SSH keys in CI). The CDK project lives in `infra/cdk/` within the monorepo, decomposed into five focused stacks (Network, Secrets, Logging, Monitoring, Compute) to allow targeted updates.
 
-The primary risks are: a price denomination bug producing phantom arbitrage signals (high severity, detectable by comparing Derive vs Deribit implied probabilities for the same instrument), an instrument name format mismatch causing zero cross-venue candidates (medium severity, caught by a unit test before any wiring), and the book update model assumption — Derive may send incremental deltas rather than full snapshots, which would silently corrupt the book if the wrong model is used. All three risks are caught early if the implementation begins with live API inspection of the testnet feed before committing to any implementation details.
+The top risks are: (1) CDK creating duplicate infrastructure alongside existing manually-provisioned resources -- mitigate by tearing down manual resources and letting CDK create fresh, importing only the ECR repository by ARN; (2) EC2 instance replacement during CDK updates destroying all data volumes -- mitigate with `RemovalPolicy.RETAIN`, separate EBS data volume, and mandatory `cdk diff` gate before every deploy; (3) CloudWatch log costs exploding from verbose structured JSON at the wrong log level -- mitigate with 14-day retention, `RUST_LOG=info`, and a $10/month billing alarm. All three are preventable with first-phase discipline.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The existing v1.0–v1.4 validated stack is almost entirely sufficient. The only new dependency is `k256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }` for Ethereum wallet-based session signing. All WebSocket, JSON-RPC, rate limiting, reconnection, decimal arithmetic, and recording needs are covered by existing crates. The `sha3` crate (Keccak256) may also be needed if `k256`'s ecdsa feature does not re-export it — verify at implementation time before adding.
+The entire v1.6 stack is external tooling -- zero new Rust crate dependencies. This is deliberate: the application binary stays cloud-agnostic and testable locally without AWS. See [STACK.md](STACK.md) for full details.
 
 **Core technologies:**
-- `k256 = "0.13"` (new): secp256k1 ECDSA signing for Derive `public/login` — pure Rust, RustCrypto family, NCC Group audited, no C FFI; may be deferred if live testing shows public channels work unauthenticated
-- `tokio-tungstenite` (existing): WebSocket to `wss://api.lyra.finance/ws` — same `connect_async` + `split()` read loop pattern as Deribit
-- `reqwest` (existing): REST calls to `POST /public/get_instruments` for discovery — already used for Polymarket Gamma API and Kalshi
-- `serde_json` (existing): JSON-RPC 2.0 message construction and parsing — same `json!{}` macro pattern as Deribit client
-- `rust_decimal` (existing): All price and size fields — normalize USDC prices to BTC-equivalent using Decimal arithmetic before IV solver
-
-**What NOT to add:** `alloy` / `alloy-signer` (50+ transitive deps for one `personal_sign` call), `ethers-rs` (deprecated), `secp256k1 0.29` (requires C build step), any Derive-specific SDK (none exists as a library crate), `tokio-websockets` (would create a second WS library alongside `tokio-tungstenite`).
+- **AWS CDK v2 (TypeScript):** All infrastructure provisioning -- VPC, SG, EC2, IAM, ECR (import existing), CloudWatch log group, Secrets Manager, AMP, AMG. Single `aws-cdk-lib` package covers all construct modules.
+- **GitLab CI:** 3-stage pipeline (test, build-and-push, deploy). Docker-in-Docker for image builds. SSM Run Command for deployment -- no SSH keys.
+- **Prometheus >= 2.53.0 (sidecar):** Scrapes app metrics on :9000, remote_writes to AMP with native SigV4 (no proxy sidecar needed since Prometheus 2.26+).
+- **Amazon Managed Prometheus + Grafana:** Durable metrics storage (150-day retention) and dashboard visualization. AWS manages availability, auth, upgrades.
+- **Docker `awslogs` driver:** Built-in CloudWatch log shipping. Zero agent installation. Replaces `json-file` driver with one config block change.
+- **AWS Secrets Manager + bash fetch script:** Boot-time secret injection via AWS CLI + jq. Writes `.env` file for Docker Compose. Zero Rust code changes.
 
 ### Expected Features
 
-All features required for a functional fourth venue are table stakes — there are no differentiators that require extra work. The most valuable outcomes (three-way spread and Black-76 implied probability) activate automatically from the base integration.
+See [FEATURES.md](FEATURES.md) for full feature landscape and metrics inventory.
 
-**Must have (table stakes — all P1):**
-- `Venue::Derive` enum variant — hard blocker for everything; add first and fix all match arms completely, no `todo!()` shortcuts
-- Instrument name parser (`parse_derive_instrument_name`) — `YYYYMMDD` format only, entirely independent of Deribit parser
-- DeriveClient — WebSocket connect + `public/subscribe` + forward `RawMessage` frames
-- DeriveBook — order book state (snapshot or incremental delta model; verify from live API before writing any code)
-- Ticker feed — `bid_iv`, `ask_iv`, `index_price`, `mark_price` extraction
-- DeriveProcessor — normalization to `MarketSnapshot { venue: Venue::Derive }` with USDC price normalization
-- DeriveSupervisor — exponential backoff reconnection watching `watch::Receiver<Vec<String>>`
-- `discover_derive()` — REST-based instrument discovery proposing BTC options for human approval via events.toml
-- DeriveChecker — settlement tracking via `POST /public/get_option_settlement_prices` (08:00 UTC, 30-min TWAP, USDC payout)
-- Pipeline wiring — Derive block in `run_live_multi_venue()`, SubscriptionManager extended, EventRegistry extended
+**Must have (table stakes):**
+- CDK infrastructure stack -- reproducible, version-controlled infrastructure replacing click-ops
+- GitLab CI pipeline -- automated test/build/push/deploy replacing manual SSH cycle
+- CloudWatch log aggregation -- remote log access, survives instance termination
+- Secrets Manager integration -- encrypted credential storage with IAM access control
+- Systemd service for Docker Compose -- survives EC2 reboot
+- EC2 instance profile with least-privilege IAM
 
-**Included at no additional code cost (activates automatically once pipeline wired):**
-- Three-way spread (Deribit vs Derive vs Polymarket) — SpreadEngine already handles multi-venue by event_id; no code change needed
-- Black-76 implied probability for Derive — PricingEngine already handles European-style BTC options with bid_iv/ask_iv populated
+**Should have (differentiators -- "well-operated" vs "deployed"):**
+- Grafana dashboards (5): Feed Health, Signal Quality, Spread Distributions, Paper Trade P&L, System Health
+- Grafana alert rules: feed down, zero computations, sustained negative P&L
+- Prometheus remote_write to AMP -- durable metrics beyond EC2 lifecycle
+- CloudWatch Logs Insights saved queries for common investigation patterns
 
-**Defer to v2+:**
-- On-chain settlement verification via Ethereum RPC — redundant given REST `get_option_settlement_prices` endpoint
-- Session key authentication for private endpoints — execution is out of scope for v1.5; read-only only
-- Perpetuals feed (BTC-PERP) — incompatible with binary probability extraction pipeline
-- Multi-collateral accounting (wBTC, stETH collateral) — irrelevant until execution planning
+**Defer (post-v1.6):**
+- Container image scanning (Trivy)
+- CloudWatch anomaly detection
+- Cost optimization (spot/reserved instances)
+- Automated DR/backup for state files
+- Blue/green deployments, ECS/Fargate, Kubernetes
 
 ### Architecture Approach
 
-The integration is purely additive. Six new source files in `src/feed/derive/` mirror `src/feed/deribit/` exactly. Five existing files require targeted extensions: `src/types/venue.rs` (add `Venue::Derive` variant), `src/config/events.rs` (add `DeriveMapping`, add `Option<DeriveMapping>` to `EventVenues`), `src/config/venues.rs` (add `DeriveConfig`), `src/events/registry.rs` (one new `if let Some` block in `build_indexes()`), and `src/subscription/manager.rs` (add `derive_tx`, `current_derive`). All downstream engines — SpreadEngine, OptionsEngine, SignalEngine, PaperTradeTracker, AlertManager, PrometheusExporter — are completely unchanged. They operate on `MarketSnapshot` and `EventId` abstractions that are venue-agnostic.
+The architecture adds a CI/CD pipeline (GitLab), infrastructure-as-code (CDK in `infra/cdk/`), and an observability pipeline (Prometheus sidecar -> AMP -> AMG) around an unchanged application binary. The CDK project decomposes into five stacks to allow independent updates. The Prometheus sidecar runs alongside the prediction container in Docker Compose, scraping :9000 and remote_writing to AMP. Secrets flow from Secrets Manager through a bash fetch script to a `.env` file consumed by Docker Compose. Logs flow from container stdout through Docker's `awslogs` driver to CloudWatch. See [ARCHITECTURE.md](ARCHITECTURE.md) for full component boundaries and data flow diagrams.
 
-**Major new components:**
-1. `src/feed/derive/client.rs` — WebSocket connect, subscribe JSON-RPC, forward `RawMessage`; no Deribit-style heartbeat protocol needed (standard WS ping/pong)
-2. `src/feed/derive/supervisor.rs` — reconnection loop watching `watch::Receiver<Vec<String>>`; verbatim copy of DeribitSupervisor with type changes
-3. `src/feed/derive/normalize.rs` — DeriveProcessor: parses wire format, maintains book/ticker state, emits `MarketSnapshot`; includes USDC-to-BTC price normalization
-4. `src/feed/derive/messages.rs` — Derive-specific serde deserialization types (from live API capture)
-5. `src/feed/derive/book.rs` — DeriveBook order book state; snapshot-only or snapshot+delta depending on live API behavior
-6. `src/feed/derive/auth.rs` — `sign_derive_login()` using k256 secp256k1 + Ethereum `personal_sign`; only needed if auth confirmed required
-
-**Key architectural decision:** Derive instrument names (`BTC-20250627-100000-C`) map to the same `event_id` as Deribit names (`BTC-27JUN25-100000-C`) via the EventRegistry. No name translation occurs in the processor — each venue retains its native format, and `build_indexes()` maps each independently to the shared `event_id`. The existing `build_snapshot()` function in Deribit's normalize.rs requires zero changes; DeriveProcessor calls it with Derive-specific inputs.
+**Major components:**
+1. `infra/cdk/` (5 stacks) -- All AWS resource provisioning: NetworkStack, SecretsStack, LoggingStack, MonitoringStack, ComputeStack
+2. `.gitlab-ci.yml` -- CI/CD pipeline: cargo test, docker build + ECR push, SSM deploy
+3. `deploy/fetch-secrets.sh` -- Boot-time Secrets Manager fetch, writes `.env`
+4. `deploy/prometheus.yml` -- Prometheus sidecar config with SigV4 remote_write
+5. `docker-compose.yml` (modified) -- awslogs driver, env_file, Prometheus sidecar service
 
 ### Critical Pitfalls
 
-1. **Price denomination mismatch (Derive USDC vs Deribit BTC)** — Derive options are USDC-denominated (linear, cash-settled in USDC). Deribit options are BTC-denominated (inverse). Without normalization, the probability extractor receives `550` (USDC premium) and interprets it as a BTC fraction, producing implied probabilities near 1.0 and spurious spread signals. Fix: divide USDC premium by BTC/USD index price (available from the same ticker message) before passing to the IV solver. Gate: Derive implied probability must be within 5% of Deribit's for the same instrument before proceeding to pipeline wiring.
+See [PITFALLS.md](PITFALLS.md) for all 8 pitfalls with full recovery strategies.
 
-2. **Instrument name format mismatch** — `YYYYMMDD` (Derive) vs `DDMMMYY` (Deribit). A shared parser or a copy-paste error produces wrong expiry dates, causing zero cross-venue candidates. Fix: implement `parse_derive_instrument_name()` independently using `NaiveDate::parse_from_str(s, "%Y%m%d")`. Unit test that each parser rejects the other's format. This is Phase 1, task 2.
-
-3. **Book update model assumption** — Derive may send incremental deltas after an initial snapshot rather than full snapshots on every update. Applying deltas as snapshots silently corrupts the book after the first message. Fix: capture 20+ messages from `wss://api-demo.lyra.finance/ws` before writing any book code. Implement `apply_snapshot()` and `apply_delta()` as separate methods if delta updates are confirmed.
-
-4. **`Venue::Derive` match arm `todo!()` shortcuts** — Adding the enum variant triggers compiler exhaustiveness errors across all `match venue` sites (metrics, health, settlement, subscription, recording). The temptation is to patch with `todo!()` and return later. Fix: resolve ALL match arms completely in Phase 1 before writing any feed logic. Run `cargo check 2>&1 | grep -i "todo\|unreachable\|unimplemented"` to verify zero placeholders remain.
-
-5. **Non-Friday Derive expiry dates causing false validation warnings** — Derive supports arbitrary expiry dates; Deribit only exposes weekly Fridays and monthly end-of-month. Any "must be Friday" validation produces false positives for legitimate Derive instruments. Fix: remove Friday-only assertions from Derive discovery code. Use exact date matching (0-day tolerance) for initial cross-venue candidate matching; only relax if real data shows alignment requires it.
+1. **CDK creates duplicate infrastructure** -- Existing EC2, SGs, VPC are console-created. CDK will create duplicates, not manage existing. Fix: tear down manual resources, let CDK create fresh, import ECR by ARN only. The system tolerates minutes of downtime (WebSocket feeds reconnect automatically).
+2. **EC2 instance replaced by CDK update, data lost** -- Changing instance type/AMI/subnet triggers CloudFormation REPLACEMENT, destroying all bind-mounted data (events.toml, checkpoint.json, logs). Fix: `RemovalPolicy.RETAIN`, separate EBS data volume, mandatory `cdk diff` before every deploy.
+3. **CloudWatch log costs exploding** -- Structured JSON at DEBUG level + "never expire" retention = $50-200/month. Fix: `RUST_LOG=info`, 14-day retention in CDK, $10/month billing alarm, exclude spread_logs/settlement_logs from CloudWatch.
+4. **Secrets not available at container startup** -- Docker Compose on EC2 has NO native Secrets Manager integration (unlike ECS). Fix: `fetch-secrets.sh` runs before `docker compose up`, writes `.env` file.
+5. **GitLab CI Rust builds taking 20-40 minutes** -- Ephemeral runners discard build cache. Fix: cargo-chef in Dockerfile for dependency layer caching, sccache with S3 backend, GitLab CI cargo registry cache.
 
 ## Implications for Roadmap
 
-The integration divides cleanly into two phases: foundation work (types, live API verification, core feed components) followed by integration and validation work (pipeline wiring, discovery, settlement, correctness validation). The architectural analysis is high-confidence because it is based on direct codebase inspection. The API specifics require live verification against the testnet before committing to implementation details — this is not optional research overhead, it resolves four LOW-confidence questions in under 30 minutes.
+Based on combined research, the build order follows strict dependency chains. Each phase produces a testable, observable result. All four research files converge on the same 6-phase structure.
 
-### Phase 1: Foundation — Type Extension, API Verification, Core Feed
+### Phase 1: CDK Infrastructure Foundation
+**Rationale:** Everything else depends on AWS resources existing in a codified, reproducible state. VPC, security groups, IAM roles, log groups, and secret shells must exist before any deployment, logging, or monitoring can work.
+**Delivers:** NetworkStack, SecretsStack, LoggingStack deployed. VPC, SG, CloudWatch log group, Secrets Manager secret shell created. Manual infrastructure torn down.
+**Addresses:** CDK infrastructure stack (table stakes), EC2 instance profile (table stakes)
+**Avoids:** Pitfall 1 (duplicate infrastructure -- clean slate approach), Pitfall 5 (CDK bootstrap -- explicit first step), Pitfall 8 (data loss -- RemovalPolicy.RETAIN, separate EBS)
 
-**Rationale:** `Venue::Derive` is a hard blocker — the compiler cannot progress until the enum is added and all match arms resolved without placeholders. Live API inspection of the testnet (`wss://api-demo.lyra.finance/ws`) must precede implementation to determine: exact channel names, book update model (snapshot vs delta), heartbeat mechanism, and whether `public/login` is required. The core feed components (messages, book, client, supervisor, processor) are independently testable before any pipeline wiring.
+### Phase 2: Compute + Secrets Integration
+**Rationale:** The application cannot run without credentials. ComputeStack depends on all Phase 1 stacks. This validates the most critical integration (secrets flow) early on real infrastructure.
+**Delivers:** EC2 instance managed by CDK, IAM instance profile, user-data bootstrap, `fetch-secrets.sh` populating `.env`, application running on CDK-created infrastructure with secrets from Secrets Manager.
+**Addresses:** Secrets Manager integration (table stakes), Systemd service (table stakes)
+**Avoids:** Pitfall 6 (secrets not available -- fetch script verified before pipeline automation)
 
-**Delivers:** A working Derive feed emitting `MarketSnapshot { venue: Venue::Derive }` with correct USDC price normalization — testable standalone without touching pipeline.
+### Phase 3: CloudWatch Logging
+**Rationale:** One config block change (`json-file` to `awslogs`) that immediately provides remote log access. Having logs in CloudWatch before tackling monitoring means debugging the Prometheus sidecar and CI pipeline is possible without SSH.
+**Delivers:** Container logs in CloudWatch Logs, Logs Insights queries working on structured JSON fields, 14-day retention configured.
+**Addresses:** CloudWatch log aggregation (table stakes), CloudWatch Logs Insights saved queries (differentiator)
+**Avoids:** Pitfall 2 (log costs -- retention and log level set from the start)
 
-**Addresses:** Venue::Derive enum, TS-2 (instrument name parser), TS-1 (DeriveClient), TS-3 (DeriveBook), TS-4 (ticker feed), TS-5 (DeriveProcessor), TS-6 (DeriveSupervisor)
+### Phase 4: Prometheus + AMP + AMG (Monitoring Pipeline)
+**Rationale:** The Prometheus sidecar is a new container requiring configuration and IAM permissions. AMP and AMG workspace creation has more moving parts than logging. With CloudWatch already working, sidecar issues are debuggable via remote logs.
+**Delivers:** MonitoringStack deployed (AMP + AMG workspaces), Prometheus sidecar in docker-compose.yml, metrics flowing from app -> Prometheus -> AMP -> AMG, AMP data source configured in Grafana.
+**Addresses:** Prometheus remote write to AMP (differentiator), AMG workspace setup
+**Avoids:** Pitfall 3 (Grafana cannot reach Prometheus -- use AMP as intermediary, not direct VPC connection)
 
-**Avoids:** Pitfall 3 (Venue::Derive todo!() shortcuts — resolves all match arms before any logic), Pitfall 1 (instrument name mismatch — independent parser with unit tests), Pitfall 7 (wrong book update model — live API first), Pitfall 5 (auth/no-auth — test unauthenticated before adding k256)
+### Phase 5: GitLab CI/CD Pipeline
+**Rationale:** Manual deploys work fine during infrastructure buildout. CI automates an already-working manual process. Building CI before the deployment target is stable wastes iteration cycles on pipeline debugging.
+**Delivers:** `.gitlab-ci.yml` with test/build-push/deploy stages. Cargo test with cache. Docker build with cargo-chef. ECR push. SSM deploy with manual trigger. No more manual build/push/SSH workflow.
+**Addresses:** GitLab CI pipeline (table stakes)
+**Avoids:** Pitfall 4 (WebSocket drops during deploy -- graceful shutdown verified), Pitfall 7 (slow CI builds -- cargo-chef + sccache from the start)
 
-**Build order within phase:**
-1. Add `Venue::Derive` to enum; fix all match arm exhaustiveness errors; `cargo check` to zero placeholders
-2. Live API session: connect to `wss://api-demo.lyra.finance/ws`, capture 20+ messages; resolve channel names, book model, heartbeat, auth requirement
-3. `src/feed/derive/messages.rs` — serde types from captured live messages
-4. `src/feed/derive/book.rs` — DeriveBook (snapshot-only or snapshot+delta per verified model)
-5. `src/feed/derive/client.rs` + `supervisor.rs` — connect, subscribe, reconnect; add `auth.rs` only if auth confirmed needed
-6. `src/feed/derive/normalize.rs` — DeriveProcessor with USDC-to-BTC normalization; IV source detection metric
-
-### Phase 2: Pipeline Integration, Discovery, and Correctness Validation
-
-**Rationale:** Pipeline wiring, SubscriptionManager extension, EventRegistry changes, and discovery integration all depend on Phase 1 types and feed components. This phase wires everything into `run_live_multi_venue()` and validates that cross-venue signals are numerically correct. Settlement tracking (DeriveChecker) can be developed in parallel with pipeline wiring since it uses only REST endpoints.
-
-**Delivers:** Derive instruments feeding SpreadEngine for live cross-venue signals; auto-discovery proposing BTC option candidates; settlement outcome tracking enabling paper trade validation; correctness gate (Derive implied prob within 5% of Deribit for same instrument).
-
-**Implements:** TS-7 (discover_derive), TS-8 (DeriveChecker), TS-9 (pipeline wiring), DIFF-1 (three-way spread, automatic), DIFF-2 (Black-76 IV probability, automatic)
-
-**Avoids:** Pitfall 2 (USDC price denomination in probability extraction — validation gate here), Pitfall 4 (expiry date matching — exact-date match for Derive discovery), Pitfall 6 (L2 sequencer silence — heartbeat/staleness thresholds configured), Pitfall 8 (IV source tracking — `derive_iv_source` metric)
-
-**Validation gate before declaring complete:** Connect to live Derive feed, approve one BTC option in events.toml, verify that the Derive implied probability and Deribit implied probability for the same strike/expiry are within 5% of each other. This is the definitive end-to-end correctness test.
-
-### Phase 3: Hardening and Post-Soak Tuning
-
-**Rationale:** After initial soak test data is collected, tune discovery filters, heartbeat thresholds, and rate limits based on observed real-world behavior. Add discovery config filtering if initial discovery reveals excessive thinly-traded instrument proposals.
-
-**Delivers:** Production-stable Derive feed with tuned staleness thresholds; discovery filtered to liquid instruments; Prometheus gauge `derive_reconnect_rate` for sequencer downtime detection.
-
-**Addresses:** DIFF-3 (discovery config tuning), Pitfall 6 (sequencer downtime metric), rate limit configuration from actual observed behavior
+### Phase 6: Grafana Dashboards + Alert Rules
+**Rationale:** Dashboards are a consumption layer. Building them before metrics flow through AMP is wasteful -- real data is needed to design meaningful visualizations. This phase enables "operate without SSH."
+**Delivers:** 5 Grafana dashboards (Feed Health, Signal Quality, Spreads, Paper Trade P&L, System Health), alert rules for critical conditions (feed down, zero computations, negative P&L).
+**Addresses:** All 5 dashboard differentiators, Grafana alert rules (differentiator)
+**Avoids:** No critical pitfalls -- this is visualization of already-flowing data.
 
 ### Phase Ordering Rationale
 
-- `Venue::Derive` must come first because it cascades compiler errors across the entire codebase — no other work can proceed until this compiles cleanly with no placeholders
-- Live API inspection before any implementation — channel names, book model, and auth requirement are all LOW confidence without live testing; building on assumptions risks discarding 2–3 days of work
-- Core feed validated standalone before pipeline wiring — an incorrect DeriveProcessor wired into the full pipeline is substantially harder to debug than the same bug in an isolated unit test
-- Settlement tracking (DeriveChecker) is independent of the WebSocket feed pipeline (REST polling, separate task) and can be developed in parallel with Phase 2 pipeline wiring
-- Three-way spread and Black-76 IV probability require zero additional code — they activate automatically once the feed is wired and instruments are approved in events.toml
+- CDK foundation first because every subsequent phase needs AWS resources (VPC, IAM, log groups) to exist
+- Secrets + compute second because the application cannot run without credentials and this validates the hardest integration early
+- Logging third because it is a trivial change that immediately enables remote debugging for all subsequent phases
+- Monitoring fourth because the Prometheus sidecar adds container orchestration complexity best debugged with CloudWatch already available
+- CI fifth because manual deploys work during buildout and CI should automate an already-stable process
+- Dashboards last because they require real data flowing through the metrics pipeline
 
 ### Research Flags
 
-Phases requiring live API verification before implementation:
+Phases likely needing deeper research during planning:
+- **Phase 1 (CDK Foundation):** Clean slate migration from manual infrastructure requires careful sequencing of teardown and recreation. The ECR import-by-ARN pattern and `RemovalPolicy.RETAIN` configuration need verification against CDK docs during phase planning.
+- **Phase 4 (Monitoring Pipeline):** Prometheus sidecar SigV4 configuration, AMP workspace ID injection into prometheus.yml, and AMG data source auto-configuration have multiple moving parts. Research the exact CDK output -> config injection path.
 
-- **Phase 1 (Live API Inspection — mandatory):** Channel subscription format, book update model (snapshot vs delta), heartbeat mechanism, and whether `public/login` is required for public channels are all LOW confidence from documentation search alone. These must be resolved by connecting to `wss://api-demo.lyra.finance/ws` and capturing real messages before writing any integration code. A 30-minute session resolves all four questions.
-
-- **Phase 2 (Price Normalization Correctness — mandatory gate):** The USDC-to-BTC normalization path is new logic with no precedent in the existing codebase. A targeted integration test comparing Derive vs Deribit implied probabilities for the same instrument must pass before deployment to the soak environment.
-
-Phases with standard patterns (no additional research needed):
-
-- **Supervisor and reconnection:** Direct copy of `DeribitSupervisor` — identical structural pattern, no unknowns
-- **Registry and SubscriptionManager extension:** Purely additive, identical pattern already established for Deribit, Polymarket, and Kalshi
-- **Discovery pipeline:** `discover_derive()` mirrors `discover_deribit()` — same `DiscoveredInstrument` + `FuzzyMatchKey` return types and flow
+Phases with standard patterns (skip research-phase):
+- **Phase 2 (Compute + Secrets):** EC2 user-data + Secrets Manager fetch is a well-documented AWS pattern with official reference implementations.
+- **Phase 3 (CloudWatch Logging):** One config block swap from `json-file` to `awslogs`. Docker official docs are definitive.
+- **Phase 5 (GitLab CI):** GitLab CI + Docker-in-Docker + ECR push is a thoroughly documented pattern. cargo-chef has clear Dockerfile examples.
+- **Phase 6 (Dashboards):** Standard Grafana panel configuration against known Prometheus metrics. The metrics inventory in FEATURES.md is complete.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | One new dep (k256 0.13); all else covered by existing validated stack. k256 may not be needed if public channels work unauthenticated — test first. |
-| Features | MEDIUM | All P1 features are clearly defined. Channel names (LOW), book update model (LOW), rate limits (LOW), and exact ticker field names in WebSocket messages (MEDIUM) need live API verification before committing to implementation. |
-| Architecture | HIGH | Based on direct codebase analysis of 36,507 LOC. Additive integration pattern is unambiguous: 6 new files, 5 modified files, 0 downstream changes. Build order validated against dependency graph. |
-| Pitfalls | HIGH | 8 pitfalls identified with concrete prevention strategies, recovery costs, and phase assignments. Price denomination and format mismatch pitfalls verified against codebase structure. Sequencer downtime pitfall verified against OP Stack L2BEAT data. |
+| Stack | HIGH | All technologies are mature AWS managed services with stable APIs. Zero new Rust dependencies. CDK v2, Prometheus, CloudWatch awslogs driver are all production-proven. |
+| Features | HIGH | Feature list derived from direct codebase analysis of existing infrastructure gaps. 80+ Prometheus metrics already emitted. Structured JSON logging already in place. |
+| Architecture | HIGH | Based on official AWS docs, verified CDK patterns, and direct analysis of existing Dockerfile/docker-compose/deploy scripts. All integration points use documented, first-party patterns. |
+| Pitfalls | HIGH | 8 pitfalls identified from official docs, community patterns, and direct infrastructure analysis. All have concrete prevention strategies with phase assignments. |
 
-**Overall confidence:** MEDIUM-HIGH
+**Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **WebSocket channel name format** — Inferred as `orderbook.{instrument_name}` and `ticker.{instrument_name}` but not confirmed from official docs. Resolve by connecting to `wss://api-demo.lyra.finance/ws` and sending a subscribe request before implementation. Do not write channel name constants until verified.
+- **Managed Grafana vs direct Prometheus scrape:** PITFALLS.md recommends VPC connection for direct scrape (avoiding AMP cost), while STACK.md and ARCHITECTURE.md recommend AMP as intermediary. Recommendation: use AMP. The $3-5/month cost is negligible and eliminates VPC connectivity complexity. AMP also provides durable storage beyond EC2 lifecycle. Resolve during Phase 4 planning.
 
-- **Book update model** — Unknown whether Derive sends full snapshots per update or incremental delta updates after initial snapshot. This determines whether `DeriveBook` needs delta processing. Resolve by capturing 20+ sequential messages from the testnet feed. Critical architectural decision — do not defer.
+- **SIGTERM handler in Rust binary:** Pitfall 4 (WebSocket drops during deploy) notes that `tokio::signal::ctrl_c()` catches SIGINT but not SIGTERM on Unix. Verify whether the existing signal handler covers SIGTERM before Phase 5. If not, this is a minor Rust code change that contradicts the "zero Rust changes" premise -- but it is a one-line fix (`signal::unix::signal(SignalKind::terminate())`).
 
-- **Authentication requirement for public market data** — `public/login` may or may not be required for read-only orderbook subscriptions. If not required, the `k256` dependency and auth module are deferred to v2. Resolve by attempting an unauthenticated subscribe before adding any auth code.
+- **cargo-chef Dockerfile restructuring:** Adding cargo-chef requires modifying the multi-stage Dockerfile (new prepare + cook stages). This is a functional change to an existing file, not just infrastructure. Plan the Dockerfile change as part of Phase 5.
 
-- **Exact rate limit numbers** — Estimated as ~10 req/5s from partial docs page access; not confirmed. Visit `docs.derive.xyz/reference/rate-limits` directly before configuring `VenueRateLimiter`. Setting too low wastes discovery throughput; setting too high risks temporary IP bans.
-
-- **Ticker field names in WebSocket messages** — `bid_iv`, `ask_iv`, `mark_iv`, `index_price` confirmed present from REST ticker docs but not verified in live WebSocket ticker notification format. Verify field names match during live API inspection session.
+- **EC2 instance sizing:** ARCHITECTURE.md suggests t3.small; current manual instance type is unknown. Verify current instance type and memory usage before CDK provisioning. The prediction container + Prometheus sidecar together need adequate RAM.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- `docs.derive.xyz/reference/overview` — WebSocket URL, JSON-RPC protocol, transport-agnostic confirmation
-- `docs.derive.xyz/reference/json-rpc` — method naming, subscribe pattern
-- `docs.derive.xyz/reference/post_public-get-instrument` — instrument schema, field names
-- `docs.derive.xyz/reference/post_public-login` — endpoint exists, WebSocket-only, wallet/timestamp/signature params
-- `help.lyra.finance/en/articles/8691491-expiration-settlement` — 08:00 UTC expiry, 30-min TWAP, USDC settlement confirmed
-- Direct codebase analysis: `src/feed/deribit/` (supervisor 206 LOC, client 311 LOC, normalize 1076 LOC, messages 653 LOC), `src/types/venue.rs`, `src/subscription/manager.rs`, `src/events/registry.rs`, `src/events/discovery.rs`, `src/types/snapshot.rs` — architecture patterns, MarketSnapshot schema, all venue fields
-- `crates.io/crates/k256` — version 0.13.4 stable, ecdsa feature confirmed, Ethereum signing
+- [AWS CDK v2 TypeScript Guide](https://docs.aws.amazon.com/cdk/v2/guide/work-with-cdk-typescript.html) -- CDK setup, module structure, construct levels
+- [AWS CDK EC2 Instance Construct](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_ec2.Instance.html) -- instance profile, user-data
+- [AMP Remote Write from EC2](https://docs.aws.amazon.com/prometheus/latest/userguide/AMP-onboard-ingest-metrics-remote-write-EC2.html) -- SigV4 native config, IAM requirements
+- [Docker awslogs Driver](https://docs.docker.com/engine/logging/drivers/awslogs/) -- configuration options, IAM permissions, non-blocking mode
+- [AWS CDK Bootstrap Guide](https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping.html) -- one-time setup, trust configuration
+- [Prometheus SigV4 Native Support](https://aws.amazon.com/blogs/opensource/prometheus-2-26-0-adds-aws-signature-version-4-support/) -- confirmed since 2.26.0
 
 ### Secondary (MEDIUM confidence)
-- CCXT `derive.py` — instrument name format `{ASSET}-{YYYYMMDD}-{STRIKE}-{C/P}` confirmed; `publicPostGetTicker()` method, response field mapping
-- Hummingbot Derive connector — wallet_address, private_key credential structure; `personal_sign` authentication approach
-- `docs.derive.xyz/reference/rate-limits` — fixed-window 5s algorithm confirmed; specific request counts not captured (page partially inaccessible)
-- `docs.derive.xyz/reference/public-get_ticker` — bid_iv, ask_iv, mark_iv, index_price confirmed present in REST response
-- `github.com/derivexyz/cockpit` — official Rust market-maker reference; instrument name format confirmed in CLI context; confirms Rust integration is viable
-- `insights.derive.xyz/a-technical-overview-of-lyra-v2/` — Rust-powered offchain CLOB, OP Stack L2, USDC settlement architecture
-- Amberdata Derive integration references — European-style options, `{ASSET}-{YYYYMMDD}-{STRIKE}-{C/P}` naming confirmed
+- [GitLab CI Docker-in-Docker](https://docs.gitlab.com/ee/ci/docker/using_docker_build.html) -- DinD setup, privileged runners
+- [GitLab CI ECR Push Pattern](https://gist.github.com/tanmay-bhat/6fa65b9cd9d5f7f5e780dbe3efcb1fb7) -- ECR login, tag/push
+- [cargo-chef for Docker Layer Caching](https://github.com/LukeMathWalker/cargo-chef) -- Dockerfile restructuring for dependency caching
+- [Secrets Manager on EC2](https://repost.aws/questions/QUNHr37DAhQxqTUQgeUUFPEA/ec2-and-secret-manager) -- CLI fetch pattern
+- [Amazon Managed Grafana VPC Configuration](https://docs.aws.amazon.com/grafana/latest/userguide/AMG-configure-vpc.html) -- VPC connectivity options
 
 ### Tertiary (LOW confidence)
-- Channel subscription format — inferred from JSON-RPC docs overview and Deribit pattern similarity; requires live API verification before use
-- Book update model (snapshot vs delta) — inferred from architecture documentation describing "complete snapshot model"; requires live message capture to confirm
-- Rate limit numeric values — "10 req/s" estimated from search result snippets; requires direct docs page visit before configuring VenueRateLimiter
+- None. All findings verified against at least two sources.
 
 ---
-*Research completed: 2026-03-03*
+*Research completed: 2026-03-07*
 *Ready for roadmap: yes*

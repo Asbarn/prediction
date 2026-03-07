@@ -1,348 +1,396 @@
-# Technology Stack: v1.5 Derive.xyz Venue Integration
+# Stack Research: v1.6 Production Deployment
 
-**Project:** Prediction Market Arbitrage System -- Derive.xyz Feed Addition
-**Researched:** 2026-03-03
-**Confidence:** MEDIUM-HIGH (API protocol HIGH, authentication MEDIUM, rate limits LOW due to inaccessible docs pages)
+**Domain:** AWS infrastructure-as-code, CI/CD, and observability for a Rust single-binary service
+**Researched:** 2026-03-07
+**Confidence:** HIGH (all technologies are mature AWS managed services with stable APIs)
 
 ## Scope
 
-This document covers ONLY the stack additions needed for v1.5 Derive.xyz venue integration. The existing v1.0-v1.4 validated stack is unchanged. The question being answered: what new Rust crates (if any) are needed to connect to Derive's WebSocket JSON-RPC API, authenticate for public market data, and subscribe to BTC options orderbooks?
+This document covers ONLY the stack additions needed for v1.6 Production Deployment. The existing Rust application stack (v1.0-v1.5) is unchanged. No new Rust crate dependencies are needed. All additions are infrastructure tooling (TypeScript CDK, YAML CI config, AWS managed services).
 
 ---
 
-## Executive Finding: One New Dependency Required
+## Executive Finding: Zero Rust Code Changes
 
-v1.5 requires **one new crate dependency**: `k256` for secp256k1 ECDSA signing used in Derive's Ethereum-wallet-based authentication. All other integration needs are covered by the existing stack.
+v1.6 adds zero new Rust dependencies. The entire deployment stack is external to the application binary:
 
-The existing `tokio-tungstenite`, `serde_json`, `futures-util`, `reqwest`, `governor`, `backoff`, `chrono`, and `base64` crates cover WebSocket connection, JSON-RPC messaging, rate limiting, reconnection, timestamps, and encoding respectively. No WebSocket, HTTP, or JSON crate additions are needed.
-
-**Critical discovery:** Public market data subscriptions on Derive require authentication via `public/login` (Ethereum wallet signature). Unlike Deribit where public orderbook channels work without credentials, Derive's WebSocket session requires a login step even for read-only market data access. This is the primary new capability.
-
----
-
-## Derive.xyz API Protocol (Verified)
-
-**WebSocket endpoint:** `wss://api.lyra.finance/ws`
-**Demo/testnet endpoint:** `wss://api-demo.lyra.finance/ws`
-**Protocol:** JSON-RPC 2.0 (same standard as Deribit)
-**Transport:** WebSocket only for subscriptions; HTTP available for one-off calls but does not support subscriptions
-
-**Instrument naming:** Same convention as Deribit: `BTC-YYYYMMDD-STRIKE-C` / `BTC-YYYYMMDD-STRIKE-P`
-Example: `BTC-20240329-70000-C` (BTC call, March 29 2024, $70,000 strike)
-Evidence from official docs example code: `'ETH-20240329-2400-C'` format confirmed.
-
-**Orderbook channel format:** `orderbook.{instrument_name}` (MEDIUM confidence -- inferred from docs references to "ticker or orderbook channels" with instrument_name parameter)
-
-**Public discovery endpoint:** `public/get_instruments` -- callable over WebSocket or REST without authentication; returns all active instruments with `currency` and `instrument_type` filter params.
-
-**Ticker endpoint:** `public/get_ticker` -- single instrument ticker (best bid/ask, fees, constraints). No auth required.
-
----
-
-## Authentication: Ethereum Wallet Signature (MEDIUM confidence)
-
-Derive uses self-custodial, Ethereum-wallet-based authentication. There are no traditional API keys.
-
-### How It Works
-
-1. **Credentials:** A secp256k1 private key (Ethereum EOA wallet) is used for signing. The corresponding wallet address is the account identifier.
-2. **Session authentication via `public/login`:** A WebSocket-only JSON-RPC call that authenticates the session before private channel subscriptions. Required even for reading orderbook data that involves "account-level" context.
-3. **Signing mechanism:** Sign the current timestamp (Unix milliseconds as string) using Ethereum's `personal_sign` convention (`sign_message` in ethers/alloy). This is NOT EIP-712 structured data -- it's a simple `personal_sign` of a raw string.
-
-### Login Request Format
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "public/login",
-  "params": {
-    "wallet": "0xYOUR_WALLET_ADDRESS",
-    "timestamp": "1703001600000",
-    "signature": "0xsignature_of_timestamp_string..."
-  }
-}
-```
-
-The `signature` is produced by: `personal_sign(keccak256("\x19Ethereum Signed Message:\n" + len(timestamp) + timestamp), private_key)`
-
-This maps to the Ethereum `eth_sign` / `personal_sign` method -- the standard message signing flow used across all Ethereum wallets.
-
-### Why authentication matters for THIS project
-
-The v1.5 scope is **read-only market data** (orderbook snapshots and deltas). Based on the `public/` prefix on login and the self-custodial architecture, public channel subscriptions (`orderbook.*`, `ticker.*`) are likely accessible after a `public/login` step using a throwaway Ethereum wallet with no funds. No real assets need to be at risk. The "wallet" is just a signing identity, not a custody account.
+- **AWS CDK** (TypeScript) for infrastructure provisioning
+- **GitLab CI** (YAML) for build/test/deploy pipeline
+- **Prometheus** (standalone binary on EC2) for metrics scraping and remote write
+- **AWS managed services** (AMP, AMG, CloudWatch, Secrets Manager) configured via CDK
+- **Docker compose** config change (logging driver swap)
+- **Bash scripts** for secrets injection at container startup
 
 ---
 
 ## Recommended Stack
 
-### New Dependencies
+### Infrastructure as Code: AWS CDK (TypeScript)
 
-| Technology | Version | Purpose | Why This One |
-|------------|---------|---------|--------------|
-| k256 | 0.13 | secp256k1 ECDSA signing for Ethereum wallet authentication | Pure Rust, no C FFI (unlike `secp256k1` crate which requires libsecp256k1). RustCrypto project, audited by NCC Group. `k256::ecdsa::SigningKey` + Keccak256 digest gives Ethereum-compatible signatures. Already transitively compiled by `rsa` crate ecosystem (RustCrypto family). `sha2` is already in deps for hashing -- `sha3` for Keccak256 is from the same RustCrypto family with identical API. |
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| aws-cdk-lib | ^2.241.0 | All AWS construct libraries in one package | CDK v2 monolith package; single dependency covers EC2, ECR, IAM, Secrets Manager, CloudWatch, APS, Grafana |
+| aws-cdk (CLI) | ^2.1109.0 | Synthesize and deploy CloudFormation stacks | Required companion CLI for `cdk deploy` |
+| constructs | ^10.0.0 | Base construct library | Peer dependency of aws-cdk-lib |
+| TypeScript | ^5.4 | CDK language | CDK's primary language; best documentation coverage and most examples |
+| Node.js | >=18.x LTS | CDK runtime | Required by CDK v2; use 18 or 20 LTS |
 
-### New Feature on Existing Dependency
+**CDK Construct Modules (all from aws-cdk-lib, zero additional npm packages):**
 
-| Technology | Existing Version | New Feature Needed | Why |
-|------------|-----------------|-------------------|-----|
-| sha2 | 0.10 | Already in deps; SHA-256 used for Kalshi auth | No change needed |
+| Module | Construct Level | Resources Created |
+|--------|-----------------|-------------------|
+| `aws_ec2` | L2 | Vpc, SecurityGroup, Instance, UserData, KeyPair |
+| `aws_ecr` | L2 | Repository.fromRepositoryName (reference existing repo) |
+| `aws_iam` | L2 | Role, ManagedPolicy, PolicyStatement for instance profile |
+| `aws_secretsmanager` | L2 | Secret, SecretStringGenerator; `.grantRead()` helper |
+| `aws_logs` | L2 | LogGroup with retention period |
+| `aws_aps` | **L1** (CfnWorkspace) | Amazon Managed Prometheus workspace |
+| `aws_grafana` | **L1** (CfnWorkspace) | Amazon Managed Grafana workspace |
 
-**Note on Keccak256:** Ethereum's `personal_sign` requires Keccak256 (NOT SHA-256). The `sha3` crate from RustCrypto provides `Keccak256` -- it's from the same family as the existing `sha2 = "0.10"` dep and uses identical digest API. However, the `k256` crate re-exports `sha3::Keccak256` through its `ecdsa` feature (via the `digest` crate traits), so **no explicit `sha3` dep may be needed** if k256's `Keccak256` re-export is used directly. Verify at implementation time.
+L1 note: APS and Grafana only have auto-generated CloudFormation-level constructs in aws-cdk-lib. This is acceptable because these resources are created once and rarely modified. Do NOT pull community L2 wrapper packages; they add maintenance risk for negligible benefit on one-time provisioning.
 
-### Existing Dependencies Covering v1.5 Needs
+### CI/CD: GitLab CI
 
-| Technology | Version | v1.5 Usage | Why Sufficient |
-|------------|---------|------------|----------------|
-| tokio-tungstenite | 0.28 | WebSocket connection to `wss://api.lyra.finance/ws` | Already used for Deribit and Kalshi. Same `connect_async` + `split()` + read loop pattern. |
-| futures-util | 0.3 | `SinkExt`, `StreamExt` for WS write/read | Same as existing venue clients. |
-| serde_json | 1.0 | JSON-RPC 2.0 message construction and parsing | `serde_json::json!{}` macro for subscribe/login messages; `serde_json::from_str` for parsing frames. Same pattern as Deribit client. |
-| serde | 1.0 | Deserialize orderbook delta/snapshot messages into Rust structs | `#[derive(Deserialize)]` on message types, same as Deribit `messages.rs`. |
-| tokio | 1 | Async runtime, `mpsc::channel`, `CancellationToken`, heartbeat timers | Identical usage to existing WS clients. |
-| tokio-util | 0.7 | `CancellationToken` for graceful shutdown | Used in all existing venue clients. |
-| anyhow | 1.0 | Error handling in client and supervisor | Already the project's error handling standard. |
-| tracing | 0.1 | Structured logging with venue=derive fields | Already used throughout. |
-| chrono | 0.4 | Timestamp generation for `public/login` (`Utc::now().timestamp_millis()`) | Already in deps. |
-| base64 | 0.22 | Potentially needed if signature encoding requires base64 (protocol TBD at impl time) | Already in deps for Kalshi auth. May not be needed -- Ethereum signatures are hex-encoded, not base64. |
-| backoff | 0.4 | Exponential backoff for reconnection in supervisor | Used by all existing supervisors. |
-| governor | 0.8 | Rate limiter for outbound WebSocket requests | Used by all existing feed clients. |
-| reqwest | 0.12 | REST calls to `public/get_instruments` for discovery | Already used for Polymarket Gamma API and Kalshi REST. |
-| rust_decimal | 1.40 | Price and size parsing from orderbook updates | All orderbook prices use `Decimal` in existing normalized schema. |
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| GitLab CI | N/A (SaaS) | Pipeline orchestration | Project is already on GitLab; native CI avoids external tooling |
+| Docker-in-Docker (dind) | 27.x | Build Docker images inside CI runners | Required for `docker build` in GitLab shared runners |
+| `rust:latest` image | stable | Rust compilation stage | Official image; matches existing Dockerfile builder stage |
+| `amazon/aws-cli` image | 2.x | ECR login, SSM deploy commands | Official AWS image for deployment steps |
 
----
+### Observability: Prometheus + AMP + AMG
 
-## Why k256 Over Alternatives
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| Prometheus server | >=2.53.0 | Scrape app metrics on :9000, remote_write to AMP | Runs on EC2 alongside container; native SigV4 since 2.26 eliminates signing proxy |
+| Amazon Managed Prometheus (AMP) | managed | Long-term Prometheus metrics storage | No self-hosted TSDB; automatic scaling; 150-day default retention |
+| Amazon Managed Grafana (AMG) | managed | Dashboard visualization and alerting | No self-hosted Grafana upgrades/auth/plugins; native AMP data source |
+| CloudWatch Logs (awslogs driver) | Docker built-in | Container log aggregation | Zero-agent approach: Docker's built-in driver ships structured JSON logs to CloudWatch |
 
-| Option | Assessment | Verdict |
-|--------|------------|---------|
-| **k256 0.13** (recommended) | Pure Rust, RustCrypto family, same crate family as `sha2` already in deps, audited, no C FFI, `SigningKey::from_bytes()` API, Ethereum-compatible via `Keccak256` digest | USE |
-| `secp256k1 = "0.29"` (bitcoin-core crate) | Requires libsecp256k1 C library; adds C compilation step; heavier build; overkill for single signing operation | AVOID |
-| `alloy-signer` | Full Ethereum signer stack; 50+ transitive deps; designed for full blockchain interaction; massive overkill for signing one timestamp string per WS session | AVOID |
-| `ethers-rs` | Deprecated; successor is alloy; same overkill problem | AVOID |
-| `tiny-keccak` | Alternative Keccak implementation; less idiomatic with k256's digest trait system; prefer sha3 from same RustCrypto family | AVOID |
+### Secrets Management
 
----
-
-## What NOT to Add
-
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| `alloy` / `alloy-signer` | 50+ transitive crates for what amounts to `k256::ecdsa::SigningKey::sign_prehash()`. Derive's auth is a single `personal_sign` call -- does not require EIP-712, ABI encoding, provider connections, or any blockchain interaction. | `k256 = { version = "0.13", features = ["ecdsa"] }` |
-| `ethers-rs` | Deprecated as of 2024; superseded by alloy | `k256` direct |
-| `sha3` (explicit dep) | May be unnecessary if k256 re-exports `Keccak256` through `ecdsa` feature; check at implementation time before adding | Test without first |
-| `hex` crate | For encoding the 0x-prefixed signature output, `format!("0x{}", hex::encode(sig_bytes))` can be replaced by `format!("0x{}", sig_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>())` or use existing `base64` crate's hex if available. `hex` is a tiny crate but prefer not adding if stdlib formatting suffices. | `format!("{:02x}", b)` in a collect, or check if already transitive |
-| Any Derive-specific SDK / `lyra-client` crate | No official Rust SDK on crates.io. The `derivexyz/cockpit` repo is the official Rust reference but it's a full trading system, not a library crate. | Implement directly using the JSON-RPC protocol |
-| `tokio-websockets` / `fastwebsockets` | Different WS crate than existing `tokio-tungstenite`. Adding a second WS library would double the WS code surface and break uniformity. | Existing `tokio-tungstenite 0.28` |
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| AWS Secrets Manager | managed | Store venue API keys (Deribit, Derive wallet key, Kalshi) | KMS encryption at rest; IAM-gated access; CloudTrail audit trail |
+| AWS CLI v2 | 2.x | Fetch secrets in bash startup script | Already on EC2; simple `get-secret-value` call; no Rust SDK needed |
+| jq | latest | Parse JSON secret values into env vars | Standard CLI tool; 1 line per secret extraction |
 
 ---
 
-## Cargo.toml Addition
+## Architecture Decisions
 
-```toml
-# Add to existing [dependencies] section:
+### 1. Secrets Injection: Bash Startup Script (NOT Rust SDK)
 
-# secp256k1 signing for Derive.xyz WebSocket authentication (v1.5)
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+**Decision:** Use a bash wrapper script that fetches secrets from Secrets Manager via AWS CLI and exports them as environment variables before `docker compose up`.
+
+**Do NOT** add `aws-sdk-secretsmanager` to Cargo.toml.
+
+Rationale:
+- The Rust binary already reads API keys from environment variables / config files
+- Adding the AWS SDK would introduce ~15 new transitive crate dependencies
+- A 10-line bash script achieves identical result with zero application code changes
+- Secrets rotate rarely (API keys, not short-lived tokens)
+- Keeps the binary cloud-agnostic (testable locally without AWS)
+
+Pattern:
+```bash
+#!/bin/bash
+# /app/start.sh on EC2
+set -euo pipefail
+
+SECRET=$(aws secretsmanager get-secret-value \
+  --secret-id prediction/prod/api-keys \
+  --query SecretString --output text \
+  --region us-east-1)
+
+export DERIBIT_CLIENT_ID=$(echo "$SECRET" | jq -r .deribit_client_id)
+export DERIBIT_CLIENT_SECRET=$(echo "$SECRET" | jq -r .deribit_client_secret)
+export DERIVE_WALLET_KEY=$(echo "$SECRET" | jq -r .derive_wallet_key)
+# ... remaining keys
+
+cd /app && docker compose up -d
 ```
 
-The `ecdsa` feature enables `SigningKey`, `Signature`, and digest-based signing. The `std` feature is required for consistent behavior. Disable default features to avoid pulling in `schnorr` and `pkcs8` features that are unneeded.
+### 2. Prometheus Remote Write: Native SigV4 (NOT Proxy Sidecar)
 
-**Note:** If Keccak256 is not re-exported by k256's ecdsa feature, add:
-```toml
-sha3 = "0.10"  # For Keccak256 -- only if not provided by k256
+**Decision:** Run Prometheus >=2.26 on EC2 with native `sigv4` block in `remote_write` config. Do NOT use the `aws-sigv4-proxy` sidecar container.
+
+Rationale:
+- Native SigV4 support was added in Prometheus 2.26 (April 2021) and is the recommended AWS approach
+- Eliminates a proxy container and its failure modes
+- EC2 instance role provides credentials automatically via IMDS -- no key management
+- Prometheus also serves as the local scraper (15s interval on :9000)
+
+Configuration (prometheus.yml on EC2):
+```yaml
+scrape_configs:
+  - job_name: prediction
+    static_configs:
+      - targets: ['localhost:9000']
+    scrape_interval: 15s
+
+remote_write:
+  - url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/WORKSPACE_ID/api/v1/remote_write
+    queue_config:
+      max_samples_per_send: 1000
+      max_shards: 200
+      capacity: 2500
+    sigv4:
+      region: us-east-1
 ```
+
+### 3. CloudWatch Logs: awslogs Docker Driver (NOT CloudWatch Agent)
+
+**Decision:** Change docker-compose.yml logging driver from `json-file` to `awslogs`. Do NOT install the CloudWatch Unified Agent.
+
+Rationale:
+- Application already outputs JSON-structured logs via `tracing` crate
+- `awslogs` is built into Docker Engine -- zero installation, zero extra processes
+- Current `json-file` driver with 50MB rotation loses all logs on instance termination
+- CloudWatch Agent would add another daemon to monitor on a single-container host
+
+docker-compose.yml change:
+```yaml
+logging:
+  driver: awslogs
+  options:
+    awslogs-region: us-east-1
+    awslogs-group: /prediction/prod
+    awslogs-stream: "prediction-{{.ID}}"
+    awslogs-create-group: "true"
+    mode: non-blocking
+    max-buffer-size: 4m
+```
+
+Required IAM permissions on EC2 instance role:
+- `logs:CreateLogGroup`
+- `logs:CreateLogStream`
+- `logs:PutLogEvents`
+
+### 4. Managed Grafana Auth: AWS IAM Identity Center (SSO)
+
+Amazon Managed Grafana requires an identity provider. Use **AWS IAM Identity Center** as the auth provider. For a solo trader, this means:
+- One SSO user with ADMIN role on the Grafana workspace
+- SSO is free for this scale
+- No SAML IdP or Active Directory needed
+
+### 5. Deploy Mechanism: SSM Send-Command (NOT SSH)
+
+**Decision:** Deploy from GitLab CI via `aws ssm send-command` to the EC2 instance. Do NOT use SSH keys in CI variables.
+
+Rationale:
+- No SSH key management or rotation in CI
+- SSM provides CloudTrail audit trail of all commands
+- Works through NAT gateways (no public SSH port needed)
+- EC2 instances with Amazon Linux / Ubuntu have SSM agent pre-installed
+- SecurityGroup can have zero inbound rules (SSH port 22 closed)
+
+### 6. No Cross-Compilation Needed
+
+The existing Dockerfile builds inside `rust:latest` (Linux x86_64 glibc), producing a Linux binary. Docker handles the build environment regardless of the CI runner's OS. The `docker build` command in GitLab CI produces an identical image to local builds.
 
 ---
 
-## Authentication Implementation Pattern
+## GitLab CI Pipeline Structure
 
-Modeled after existing `src/feed/kalshi/auth.rs` (RSA-PSS signing):
+```yaml
+# .gitlab-ci.yml
+stages:
+  - test
+  - build
+  - deploy
 
-```rust
-// src/feed/derive/auth.rs
+variables:
+  ECR_REGISTRY: 606103597377.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: prediction
 
-use k256::ecdsa::{SigningKey, signature::Signer};
-use k256::ecdsa::signature::hazmat::PrehashSigner;
-// OR use the digest-based approach:
-// use k256::ecdsa::{SigningKey, Signature};
-// use sha3::Keccak256;
-// use k256::ecdsa::signature::DigestSigner;
+test:
+  stage: test
+  image: rust:latest
+  cache:
+    key: cargo-${CI_COMMIT_REF_SLUG}
+    paths:
+      - target/
+      - .cargo/registry/
+  variables:
+    CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
+  script:
+    - cargo test --release
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "master"
 
-/// Sign a timestamp for Derive.xyz WebSocket authentication.
-///
-/// Derive.xyz uses Ethereum's `personal_sign` convention:
-/// sign(keccak256("\x19Ethereum Signed Message:\n" + len(msg) + msg))
-///
-/// Returns hex-encoded signature (0x-prefixed) for the `public/login` params.
-pub fn sign_derive_login(
-    signing_key: &SigningKey,
-    timestamp_ms: i64,
-) -> anyhow::Result<String> {
-    let timestamp_str = timestamp_ms.to_string();
-    let prefix = format!("\x19Ethereum Signed Message:\n{}", timestamp_str.len());
-    let prefixed_msg = format!("{}{}", prefix, timestamp_str);
-    // keccak256 of the prefixed message
-    // then sign with secp256k1 ECDSA
-    // return "0x" + hex(signature_bytes + recovery_id)
-    todo!("implementation detail -- verified pattern from Derive docs")
-}
+build-and-push:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - apk add --no-cache aws-cli
+    - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+  script:
+    - docker build -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:${CI_COMMIT_SHA} -t ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest .
+    - docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:${CI_COMMIT_SHA}
+    - docker push ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
 
-/// Load a secp256k1 private key from hex string (32 bytes).
-pub fn load_derive_signing_key(private_key_hex: &str) -> anyhow::Result<SigningKey> {
-    let key_bytes = hex::decode(private_key_hex.trim_start_matches("0x"))
-        .map_err(|e| anyhow::anyhow!("invalid hex private key: {}", e))?;
-    SigningKey::from_bytes(key_bytes.as_slice().into())
-        .map_err(|e| anyhow::anyhow!("invalid secp256k1 key: {}", e))
-}
+deploy:
+  stage: deploy
+  image: amazon/aws-cli:2
+  script:
+    - |
+      aws ssm send-command \
+        --instance-ids "${EC2_INSTANCE_ID}" \
+        --document-name "AWS-RunShellScript" \
+        --parameters 'commands=["cd /app && docker compose pull && /app/start.sh"]' \
+        --region us-east-1
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: manual
 ```
 
-**Note on `hex::decode`:** The `hex` crate may need to be added if not transitively available. Alternative: use `base64`'s utilities or implement hex decode manually. Verify at implementation time.
+CI variables to set in GitLab Settings > CI/CD > Variables:
+- `AWS_ACCESS_KEY_ID` -- CI deploy user (not EC2 role)
+- `AWS_SECRET_ACCESS_KEY` -- CI deploy user
+- `AWS_DEFAULT_REGION` -- `us-east-1`
+- `EC2_INSTANCE_ID` -- target EC2 instance ID
 
 ---
 
-## Integration Architecture
+## EC2 Instance IAM Role Policies
 
-Derive feeds into the existing pipeline at the same level as Deribit, Polymarket, and Kalshi:
+The instance profile needs these policies (provisioned by CDK):
 
-```
-DeriveClient (src/feed/derive/client.rs)
-    |-- connect to wss://api.lyra.finance/ws
-    |-- send public/login (wallet + timestamp + signature)
-    |-- send public/subscribe to orderbook.{instrument_name} channels
-    |-- forward raw frames -> mpsc::Receiver<RawMessage>
-    |
-DeriveSupervisor (src/feed/derive/supervisor.rs)
-    |-- owns DeriveClient, reconnects on failure
-    |-- watches SubscriptionManager for instrument list changes
-    |-- sends RawMessage to feed pipeline
-    |
-DeriveParser (src/feed/derive/normalize.rs)
-    |-- parses orderbook delta/snapshot JSON into MarketSnapshot
-    |-- uses existing Black-76 pipeline (no changes needed)
-    |
-SpreadEngine / SignalEngine
-    |-- unchanged: receives MarketSnapshot from all venues including Derive
-```
-
-**New modules required** (all modeled on existing Deribit/Kalshi pattern):
-- `src/feed/derive/mod.rs`
-- `src/feed/derive/auth.rs`
-- `src/feed/derive/client.rs`
-- `src/feed/derive/messages.rs`
-- `src/feed/derive/normalize.rs`
-- `src/feed/derive/supervisor.rs`
-- `src/feed/derive/book.rs` (orderbook delta maintenance)
-- `src/feed/derive/channels.rs` (subscription channel name builder)
+| Policy / Permission | Purpose |
+|---------------------|---------|
+| `AmazonPrometheusRemoteWriteAccess` (managed) | Prometheus remote_write to AMP workspace |
+| `AmazonSSMManagedInstanceCore` (managed) | SSM agent for remote deploy commands |
+| `AmazonEC2ContainerRegistryReadOnly` (managed) | Pull images from ECR |
+| Custom: `secretsmanager:GetSecretValue` on `arn:aws:secretsmanager:*:*:secret:prediction/prod/*` | Read API key secrets |
+| Custom: `logs:CreateLogGroup`, `logs:CreateLogStream`, `logs:PutLogEvents` | Docker awslogs driver |
 
 ---
 
-## Rate Limits (LOW confidence -- could not access full docs page)
+## Installation
 
-From search results referencing `docs.derive.xyz/reference/rate-limits`:
+```bash
+# CDK infrastructure project (new directory alongside Rust project)
+mkdir -p infra && cd infra
+npx cdk init app --language typescript
+# aws-cdk-lib and constructs are auto-installed by cdk init
 
-- **Algorithm:** Fixed window, refills every 5 seconds
-- **Non-matching REST (public endpoints):** ~10 requests per second (TPS) per IP, burst of 5x (50 per window)
-- **WebSocket connections:** Limited concurrent connections per IP (exact number unknown; error code `-32100` returned when exceeded)
-- **Market makers:** Higher limits available on request
-
-**For this project (read-only market data):**
-- Discovery (`public/get_instruments` via REST): Use existing `governor`-based rate limiter at conservative 2 req/s
-- WebSocket subscriptions: No per-message rate limit for incoming data; only outgoing subscribe messages are rate-limited
-- The existing `VenueRateLimiter` pattern from Deribit/Kalshi applies directly
-
-**Comparison to existing venues:**
-| Venue | Rate Limit | Notes |
-|-------|-----------|-------|
-| Deribit | 20 req/s private | Public WS subscriptions unlimited |
-| Polymarket | None documented | CLOB WS market data unrestricted |
-| Kalshi | RSA auth required | WS rate not published |
-| **Derive** | ~10 req/s (fixed window/5s) | Per IP, public REST |
-
----
-
-## Instrument Discovery Integration
-
-Derive's `public/get_instruments` returns instruments with format compatible with existing discovery pipeline:
-
-```
-public/get_instruments params:
-  - currency: "BTC"
-  - instrument_type: "option"  (or "perp", "spot")
-  - expired: false
-
-Response fields (compatible with existing FuzzyMatchKey pattern):
-  - instrument_name: "BTC-20240329-70000-C"  (matches Deribit naming!)
-  - expiry_time: Unix timestamp
-  - strike: float
-  - option_type: "C" | "P"
-  - is_active: bool
+# Verify versions
+npx cdk --version  # Should show 2.x
 ```
 
-**Critical insight:** Derive uses the EXACT same instrument name format as Deribit (`BTC-YYYYMMDD-STRIKE-C/P`). The existing `FuzzyMatchKey` (asset/strike/direction) matching in the discovery pipeline should recognize Derive instruments without format changes. Only a new `DeriveFeed` discovery checker is needed.
+```bash
+# On EC2 instance (via CDK UserData script)
+# 1. Docker + Docker Compose (Amazon Linux 2023)
+sudo yum install -y docker
+sudo systemctl enable docker && sudo systemctl start docker
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# 2. Prometheus for remote_write
+sudo useradd --no-create-home --shell /bin/false prometheus
+PROM_VERSION=2.53.0
+curl -LO https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz
+tar xzf prometheus-${PROM_VERSION}.linux-amd64.tar.gz
+sudo cp prometheus-${PROM_VERSION}.linux-amd64/prometheus /usr/local/bin/
+# Configure as systemd service with prometheus.yml
+
+# 3. jq for secrets parsing
+sudo yum install -y jq
+```
 
 ---
 
 ## Alternatives Considered
 
-| Category | Recommended | Alternative | Why Not |
-|----------|-------------|-------------|---------|
-| secp256k1 signing | k256 0.13 | secp256k1 0.29 (C bindings) | k256 is pure Rust, same RustCrypto family as sha2 already in deps, no C build step |
-| secp256k1 signing | k256 0.13 | alloy-signer | 50+ transitive deps, overkill for one `personal_sign` call |
-| Derive SDK | Direct JSON-RPC impl | derivexyz/cockpit (copy) | cockpit is a full trading system, not a library; direct impl is 8 files modeled on Deribit client |
+| Recommended | Alternative | Why Not |
+|-------------|-------------|---------|
+| AWS CDK (TypeScript) | Terraform | CDK produces CloudFormation natively; L2 constructs handle IAM/SG defaults; TypeScript is more expressive than HCL for this scale |
+| AWS CDK (TypeScript) | Pulumi | Smaller ecosystem; fewer AWS-specific examples; CDK has official AWS backing |
+| AWS CDK (TypeScript) | Raw CloudFormation | Verbose YAML/JSON; no type checking; CDK generates it with type safety |
+| Amazon Managed Prometheus | Self-hosted Prometheus with EBS | Eliminates TSDB storage management, backup scripts, retention policies |
+| Amazon Managed Grafana | Self-hosted Grafana on EC2 | Eliminates upgrade maintenance, auth config, plugin management, HTTPS cert renewal |
+| awslogs Docker driver | CloudWatch Agent | Agent is another process to manage; awslogs is built into Docker |
+| awslogs Docker driver | Fluentd / Fluent Bit | Overkill for single-container deployment; adds operational complexity |
+| Bash secrets injection | AWS SDK in Rust binary | Zero Rust code changes; no new deps; keeps binary cloud-agnostic |
+| Bash secrets injection | Docker secrets / .env files on disk | Secrets Manager provides encryption, IAM access control, CloudTrail audit |
+| SSM Send-Command deploy | SSH from CI | No SSH key management; SSM provides audit trail; no public SSH port |
+| SSM Send-Command deploy | AWS CodeDeploy | Heavyweight agent for a single-instance pull-and-restart; SSM is simpler |
+| EC2 single instance | ECS Fargate | More expensive; adds ECS task definition complexity; overkill for one container |
+| EC2 single instance | EKS | Massively overkill; Kubernetes operational burden for one container |
+| Prometheus on EC2 | AWS Distro for OpenTelemetry (ADOT) | Prometheus is simpler for this use case; app already exposes /metrics; ADOT adds collector complexity |
+
+---
+
+## What NOT to Use
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| `aws-sdk-secretsmanager` Rust crate | ~15 transitive deps for what a 10-line bash script does; couples binary to AWS | AWS CLI in startup script |
+| `aws-sigv4-proxy` container | Unnecessary since Prometheus 2.26+ has native SigV4 | `sigv4:` block in prometheus.yml |
+| CloudWatch Agent | Another daemon to manage and monitor on a single-container host | Docker `awslogs` driver (built-in) |
+| Self-hosted Grafana | Upgrade maintenance, auth setup, TLS cert management for solo operator | Amazon Managed Grafana |
+| Community CDK L2 constructs for Grafana/APS | Unclear maintenance; small packages; L1 CfnWorkspace is sufficient for one-time setup | `CfnWorkspace` from aws-cdk-lib |
+| Docker Swarm / Kubernetes | Container orchestration adds complexity with zero benefit for single binary | docker-compose with `restart: unless-stopped` |
+| Ansible / Chef / Puppet | No fleet to manage; CDK UserData handles instance bootstrapping | CDK `ec2.UserData.forLinux()` |
+| cargo-chef in Dockerfile | Optimization for later; current build works; adds Dockerfile complexity | Existing two-stage Dockerfile |
+| GitHub Actions | Project is on GitLab | GitLab CI |
 
 ---
 
 ## Version Compatibility
 
-| Crate | Version | Rust 2024 Edition | Notes |
-|-------|---------|-------------------|-------|
-| k256 | 0.13 (stable; 0.14 is pre-release) | Compatible (MSRV 1.65+) | NCC Group audit completed; 0.14 in pre-release, avoid pre-release in production |
-| sha3 | 0.10 (if needed) | Compatible | Same RustCrypto family as sha2 0.10 already in deps |
-
-**Rust compiler:** 1.85+ (2024 edition) -- no issues.
+| Package | Compatible With | Notes |
+|---------|-----------------|-------|
+| aws-cdk-lib ^2.241.0 | constructs ^10.0.0 | Peer dependency; installed together by `cdk init` |
+| aws-cdk-lib ^2.241.0 | Node.js >=18.x | Node 16 is EOL; use 18.x or 20.x LTS |
+| aws-cdk CLI ^2.1109.0 | aws-cdk-lib ^2.241.0 | CLI version can be higher; lib version determines available constructs |
+| Prometheus >=2.53.0 | AMP remote_write with SigV4 | Any 2.26+ works for SigV4; 2.53 is current stable |
+| Docker awslogs driver | Docker Engine 27.x | Built-in driver; no compatibility concern |
+| GitLab CI dind service | docker:27-dind | Service image version should match main image |
+| Amazon Linux 2023 AMI | Docker, SSM Agent, AWS CLI v2 | All pre-available or in default repos |
 
 ---
 
 ## Dependency Growth Summary
 
-| Milestone | New Crates Added | Rationale |
-|-----------|-----------------|-----------|
-| v1.0 | Baseline (19 direct deps) | Core system |
-| v1.1 | 0 | All built on existing deps |
-| v1.2 | 1 (strsim) | Fuzzy matching |
-| v1.3 | 0 | All built on existing deps |
-| v1.4 | 2 (comfy-table, csv) | CLI output formatting |
-| **v1.5** | **1 (k256) + possibly sha3** | **Ethereum wallet signing for Derive auth** |
+| Milestone | New Rust Crates | New Infrastructure Tools |
+|-----------|----------------|--------------------------|
+| v1.0 | Baseline (19 direct deps) | Docker, docker-compose |
+| v1.1 | 0 | -- |
+| v1.2 | 1 (strsim) | -- |
+| v1.3 | 0 | -- |
+| v1.4 | 2 (comfy-table, csv) | -- |
+| v1.5 | 1 (k256) | -- |
+| **v1.6** | **0** | **CDK (TypeScript), GitLab CI, Prometheus, AMP, AMG, Secrets Manager** |
 
-The 1 new crate continues the project's minimal-dependency philosophy. Everything else (WS, JSON-RPC, rate limiting, reconnection, decimal arithmetic) reuses the existing validated stack.
-
----
-
-## Open Questions for Implementation
-
-1. **Does `public/login` apply to public orderbook channels?** If Derive allows unauthenticated `public/subscribe` to `orderbook.*` channels, then `k256` may not be needed at all for v1.5 (read-only scope). Verify by testing with a plain WS connection before adding auth. The `public/` prefix on endpoints typically implies no-auth, but Derive's docs show `public/login` as a prerequisite for sessions. MEDIUM confidence that auth IS required.
-
-2. **Does k256's ecdsa feature re-export Keccak256?** Check `k256::ecdsa::signature` module at implementation time. If yes, skip explicit `sha3` dep. If no, add `sha3 = "0.10"`.
-
-3. **Signature encoding:** Ethereum signatures are 65 bytes (r + s + v), typically hex-encoded as `0x` + 130 hex chars. Verify Derive accepts this format (vs. base64 or other encoding). The Hummingbot connector evidence suggests standard `0x` hex.
-
-4. **Exact rate limit numbers:** Visit `docs.derive.xyz/reference/rate-limits` directly to confirm the "10 TPS" figure and burst allowance before setting `VenueRateLimiter` parameters.
+The zero-new-Rust-crate pattern for v1.6 is deliberate. All deployment infrastructure is external to the application binary, maintaining the existing supply chain size.
 
 ---
 
 ## Sources
 
-- [Derive.xyz API Overview](https://docs.derive.xyz/reference/overview) -- WebSocket URL, JSON-RPC protocol, transport-agnostic confirmation (HIGH confidence)
-- [Derive.xyz JSON-RPC Reference](https://docs.derive.xyz/reference/json-rpc) -- Protocol structure, method naming (HIGH confidence)
-- [Derive.xyz Session Keys](https://docs.derive.xyz/reference/session-keys) -- X-LyraWallet header, wallet-based auth, session key concept (HIGH confidence)
-- [Derive.xyz public/login](https://docs.derive.xyz/reference/post_public-login) -- Endpoint exists, WebSocket-only, wallet/timestamp/signature params (HIGH confidence via search result snippets)
-- [Derive.xyz Rate Limits](https://docs.derive.xyz/reference/rate-limits) -- Fixed window/5s algorithm confirmed; specific numbers not captured (MEDIUM confidence)
-- [Hummingbot Derive connector](https://hummingbot.org/exchanges/derive/) -- wallet_address, private_key, subaccount_id credential structure; `personal_sign` approach (MEDIUM confidence)
-- [Derive.xyz public/get_instrument](https://docs.derive.xyz/reference/post_public-get-instrument) -- Instrument schema, named params (HIGH confidence)
-- [k256 crate](https://crates.io/crates/k256) -- Version 0.13.4 stable, 0.14 pre-release; ecdsa feature; Ethereum signing confirmed (HIGH confidence)
-- [derivexyz/cockpit GitHub](https://github.com/derivexyz/cockpit) -- Official Rust market-maker reference confirming Rust-based integration is viable (MEDIUM confidence)
-- Existing codebase: `src/feed/kalshi/auth.rs`, `src/feed/deribit/client.rs` -- Confirmed integration patterns for auth and WS client structure (HIGH confidence)
+- [AWS CDK v2 TypeScript Guide](https://docs.aws.amazon.com/cdk/v2/guide/work-with-cdk-typescript.html) -- CDK setup and module structure (HIGH confidence)
+- [aws-cdk-lib on npm](https://www.npmjs.com/package/aws-cdk-lib) -- current version 2.241.0 (HIGH confidence)
+- [aws-cdk CLI on npm](https://www.npmjs.com/package/aws-cdk) -- current version 2.1109.0 (HIGH confidence)
+- [aws-cdk-lib.aws_ec2 module](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_ec2-readme.html) -- EC2 L2 constructs (HIGH confidence)
+- [aws-cdk-lib.aws_grafana module](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_grafana-readme.html) -- L1 constructs only confirmed (HIGH confidence)
+- [CfnWorkspace (APS)](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_aps.CfnWorkspace.html) -- AMP workspace L1 construct (HIGH confidence)
+- [CfnWorkspace (Grafana)](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_grafana.CfnWorkspace.html) -- Grafana workspace L1 construct (HIGH confidence)
+- [Prometheus remote_write for EC2](https://docs.aws.amazon.com/prometheus/latest/userguide/AMP-onboard-ingest-metrics-remote-write-EC2.html) -- SigV4 native config, IAM role requirement, Prometheus >=2.26 (HIGH confidence)
+- [Docker awslogs driver](https://docs.docker.com/engine/logging/drivers/awslogs/) -- all options, IAM permissions, non-blocking mode (HIGH confidence)
+- [GitLab CI Rust patterns](https://dev.to/hatembentayeb/optimizing-ci-cd-pipeline-for-rust-projects-gitlab-docker-hc9) -- caching, dind setup (MEDIUM confidence)
+- [GitLab CI ECR push gist](https://gist.github.com/tanmay-bhat/6fa65b9cd9d5f7f5e780dbe3efcb1fb7) -- ECR login pattern (MEDIUM confidence)
+- [Secrets Manager on EC2](https://repost.aws/questions/QUNHr37DAhQxqTUQgeUUFPEA/ec2-and-secret-manager) -- CLI fetch pattern for Docker env vars (HIGH confidence)
+- [ECS default log mode change](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/using_awslogs.html) -- non-blocking default since June 2025 (MEDIUM confidence)
 
 ---
-*Stack research for: v1.5 Derive.xyz Venue Integration*
-*Researched: 2026-03-03*
+*Stack research for: v1.6 Production Deployment*
+*Researched: 2026-03-07*
