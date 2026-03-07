@@ -4,6 +4,9 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as aps from 'aws-cdk-lib/aws-aps';
+import * as grafana from 'aws-cdk-lib/aws-grafana';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export class PredictionStack extends cdk.Stack {
@@ -60,6 +63,45 @@ export class PredictionStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // === Amazon Managed Prometheus (MON-02) ===
+    const ampWorkspace = new aps.CfnWorkspace(this, 'AmpWorkspace', {
+      alias: 'prediction-metrics',
+    });
+
+    // === Grafana IAM Role (MON-03) ===
+    const grafanaRole = new iam.Role(this, 'GrafanaRole', {
+      assumedBy: new iam.ServicePrincipal('grafana.amazonaws.com'),
+      description: 'Amazon Managed Grafana workspace role',
+    });
+
+    grafanaRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'aps:QueryMetrics',
+        'aps:GetSeries',
+        'aps:GetLabels',
+        'aps:GetMetricMetadata',
+      ],
+      resources: [ampWorkspace.attrArn],
+    }));
+
+    // === Amazon Managed Grafana (MON-03) ===
+    const grafanaWorkspace = new grafana.CfnWorkspace(this, 'GrafanaWorkspace', {
+      accountAccessType: 'CURRENT_ACCOUNT',
+      authenticationProviders: ['AWS_SSO'],
+      permissionType: 'CUSTOMER_MANAGED',
+      name: 'prediction-dashboards',
+      dataSources: ['PROMETHEUS'],
+      roleArn: grafanaRole.roleArn,
+    });
+
+    // === SSM Parameter for AMP Workspace ID ===
+    const ssmParam = new ssm.StringParameter(this, 'AmpWorkspaceIdParam', {
+      parameterName: '/prediction/amp-workspace-id',
+      stringValue: ampWorkspace.attrWorkspaceId,
+      description: 'AMP workspace ID for Prometheus remote_write configuration',
+    });
+
     // === IAM Instance Profile (INFRA-04) ===
     const instanceRole = new iam.Role(this, 'InstanceRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
@@ -84,6 +126,14 @@ export class PredictionStack extends cdk.Stack {
 
     // CloudWatch Logs write (scoped to this specific log group)
     logGroup.grantWrite(instanceRole);
+
+    // CloudWatch Agent for host-level metrics (CPU, memory, disk)
+    instanceRole.addManagedPolicy(
+      iam.ManagedPolicy.fromAwsManagedPolicyName('CloudWatchAgentServerPolicy')
+    );
+
+    // SSM Parameter read (for AMP workspace ID retrieval)
+    ssmParam.grantRead(instanceRole);
 
     // === Compute (INFRA-05) ===
     const instance = new ec2.Instance(this, 'Instance2', {
@@ -219,10 +269,13 @@ export class PredictionStack extends cdk.Stack {
       '      - /opt/prediction/data/state:/app/state',
       '      - /opt/prediction/data/logs:/app/logs',
       '    logging:',
-      '      driver: json-file',
+      '      driver: awslogs',
       '      options:',
-      '        max-size: "50m"',
-      '        max-file: "3"',
+      '        awslogs-region: us-east-1',
+      '        awslogs-group: /prediction/production',
+      '        awslogs-stream-prefix: prediction',
+      '        mode: non-blocking',
+      '        max-buffer-size: 4m',
       '    healthcheck:',
       '      test: ["CMD", "curl", "-f", "http://localhost:9001/health"]',
       '      interval: 30s',
@@ -267,5 +320,9 @@ export class PredictionStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'SecretArn', { value: credentials.secretArn });
     new cdk.CfnOutput(this, 'LogGroupName', { value: logGroup.logGroupName });
     new cdk.CfnOutput(this, 'VpcId', { value: vpc.vpcId });
+    new cdk.CfnOutput(this, 'AmpWorkspaceId', { value: ampWorkspace.attrWorkspaceId });
+    new cdk.CfnOutput(this, 'AmpPrometheusEndpoint', { value: ampWorkspace.attrPrometheusEndpoint });
+    new cdk.CfnOutput(this, 'GrafanaEndpoint', { value: grafanaWorkspace.attrEndpoint });
+    new cdk.CfnOutput(this, 'GrafanaWorkspaceId', { value: grafanaWorkspace.attrId });
   }
 }
