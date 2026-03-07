@@ -122,7 +122,10 @@ Plans:
   2. `fetch-secrets.sh` retrieves venue API credentials from Secrets Manager and exports them as environment variables before container start
   3. Sending SIGTERM to the container flushes checkpoints, closes WebSocket connections, and exits with code 0 (not killed by SIGKILL after timeout)
   4. After EC2 reboot, the systemd service automatically starts docker-compose and the application resumes operation without manual intervention
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 35-01-PLAN.md -- CDK user-data bootstrap, secrets template fix, and production docker-compose
+- [ ] 35-02-PLAN.md -- Deploy to AWS and verify full bootstrap chain with graceful shutdown
 
 ### Phase 36: CloudWatch Logging
 **Goal**: Container logs and host metrics are remotely accessible in CloudWatch without SSH
@@ -183,7 +186,7 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 26-29 | v1.4 Analysis Tooling | 7/7 | Complete | 2026-03-02 |
 | 30-33 | v1.5 Derive Integration | 10/10 | Complete | 2026-03-06 |
 | 34. CDK Infrastructure Foundation | v1.6 | Complete    | 2026-03-07 | 2026-03-07 |
-| 35. Compute, Secrets, Hardening | v1.6 | 0/TBD | Not started | - |
+| 35. Compute, Secrets, Hardening | v1.6 | 0/2 | Planning complete | - |
 | 36. CloudWatch Logging | v1.6 | 0/TBD | Not started | - |
 | 37. Prometheus + AMP + Grafana | v1.6 | 0/TBD | Not started | - |
 | 38. GitLab CI/CD Pipeline | v1.6 | 0/TBD | Not started | - |
