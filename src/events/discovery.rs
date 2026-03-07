@@ -15,7 +15,7 @@ use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 
-use crate::config::Direction;
+use crate::config::{Direction, EventMapping};
 use crate::events::registry::EventRegistry;
 use crate::events::toml_writer::{CandidateMapping, CandidateVenues};
 use crate::feed::reliability::VenueRateLimiter;
@@ -522,9 +522,11 @@ pub fn parse_polymarket_question(question: &str) -> Option<(String, Decimal, Dir
         return None;
     };
 
-    // Extract strike: everything before " by "
-    let by_idx = after_verb.find(" by ")?;
-    let strike_str = &after_verb[..by_idx];
+    // Extract strike: everything before " by " or " in "
+    let delimiter_idx = after_verb
+        .find(" by ")
+        .or_else(|| after_verb.find(" in "))?;
+    let strike_str = &after_verb[..delimiter_idx];
     // Remove commas from strike (e.g., "150,000" -> "150000")
     let strike_clean: String = strike_str.chars().filter(|c| *c != ',').collect();
     let strike = Decimal::from_str_exact(&strike_clean).ok()?;
@@ -864,27 +866,78 @@ pub fn find_cross_venue_candidates_fuzzy(
         groups.entry(key).or_default().push(inst);
     }
 
-    // Pass 2: Filter to multi-venue groups within expiry tolerance
+    // Pass 2: Find multi-venue sub-clusters within expiry tolerance.
+    //
+    // A single FuzzyMatchKey may span many expiry dates (e.g., Deribit has
+    // BTC-70000-C across weekly, monthly, and quarterly expiries). The global
+    // min-max spread can be months wide, so we use a sliding window approach:
+    // sort by expiry, then slide a window of `expiry_tolerance_days` to find
+    // sub-groups containing 2+ different venues.
     let mut results = Vec::new();
-    for (key, insts) in groups {
-        // Check 2+ different venues
-        let venues: HashSet<Venue> = insts.iter().map(|i| i.venue).collect();
-        if venues.len() < 2 {
+
+    for (key, mut insts) in groups {
+        // Quick check: need 2+ venues in the entire group
+        let all_venues: HashSet<Venue> = insts.iter().map(|i| i.venue).collect();
+        if all_venues.len() < 2 {
             continue;
         }
 
-        // Compute expiry spread
-        let expiries: Vec<NaiveDate> = insts.iter().map(|i| i.expiry).collect();
-        let min_expiry = expiries.iter().min().unwrap();
-        let max_expiry = expiries.iter().max().unwrap();
-        let spread_days = (*max_expiry - *min_expiry).num_days();
+        // Sort by expiry for sliding window
+        insts.sort_by_key(|i| i.expiry);
 
-        if spread_days > expiry_tolerance_days {
+        // Check if the whole group fits in the tolerance (fast path)
+        let min_expiry = insts.first().unwrap().expiry;
+        let max_expiry = insts.last().unwrap().expiry;
+        let global_spread = (max_expiry - min_expiry).num_days();
+
+        if global_spread <= expiry_tolerance_days {
+            let expiries: Vec<NaiveDate> = insts.iter().map(|i| i.expiry).collect();
+            let confidence = compute_expiry_confidence(&expiries);
+            results.push((key, insts, confidence));
             continue;
         }
 
-        let confidence = compute_expiry_confidence(&expiries);
-        results.push((key, insts, confidence));
+        // Slow path: find the tightest cross-venue cluster per distinct
+        // expiry neighborhood. For each unique expiry date, collect all
+        // instruments within tolerance and check for multi-venue presence.
+        // Deduplicate by skipping dates already covered by an emitted cluster.
+        let mut covered_until = NaiveDate::MIN;
+
+        // Get unique sorted expiry dates
+        let mut unique_dates: Vec<NaiveDate> = insts.iter().map(|i| i.expiry).collect();
+        unique_dates.sort();
+        unique_dates.dedup();
+
+        for &start_date in &unique_dates {
+            // Skip if this date is already covered by a previously emitted cluster
+            if start_date <= covered_until {
+                continue;
+            }
+
+            // Collect all instruments within tolerance of start_date
+            let window: Vec<&DiscoveredInstrument> = insts
+                .iter()
+                .filter(|i| {
+                    let diff = (i.expiry - start_date).num_days();
+                    diff >= 0 && diff <= expiry_tolerance_days
+                })
+                .copied()
+                .collect();
+
+            // Check 2+ venues in this window
+            let window_venues: HashSet<Venue> = window.iter().map(|i| i.venue).collect();
+            if window_venues.len() < 2 {
+                continue;
+            }
+
+            // Mark this range as covered to prevent overlapping clusters
+            let window_max = window.iter().map(|i| i.expiry).max().unwrap();
+            covered_until = window_max;
+
+            let expiries: Vec<NaiveDate> = window.iter().map(|i| i.expiry).collect();
+            let confidence = compute_expiry_confidence(&expiries);
+            results.push((key.clone(), window, confidence));
+        }
     }
 
     results
@@ -965,6 +1018,92 @@ pub fn filter_new_candidates_fuzzy(
     }
 
     new_candidates
+}
+
+/// Venue enrichment: an existing event that can gain a new venue.
+#[derive(Debug, Clone)]
+pub struct VenueEnrichment {
+    /// ID of the existing event to enrich.
+    pub event_id: String,
+    /// Polymarket condition_id + token_id to add.
+    pub polymarket: Option<(String, String)>,
+    /// Derive instrument to add.
+    pub derive: Option<String>,
+    /// Deribit instrument to add.
+    pub deribit: Option<String>,
+}
+
+/// Find existing events that can be enriched with newly discovered venues.
+///
+/// When Polymarket instruments match an existing Deribit↔Derive event (same
+/// asset/strike/direction within expiry tolerance), this function produces
+/// enrichment records so the lifecycle can update the TOML.
+///
+/// Uses instrument-level lookup: for each candidate group, checks if any
+/// instrument is already mapped to an existing event. If so, checks what
+/// venues the existing event is missing that the candidate group provides.
+pub fn find_venue_enrichments(
+    candidates: &[(FuzzyMatchKey, Vec<&DiscoveredInstrument>, ExpiryConfidence)],
+    existing_registry: &EventRegistry,
+) -> Vec<VenueEnrichment> {
+    let mut enrichments = Vec::new();
+    let mut enriched_events: HashSet<String> = HashSet::new();
+
+    for (_key, instruments, _confidence) in candidates {
+        // Find which existing event(s) contain instruments from this group
+        let mut matched_event: Option<&EventMapping> = None;
+        for inst in instruments.iter() {
+            if let Some(existing) = existing_registry.lookup_by_instrument(inst.venue, &inst.instrument_id) {
+                matched_event = Some(existing);
+                break;
+            }
+        }
+
+        let existing = match matched_event {
+            Some(e) => e,
+            None => continue,
+        };
+
+        // Skip if we've already produced an enrichment for this event
+        if !enriched_events.insert(existing.id.clone()) {
+            continue;
+        }
+
+        // Check which venues are missing in the existing event
+        let mut new_polymarket: Option<(String, String)> = None;
+        let mut new_derive: Option<String> = None;
+        let mut new_deribit: Option<String> = None;
+
+        for inst in instruments {
+            match inst.venue {
+                Venue::Polymarket if existing.venues.polymarket.is_none() => {
+                    new_polymarket = Some((
+                        inst.instrument_id.clone(),
+                        inst.extra_venue_id.clone().unwrap_or_default(),
+                    ));
+                }
+                Venue::Derive if existing.venues.derive.is_none() => {
+                    new_derive = Some(inst.instrument_id.clone());
+                }
+                Venue::Deribit if existing.venues.deribit.is_none() => {
+                    new_deribit = Some(inst.instrument_id.clone());
+                }
+                _ => {}
+            }
+        }
+
+        // Only produce enrichment if there's something new to add
+        if new_polymarket.is_some() || new_derive.is_some() || new_deribit.is_some() {
+            enrichments.push(VenueEnrichment {
+                event_id: existing.id.clone(),
+                polymarket: new_polymarket,
+                derive: new_derive,
+                deribit: new_deribit,
+            });
+        }
+    }
+
+    enrichments
 }
 
 /// Flag instruments that exist in only one venue and are not in any existing mapping.
@@ -1560,6 +1699,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_question_reach_in_month() {
+        let result =
+            parse_polymarket_question("Will Bitcoin reach $150,000 in March?");
+        assert!(result.is_some());
+        let (asset, strike, direction) = result.unwrap();
+        assert_eq!(asset, "BTC");
+        assert_eq!(strike, Decimal::from_str("150000").unwrap());
+        assert_eq!(direction, Direction::Above);
+    }
+
+    #[test]
+    fn parse_question_dip_in_month() {
+        let result =
+            parse_polymarket_question("Will Bitcoin dip to $65,000 in March?");
+        assert!(result.is_some());
+        let (asset, strike, direction) = result.unwrap();
+        assert_eq!(asset, "BTC");
+        assert_eq!(strike, Decimal::from_str("65000").unwrap());
+        assert_eq!(direction, Direction::Below);
+    }
+
+    #[test]
     fn parse_question_unknown_asset() {
         let result =
             parse_polymarket_question("Will Dogecoin reach $1 by December 31, 2025?");
@@ -1850,6 +2011,58 @@ mod tests {
 
         let results = find_cross_venue_candidates_fuzzy(&instruments, 7);
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn fuzzy_match_multi_expiry_sliding_window() {
+        // Deribit has BTC-70000-C across multiple expiries (10MAR, 27MAR, 26JUN).
+        // Polymarket has BTC-70000-Above expiring April 1.
+        // Only 27MAR↔April1 (5 days) should match within 7-day tolerance.
+        // The global spread (10MAR to 26JUN = 108 days) must NOT prevent matching.
+        let instruments = vec![
+            make_discovered(
+                Venue::Deribit,
+                "BTC-10MAR26-70000-C",
+                "BTC",
+                Decimal::from_str("70000").unwrap(),
+                NaiveDate::from_ymd_opt(2026, 3, 10).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered(
+                Venue::Deribit,
+                "BTC-27MAR26-70000-C",
+                "BTC",
+                Decimal::from_str("70000").unwrap(),
+                NaiveDate::from_ymd_opt(2026, 3, 27).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered(
+                Venue::Deribit,
+                "BTC-26JUN26-70000-C",
+                "BTC",
+                Decimal::from_str("70000").unwrap(),
+                NaiveDate::from_ymd_opt(2026, 6, 26).unwrap(),
+                Direction::Above,
+            ),
+            make_discovered(
+                Venue::Polymarket,
+                "0xPOLY_BTC_70K_MAR",
+                "BTC",
+                Decimal::from_str("70000").unwrap(),
+                NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+                Direction::Above,
+            ),
+        ];
+
+        let results = find_cross_venue_candidates_fuzzy(&instruments, 7);
+        // Should find at least one sub-cluster containing Polymarket + Deribit 27MAR
+        assert!(!results.is_empty(), "should find sub-cluster within tolerance");
+
+        // The matched cluster should contain the Polymarket and the 27MAR Deribit
+        let cluster = &results[0];
+        let venues: HashSet<Venue> = cluster.1.iter().map(|i| i.venue).collect();
+        assert!(venues.contains(&Venue::Polymarket));
+        assert!(venues.contains(&Venue::Deribit));
     }
 
     #[test]

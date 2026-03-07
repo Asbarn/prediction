@@ -129,6 +129,12 @@ pub fn append_candidates_to_doc(
     doc: &mut DocumentMut,
     candidates: &[CandidateMapping],
 ) -> anyhow::Result<()> {
+    // Handle `events = []` (inline empty array) by converting to array of tables
+    if doc.get("events").is_some_and(|v| v.is_array()) {
+        doc.remove("events");
+        doc.insert("events", toml_edit::Item::ArrayOfTables(Default::default()));
+    }
+
     let events = doc["events"]
         .as_array_of_tables_mut()
         .ok_or_else(|| anyhow!("events.toml missing [[events]] array of tables"))?;
@@ -139,6 +145,90 @@ pub fn append_candidates_to_doc(
     }
 
     Ok(())
+}
+
+/// Apply venue enrichments to existing events in a `DocumentMut`.
+///
+/// For each enrichment, finds the matching `[[events]]` entry by event ID
+/// and adds the new venue mapping(s) to its `[events.venues]` table.
+///
+/// Returns the number of events enriched.
+pub fn apply_venue_enrichments_to_doc(
+    doc: &mut DocumentMut,
+    enrichments: &[crate::events::discovery::VenueEnrichment],
+) -> anyhow::Result<usize> {
+    if enrichments.is_empty() {
+        return Ok(0);
+    }
+
+    let events = doc["events"]
+        .as_array_of_tables_mut()
+        .ok_or_else(|| anyhow!("events.toml missing [[events]] array of tables"))?;
+
+    let mut enriched_count = 0;
+
+    for enrichment in enrichments {
+        // Find the matching event by ID
+        let mut found_idx: Option<usize> = None;
+        for i in 0..events.len() {
+            let event = events.get(i).unwrap();
+            let id = event.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            if id == enrichment.event_id {
+                found_idx = Some(i);
+                break;
+            }
+        }
+        let idx = match found_idx {
+            Some(i) => i,
+            None => continue,
+        };
+
+        let event_mut = events.get_mut(idx).unwrap();
+
+        // Get or create venues table
+        if event_mut.get("venues").is_none() {
+            event_mut["venues"] = toml_edit::Item::Table(Table::new());
+        }
+        let venues = event_mut["venues"]
+            .as_table_mut()
+            .ok_or_else(|| anyhow!("venues is not a table for event {}", enrichment.event_id))?;
+
+        let mut modified = false;
+
+        if let Some((cid, tid)) = &enrichment.polymarket {
+            if venues.get("polymarket").is_none() {
+                let mut pm = Table::new();
+                pm["condition_id"] = value(cid.as_str());
+                pm["token_id"] = value(tid.as_str());
+                venues["polymarket"] = toml_edit::Item::Table(pm);
+                modified = true;
+            }
+        }
+
+        if let Some(derive_inst) = &enrichment.derive {
+            if venues.get("derive").is_none() {
+                let mut d = Table::new();
+                d["instrument"] = value(derive_inst.as_str());
+                venues["derive"] = toml_edit::Item::Table(d);
+                modified = true;
+            }
+        }
+
+        if let Some(deribit_inst) = &enrichment.deribit {
+            if venues.get("deribit").is_none() {
+                let mut d = Table::new();
+                d["instrument"] = value(deribit_inst.as_str());
+                venues["deribit"] = toml_edit::Item::Table(d);
+                modified = true;
+            }
+        }
+
+        if modified {
+            enriched_count += 1;
+        }
+    }
+
+    Ok(enriched_count)
 }
 
 /// Mark multiple events as expired in a `DocumentMut` in-place (no file I/O).

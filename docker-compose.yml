@@ -1,20 +1,24 @@
 services:
   prediction:
-    build: .
+    image: 606103597377.dkr.ecr.us-east-1.amazonaws.com/prediction:latest
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - ./config:/app/config:ro
+      - ./config:/app/config
       - ./secrets:/app/secrets:ro
-      - spread_logs:/app/spread_logs
-      - settlement_logs:/app/settlement_logs
-      - paper_trades:/app/paper_trades
-      - state:/app/state
-      - logs:/app/logs
-    environment:
-      - KALSHI_API_KEY_ID=${KALSHI_API_KEY_ID:-}
-      - KALSHI_PRIVATE_KEY_PATH=/app/secrets/kalshi_private_key.pem
+      - ./spread_logs:/app/spread_logs
+      - ./settlement_logs:/app/settlement_logs
+      - ./paper_trades:/app/paper_trades
+      - ./state:/app/state
+      - ./logs:/app/logs
+    # Kalshi disabled — geo-blocked from Poland account
+    environment: []
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9001/health"]
       interval: 30s
@@ -23,9 +27,3 @@ services:
       start_period: 15s
     restart: unless-stopped
 
-volumes:
-  spread_logs:
-  settlement_logs:
-  paper_trades:
-  state:
-  logs:

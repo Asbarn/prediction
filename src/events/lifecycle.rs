@@ -24,13 +24,15 @@ use crate::config::{
 use crate::events::discovery::{
     discover_deribit, discover_derive, discover_kalshi, discover_polymarket,
     discover_polymarket_structured, filter_new_candidates_fuzzy,
-    find_cross_venue_candidates_fuzzy, flag_novel_instruments,
+    find_cross_venue_candidates_fuzzy, find_venue_enrichments,
+    flag_novel_instruments,
     generate_polymarket_slugs, DiscoveredInstrument, ExpiryConfidence,
 };
 use crate::events::registry::EventRegistry;
 use crate::events::risk::{check_expiry_warning, inflate_risk_score, compute_risk_for_mapping, BasisRiskCache, CachedRiskInfo};
 use crate::events::toml_writer::{
-    append_candidates_to_doc, mark_expired_batch_in_doc,
+    append_candidates_to_doc, apply_venue_enrichments_to_doc,
+    mark_expired_batch_in_doc,
     collect_archivable_entries, collect_expired_unapproved_ids,
     remove_entries_by_id, append_entries_to_archive_doc,
     CandidateMapping, CandidateVenues,
@@ -579,7 +581,19 @@ impl ContractLifecycleManager {
             self.discovery_config.expiry_tolerance_days,
         );
         let new_candidates = filter_new_candidates_fuzzy(&candidates, &registry);
+        let venue_enrichments = find_venue_enrichments(&candidates, &registry);
         drop(registry);
+
+        // Log venue enrichments
+        for enrichment in &venue_enrichments {
+            tracing::info!(
+                event_id = %enrichment.event_id,
+                has_polymarket = enrichment.polymarket.is_some(),
+                has_derive = enrichment.derive.is_some(),
+                has_deribit = enrichment.deribit.is_some(),
+                "venue enrichment: adding new venue to existing event"
+            );
+        }
 
         // Collect candidates for batched write (no per-item writes)
         let mut candidates_to_append: Vec<CandidateMapping> = new_candidates;
@@ -733,13 +747,19 @@ impl ContractLifecycleManager {
         }
 
         // 6. Batched TOML write -- single atomic write per poll cycle
-        let needs_write = !candidates_to_append.is_empty() || !events_to_expire.is_empty();
+        let needs_write = !candidates_to_append.is_empty()
+            || !events_to_expire.is_empty()
+            || !venue_enrichments.is_empty();
         if needs_write {
-            match self.batched_toml_write(&candidates_to_append, &events_to_expire).await {
+            match self
+                .batched_toml_write(&candidates_to_append, &events_to_expire, &venue_enrichments)
+                .await
+            {
                 Ok(()) => {
                     tracing::info!(
                         appended = candidates_to_append.len(),
                         expired = events_to_expire.len(),
+                        enriched = venue_enrichments.len(),
                         "batched TOML write complete"
                     );
                 }
@@ -883,6 +903,7 @@ impl ContractLifecycleManager {
         &self,
         candidates: &[CandidateMapping],
         expire_ids: &[String],
+        enrichments: &[crate::events::discovery::VenueEnrichment],
     ) -> anyhow::Result<()> {
         let content = tokio::fs::read_to_string(&self.events_toml_path).await?;
         let mut doc: DocumentMut = content.parse()
@@ -893,6 +914,12 @@ impl ContractLifecycleManager {
         }
         if !expire_ids.is_empty() {
             mark_expired_batch_in_doc(&mut doc, expire_ids)?;
+        }
+        if !enrichments.is_empty() {
+            let enriched = apply_venue_enrichments_to_doc(&mut doc, enrichments)?;
+            if enriched > 0 {
+                tracing::info!(enriched, "venue enrichments applied to events.toml");
+            }
         }
 
         self.atomic_write(&doc.to_string()).await

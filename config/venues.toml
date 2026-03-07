@@ -31,13 +31,14 @@ randomization_factor = 0.5
 condition_id = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 token_id = "71321045679252212594626385532706912750332728571942532289631379312455583992563"
 
+# Kalshi disabled — geo-blocked from Poland account.
+# Feed is skipped when KALSHI_API_KEY_ID / KALSHI_PRIVATE_KEY env vars are absent.
 [kalshi]
 rest_url = "https://trading-api.kalshi.com/trade-api/v2"
 ws_url = "wss://trading-api.kalshi.com/trade-api/ws/v2"
 staleness_threshold_ms = 5000
 rate_limit_per_second = 10
 market_tickers = []
-private_key_path = "/app/secrets/kalshi_private_key.pem"
 
 [kalshi.reconnect]
 initial_backoff_ms = 1000
