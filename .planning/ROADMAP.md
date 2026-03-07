@@ -178,7 +178,10 @@ Plans:
   3. Paper Trade P&L dashboard shows daily P&L, cumulative net P&L, win rate, and settlement latency
   4. System Health dashboard shows active expiries, subscription counts, lifecycle poll activity, proposal counts, and alert state
   5. Alert rules fire notifications when any feed is down for 5 minutes, zero spread computations occur for 30 minutes, or staleness rejection rate exceeds threshold
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 39-01-PLAN.md -- Create all Grafana provisioning files (4 dashboards, 3 alert rules, data source UID fix)
+- [ ] 39-02-PLAN.md -- Integrate provisioning into CDK user-data, deploy, and verify in Grafana UI
 
 ## Progress
 
@@ -199,4 +202,4 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 36. CloudWatch Logging | 2/2 | Complete    | 2026-03-07 | - |
 | 37. Prometheus + AMP + Grafana | 2/2 | Complete    | 2026-03-07 | - |
 | 38. GitLab CI/CD Pipeline | 1/2 | In Progress|  | - |
-| 39. Grafana Dashboards + Alerts | v1.6 | 0/TBD | Not started | - |
+| 39. Grafana Dashboards + Alerts | v1.6 | 0/2 | Not started | - |
