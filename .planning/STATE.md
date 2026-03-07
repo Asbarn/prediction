@@ -35,6 +35,7 @@ Progress (v1.6): [######----] 60%
 | v1.4 | 4 | 7 | 1 day |
 | v1.5 | 4 | 10 | 2 days |
 | v1.6 | 6 | TBD | in progress |
+| Phase 36 P02 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -58,6 +59,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Phase 37-01: AMG workspace deferred -- requires IAM Identity Center (SSO) subscription
 - Phase 37-01: AMP workspace ID stored in SSM Parameter Store for EC2 retrieval
 - Phase 37-01: Grafana role deployed with scoped APS query permissions even with AMG deferred
+- [Phase 36]: Replaced awslogs-stream-prefix with tag option (ECS-only limitation)
 
 ### Pending Todos
 
