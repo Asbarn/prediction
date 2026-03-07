@@ -304,7 +304,7 @@ export class PredictionStack extends cdk.Stack {
       '      options:',
       '        awslogs-region: us-east-1',
       '        awslogs-group: /prediction/production',
-      '        awslogs-stream-prefix: prediction',
+      '        tag: prediction',
       '        mode: non-blocking',
       '        max-buffer-size: 4m',
       '    healthcheck:',
