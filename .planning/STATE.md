@@ -5,22 +5,22 @@
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.6 Production Deployment -- Phase 37 (Prometheus + AMP + Managed Grafana)
+**Current focus:** v1.6 Production Deployment -- Phase 38 (GitLab CI/CD Pipeline)
 
 ## Current Position
 
-Phase: 37 of 39 (Prometheus + AMP + Managed Grafana) -- COMPLETE
-Plan: 2 of 2 in current phase (37-02 complete)
-Status: Phase 37 complete -- all plans executed
-Last activity: 2026-03-08 -- Completed 37-02 (Prometheus sidecar + self-hosted Grafana)
+Phase: 38 of 39 (GitLab CI/CD Pipeline) -- IN PROGRESS
+Plan: 1 of 2 in current phase (38-01 complete)
+Status: Executing Phase 38 -- plan 01 complete
+Last activity: 2026-03-08 -- Completed 38-01 (GitLab CI/CD pipeline + cargo-chef + IAM deploy user)
 
-Progress (overall): 6 milestones shipped (v1.0-v1.5), 37 phases, 99 plans complete
-Progress (v1.6): [########--] 80%
+Progress (overall): 6 milestones shipped (v1.0-v1.5), 37 phases, 100 plans complete
+Progress (v1.6): [#########-] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 95
+- Total plans completed: 96
 - Total phases completed: 35
 - Total execution time: ~12 days across 6 milestones
 
@@ -36,6 +36,7 @@ Progress (v1.6): [########--] 80%
 | v1.5 | 4 | 10 | 2 days |
 | v1.6 | 6 | TBD | in progress |
 | Phase 36 P02 | 8min | 2 tasks | 2 files |
+| Phase 38 P01 | 3min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Phase 37-02: SigV4AuthType=default for EC2 instance role credential chain
 - Phase 37-02: IMDSv2 hop limit=2 for Docker container metadata access
 - [Phase 36]: Replaced awslogs-stream-prefix with tag option (ECS-only limitation)
+- Phase 38-01: Constructed EC2 instance ARN manually (CDK Instance lacks instanceArn property)
+- Phase 38-01: amazon/aws-cli:2 image for deploy stage (guaranteed SSM wait support)
+- Phase 38-01: SSM send-command deploy with health check retry loop (5x5s after 25s sleep)
 
 ### Pending Todos
 
@@ -76,5 +80,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 37-02-PLAN.md (Prometheus sidecar + self-hosted Grafana)
-Next action: Execute Phase 38
+Stopped at: Completed 38-01-PLAN.md (GitLab CI/CD pipeline + cargo-chef + IAM deploy user)
+Next action: Execute 38-02 (GitLab CI variables and first pipeline run)

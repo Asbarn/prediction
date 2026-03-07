@@ -19,11 +19,11 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 
 ### CI/CD
 
-- [ ] **CICD-01**: GitLab CI pipeline runs `cargo test` on every push to master
-- [ ] **CICD-02**: Pipeline builds Docker image and pushes to ECR on successful test
-- [ ] **CICD-03**: Pipeline deploys to EC2 via SSM Send-Command (stop, pull, start container)
-- [ ] **CICD-04**: Build uses cargo-chef layer caching to reduce Rust compile times below 10 minutes
-- [ ] **CICD-05**: Pipeline deploy stage verifies /health endpoint responds after container start
+- [x] **CICD-01**: GitLab CI pipeline runs `cargo test` on every push to master
+- [x] **CICD-02**: Pipeline builds Docker image and pushes to ECR on successful test
+- [x] **CICD-03**: Pipeline deploys to EC2 via SSM Send-Command (stop, pull, start container)
+- [x] **CICD-04**: Build uses cargo-chef layer caching to reduce Rust compile times below 10 minutes
+- [x] **CICD-05**: Pipeline deploy stage verifies /health endpoint responds after container start
 
 ### Monitoring
 
@@ -81,11 +81,11 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 | INFRA-05 | Phase 34 | Complete |
 | INFRA-06 | Phase 34 | Complete |
 | INFRA-07 | Phase 34 | Complete |
-| CICD-01 | Phase 38 | Pending |
-| CICD-02 | Phase 38 | Pending |
-| CICD-03 | Phase 38 | Pending |
-| CICD-04 | Phase 38 | Pending |
-| CICD-05 | Phase 38 | Pending |
+| CICD-01 | Phase 38 | Complete |
+| CICD-02 | Phase 38 | Complete |
+| CICD-03 | Phase 38 | Complete |
+| CICD-04 | Phase 38 | Complete |
+| CICD-05 | Phase 38 | Complete |
 | MON-01 | Phase 36 | Complete |
 | MON-02 | Phase 37 | Complete |
 | MON-03 | Phase 37 | Complete |

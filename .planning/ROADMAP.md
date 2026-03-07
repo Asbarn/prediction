@@ -163,7 +163,7 @@ Plans:
   3. The deploy stage uses SSM Send-Command to stop the old container, pull the new image, and start the new container on EC2 (no SSH keys in CI)
   4. After deployment, the pipeline verifies the /health endpoint responds 200 before marking the deploy stage as successful
   5. The operator never needs to SSH into the instance or manually run docker commands to deploy
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 38-01-PLAN.md -- Dockerfile cargo-chef refactor, .gitlab-ci.yml pipeline, CDK CI deploy IAM user
 - [ ] 38-02-PLAN.md -- Deploy CDK, configure GitLab CI variables, verify end-to-end pipeline
@@ -198,5 +198,5 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 35. Compute, Secrets, Hardening | 2/2 | Complete    | 2026-03-07 | - |
 | 36. CloudWatch Logging | 2/2 | Complete    | 2026-03-07 | - |
 | 37. Prometheus + AMP + Grafana | 2/2 | Complete    | 2026-03-07 | - |
-| 38. GitLab CI/CD Pipeline | v1.6 | 0/2 | Not started | - |
+| 38. GitLab CI/CD Pipeline | 1/2 | In Progress|  | - |
 | 39. Grafana Dashboards + Alerts | v1.6 | 0/TBD | Not started | - |
