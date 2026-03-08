@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.6 Production Deployment -- Phase 38 (GitLab CI/CD Pipeline)
+**Current focus:** v1.6 Production Deployment -- Phase 39 (Grafana Dashboards and Alert Rules)
 
 ## Current Position
 
-Phase: 38 of 39 (GitLab CI/CD Pipeline) -- IN PROGRESS
-Plan: 1 of 2 in current phase (38-01 complete)
-Status: Executing Phase 38 -- plan 01 complete
-Last activity: 2026-03-08 -- Completed 38-01 (GitLab CI/CD pipeline + cargo-chef + IAM deploy user)
+Phase: 39 of 39 (Grafana Dashboards and Alert Rules) -- IN PROGRESS
+Plan: 1 of 2 in current phase (39-01 complete)
+Status: Executing Phase 39 -- plan 01 complete
+Last activity: 2026-03-08 -- Completed 39-01 (Grafana dashboards and alert rules provisioning)
 
-Progress (overall): 6 milestones shipped (v1.0-v1.5), 37 phases, 100 plans complete
-Progress (v1.6): [#########-] 90%
+Progress (overall): 6 milestones shipped (v1.0-v1.5), 38 phases, 101 plans complete
+Progress (v1.6): [##########] 95%
 
 ## Performance Metrics
 
@@ -37,6 +37,7 @@ Progress (v1.6): [#########-] 90%
 | v1.6 | 6 | TBD | in progress |
 | Phase 36 P02 | 8min | 2 tasks | 2 files |
 | Phase 38 P01 | 3min | 3 tasks | 3 files |
+| Phase 39 P01 | 3min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Phase 38-01: Constructed EC2 instance ARN manually (CDK Instance lacks instanceArn property)
 - Phase 38-01: amazon/aws-cli:2 image for deploy stage (guaranteed SSM wait support)
 - Phase 38-01: SSM send-command deploy with health check retry loop (5x5s after 25s sleep)
+- [Phase 39]: Used 0.001 threshold for zero-spread alert to avoid float comparison issues
+- [Phase 39]: Staleness rejection rate threshold set at 50% as reasonable starting default
+- [Phase 39]: noDataState=OK for staleness alert (no data means no computations)
 
 ### Pending Todos
 
@@ -80,5 +84,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 38-01-PLAN.md (GitLab CI/CD pipeline + cargo-chef + IAM deploy user)
-Next action: Execute 38-02 (GitLab CI variables and first pipeline run)
+Stopped at: Completed 39-01-PLAN.md (Grafana dashboards and alert rules provisioning)
+Next action: Execute 39-02 (CDK user-data integration for Grafana provisioning files)

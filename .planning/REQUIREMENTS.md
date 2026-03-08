@@ -30,11 +30,11 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 - [x] **MON-01**: Docker Compose uses awslogs driver to ship structured JSON logs to CloudWatch
 - [x] **MON-02**: Prometheus sidecar scrapes :9001/metrics and remote_writes to Amazon Managed Prometheus with SigV4 auth
 - [x] **MON-03**: Amazon Managed Grafana workspace connects to AMP as data source
-- [ ] **MON-04**: Grafana dashboard: Feed Health (feed_available per venue, reconnection rate, message latency)
-- [ ] **MON-05**: Grafana dashboard: Signal Quality (arb_signals_emitted, net_edge_bps, confidence, staleness rejections)
-- [ ] **MON-06**: Grafana dashboard: Paper Trade P&L (daily_pnl, win_rate, net_pnl, settlement latency)
-- [ ] **MON-07**: Grafana dashboard: System Health (active expiries, subscriptions, lifecycle polls, proposals, alerts)
-- [ ] **MON-08**: Grafana alert rules for: feed down, zero spread computations 30min, high staleness rejection rate
+- [x] **MON-04**: Grafana dashboard: Feed Health (feed_available per venue, reconnection rate, message latency)
+- [x] **MON-05**: Grafana dashboard: Signal Quality (arb_signals_emitted, net_edge_bps, confidence, staleness rejections)
+- [x] **MON-06**: Grafana dashboard: Paper Trade P&L (daily_pnl, win_rate, net_pnl, settlement latency)
+- [x] **MON-07**: Grafana dashboard: System Health (active expiries, subscriptions, lifecycle polls, proposals, alerts)
+- [x] **MON-08**: Grafana alert rules for: feed down, zero spread computations 30min, high staleness rejection rate
 - [x] **MON-09**: CloudWatch agent reports EC2 host metrics (CPU, memory, disk)
 
 ### Hardening
@@ -89,11 +89,11 @@ Requirements for production deployment milestone. Each maps to roadmap phases.
 | MON-01 | Phase 36 | Complete |
 | MON-02 | Phase 37 | Complete |
 | MON-03 | Phase 37 | Complete |
-| MON-04 | Phase 39 | Pending |
-| MON-05 | Phase 39 | Pending |
-| MON-06 | Phase 39 | Pending |
-| MON-07 | Phase 39 | Pending |
-| MON-08 | Phase 39 | Pending |
+| MON-04 | Phase 39 | Complete |
+| MON-05 | Phase 39 | Complete |
+| MON-06 | Phase 39 | Complete |
+| MON-07 | Phase 39 | Complete |
+| MON-08 | Phase 39 | Complete |
 | MON-09 | Phase 36 | Complete |
 | HARD-01 | Phase 35 | Complete |
 | HARD-02 | Phase 35 | Complete |
