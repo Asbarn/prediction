@@ -11,7 +11,7 @@ variables:
 # --- Stage 1: Run tests ---
 test:
   stage: test
-  image: rust:1.85
+  image: rust:1.92
   variables:
     CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
   cache:

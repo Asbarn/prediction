@@ -1,5 +1,5 @@
 # ---- Planner stage (cargo-chef) ----
-FROM rust:1.85 AS planner
+FROM rust:1.92 AS planner
 
 RUN cargo install cargo-chef
 
@@ -10,7 +10,7 @@ COPY src/ src/
 RUN cargo chef prepare --recipe-path recipe.json
 
 # ---- Builder stage (cargo-chef cook + build) ----
-FROM rust:1.85 AS builder
+FROM rust:1.92 AS builder
 
 RUN cargo install cargo-chef
 
