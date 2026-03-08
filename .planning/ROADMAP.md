@@ -94,7 +94,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - [x] **Phase 36: CloudWatch Logging** - Docker awslogs driver and EC2 host metrics for remote log access (completed 2026-03-07)
 - [x] **Phase 37: Prometheus + AMP + Managed Grafana** - Metrics pipeline from app through Prometheus sidecar to AMP with Grafana workspace (completed 2026-03-07)
 - [x] **Phase 38: GitLab CI/CD Pipeline** - Automated test, build, push, and deploy with cargo-chef caching (completed 2026-03-08)
-- [ ] **Phase 39: Grafana Dashboards and Alert Rules** - Five operational dashboards and critical alert rules
+- [x] **Phase 39: Grafana Dashboards and Alert Rules** - Five operational dashboards and critical alert rules (completed 2026-03-08)
 
 ## Phase Details
 
@@ -178,7 +178,7 @@ Plans:
   3. Paper Trade P&L dashboard shows daily P&L, cumulative net P&L, win rate, and settlement latency
   4. System Health dashboard shows active expiries, subscription counts, lifecycle poll activity, proposal counts, and alert state
   5. Alert rules fire notifications when any feed is down for 5 minutes, zero spread computations occur for 30 minutes, or staleness rejection rate exceeds threshold
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 39-01-PLAN.md -- Create all Grafana provisioning files (4 dashboards, 3 alert rules, data source UID fix)
 - [ ] 39-02-PLAN.md -- Integrate provisioning into CDK user-data, deploy, and verify in Grafana UI
@@ -202,4 +202,4 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 36. CloudWatch Logging | 2/2 | Complete    | 2026-03-07 | - |
 | 37. Prometheus + AMP + Grafana | 2/2 | Complete    | 2026-03-07 | - |
 | 38. GitLab CI/CD Pipeline | 2/2 | Complete    | 2026-03-08 | - |
-| 39. Grafana Dashboards + Alerts | 1/2 | In Progress|  | - |
+| 39. Grafana Dashboards + Alerts | 2/2 | Complete   | 2026-03-08 | - |

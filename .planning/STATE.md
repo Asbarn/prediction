@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 
 ## Current Position
 
-Phase: 39 of 39 (Grafana Dashboards and Alert Rules) -- IN PROGRESS
-Plan: 1 of 2 in current phase (39-01 complete)
-Status: Executing Phase 39 -- plan 01 complete
-Last activity: 2026-03-08 -- Completed 39-01 (Grafana dashboards and alert rules provisioning)
+Phase: 39 of 39 (Grafana Dashboards and Alert Rules) -- COMPLETE
+Plan: 2 of 2 in current phase (all complete)
+Status: Phase 39 complete -- v1.6 Production Deployment milestone complete
+Last activity: 2026-03-08 -- Completed 39-02 (CDK Grafana provisioning deployment)
 
-Progress (overall): 6 milestones shipped (v1.0-v1.5), 38 phases, 102 plans complete
-Progress (v1.6): [##########] 95%
+Progress (overall): 6 milestones shipped (v1.0-v1.5), 39 phases, 104 plans complete
+Progress (v1.6): [##########] 100%
 
 ## Performance Metrics
 
@@ -39,6 +39,7 @@ Progress (v1.6): [##########] 95%
 | Phase 38 P01 | 3min | 3 tasks | 3 files |
 | Phase 38 P02 | 15min | 3 tasks | 3 files |
 | Phase 39 P01 | 3min | 2 tasks | 9 files |
+| Phase 39 P02 | 25min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 39]: Used 0.001 threshold for zero-spread alert to avoid float comparison issues
 - [Phase 39]: Staleness rejection rate threshold set at 50% as reasonable starting default
 - [Phase 39]: noDataState=OK for staleness alert (no data means no computations)
+- Phase 39-02: S3 asset for provisioning files instead of user-data heredocs (16KB limit exceeded)
+- Phase 39-02: Removed contact-points.yml from provisioning (Grafana crash with empty SMTP)
 
 ### Pending Todos
 
@@ -88,5 +91,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 38-02-PLAN.md (Deploy CDK, configure GitLab CI, verify pipeline)
-Next action: Execute 39-02 (CDK user-data integration for Grafana provisioning files)
+Stopped at: Completed 39-02-PLAN.md (CDK Grafana provisioning deployment and verification)
+Next action: v1.6 milestone complete -- all phases delivered
