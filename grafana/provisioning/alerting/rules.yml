@@ -1,0 +1,160 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: prediction-critical
+    folder: Prediction Alerts
+    interval: 1m
+    rules:
+      # Alert 1: Feed down for 5 minutes
+      - uid: feed-down
+        title: Feed Down
+        condition: B
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: amp
+            model:
+              editorMode: code
+              expr: feed_available
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - B
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+        annotations:
+          summary: "Feed {{ $labels.venue }} is DOWN"
+          description: "Feed {{ $labels.venue }} has been unavailable for more than 5 minutes"
+        labels:
+          severity: critical
+
+      # Alert 2: Zero spread computations for 30 minutes
+      - uid: zero-spread-computations
+        title: Zero Spread Computations
+        condition: B
+        for: 30m
+        noDataState: Alerting
+        execErrState: Alerting
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: amp
+            model:
+              editorMode: code
+              expr: rate(spread_computations_total[5m])
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.001
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - B
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+        annotations:
+          summary: "No spread computations for 30 minutes"
+          description: "The system has not performed any spread computations in the last 30 minutes"
+        labels:
+          severity: warning
+
+      # Alert 3: High staleness rejection rate (>50%)
+      - uid: high-staleness-rate
+        title: High Staleness Rejection Rate
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: amp
+            model:
+              editorMode: code
+              expr: rate(arb_staleness_rejections[5m]) / rate(arb_computations_total[5m])
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.5
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - B
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+        annotations:
+          summary: "Staleness rejection rate exceeds 50%"
+          description: "More than 50% of arb computations are being rejected due to stale data"
+        labels:
+          severity: warning
