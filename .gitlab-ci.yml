@@ -47,7 +47,9 @@ build-and-push:
 # --- Stage 3: Deploy to EC2 via SSM ---
 deploy:
   stage: deploy
-  image: amazon/aws-cli:latest
+  image:
+    name: amazon/aws-cli:latest
+    entrypoint: [""]
   script:
     - |
       CMD_ID=$(aws ssm send-command \
@@ -71,14 +73,27 @@ deploy:
         --command-id "${CMD_ID}" \
         --instance-id "${EC2_INSTANCE_ID}"
 
-      RESULT=$(aws ssm get-command-invocation \
+      STDOUT=$(aws ssm get-command-invocation \
         --command-id "${CMD_ID}" \
-        --instance-id "${EC2_INSTANCE_ID}")
+        --instance-id "${EC2_INSTANCE_ID}" \
+        --query "StandardOutputContent" \
+        --output text)
+
+      STDERR=$(aws ssm get-command-invocation \
+        --command-id "${CMD_ID}" \
+        --instance-id "${EC2_INSTANCE_ID}" \
+        --query "StandardErrorContent" \
+        --output text)
+
+      STATUS=$(aws ssm get-command-invocation \
+        --command-id "${CMD_ID}" \
+        --instance-id "${EC2_INSTANCE_ID}" \
+        --query "Status" \
+        --output text)
 
       echo "--- Command Output ---"
-      echo "${RESULT}" | python3 -c "import sys,json; r=json.load(sys.stdin); print('STDOUT:', r.get('StandardOutputContent','')); print('STDERR:', r.get('StandardErrorContent',''))"
-
-      STATUS=$(echo "${RESULT}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('Status',''))")
+      echo "STDOUT: ${STDOUT}"
+      echo "STDERR: ${STDERR}"
       echo "Invocation status: ${STATUS}"
 
       if [ "${STATUS}" != "Success" ]; then
