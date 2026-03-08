@@ -6,6 +6,8 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as aps from 'aws-cdk-lib/aws-aps';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as s3assets from 'aws-cdk-lib/aws-s3-assets';
+import * as path from 'path';
 import { Construct } from 'constructs';
 
 export class PredictionStack extends cdk.Stack {
@@ -131,6 +133,14 @@ export class PredictionStack extends cdk.Stack {
       ],
       resources: [ampWorkspace.attrArn],
     }));
+
+    // === Grafana Provisioning Files (MON-04 through MON-08) ===
+    // Dashboard JSON files exceed EC2 user-data 16KB limit, so we upload them
+    // as an S3 asset and download during boot. CDK handles the S3 bucket automatically.
+    const grafanaAsset = new s3assets.Asset(this, 'GrafanaProvisioningAsset', {
+      path: path.join(__dirname, '..', '..', '..', 'grafana', 'provisioning'),
+    });
+    grafanaAsset.grantRead(instanceRole);
 
     // === Compute (INFRA-05) ===
     const instance = new ec2.Instance(this, 'Instance2', {
@@ -287,13 +297,16 @@ export class PredictionStack extends cdk.Stack {
       'PROMEOF',
       '',
       '# === Write Grafana provisioning config ===',
-      'mkdir -p /opt/prediction/grafana/provisioning/datasources',
+      'mkdir -p /opt/prediction/grafana/provisioning/{datasources,dashboards/json,alerting}',
       '',
+      '# --- Data source: AMP (with stable uid for dashboard references) ---',
+      '# amp.yml uses shell variable AMP_WORKSPACE_ID so it must be written via heredoc.',
       'cat > /opt/prediction/grafana/provisioning/datasources/amp.yml <<GRAFEOF',
       'apiVersion: 1',
       '',
       'datasources:',
       '  - name: AMP',
+      '    uid: amp',
       '    type: prometheus',
       '    access: proxy',
       '    url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/${AMP_WORKSPACE_ID}/',
@@ -305,6 +318,24 @@ export class PredictionStack extends cdk.Stack {
       '      sigV4Region: us-east-1',
       '    editable: true',
       'GRAFEOF',
+      '',
+      '# --- Download dashboard JSON, alerting YAML, and provider config from S3 asset ---',
+      '# Dashboard JSON files exceed EC2 user-data 16KB limit, so they are uploaded',
+      '# as a CDK S3 asset and downloaded+extracted during boot.',
+      'dnf install -y unzip',
+    );
+    // Use CDK's S3 download helper to inject the correct S3 bucket/key as CloudFormation refs
+    const grafanaLocalPath = instance.userData.addS3DownloadCommand({
+      bucket: grafanaAsset.bucket,
+      bucketKey: grafanaAsset.s3ObjectKey,
+      localFile: '/tmp/grafana-provisioning.zip',
+    });
+    instance.userData.addCommands(
+      'cd /tmp && unzip -o grafana-provisioning.zip -d grafana-provisioning',
+      '# Copy all provisioning files except amp.yml (already written with AMP_WORKSPACE_ID above)',
+      'cp -r /tmp/grafana-provisioning/dashboards /opt/prediction/grafana/provisioning/',
+      'cp -r /tmp/grafana-provisioning/alerting /opt/prediction/grafana/provisioning/',
+      'rm -rf /tmp/grafana-provisioning /tmp/grafana-provisioning.zip',
       '',
       '# === Write docker-compose.yml ===',
       'cat > /opt/prediction/docker-compose.yml <<\'DCEOF\'',
