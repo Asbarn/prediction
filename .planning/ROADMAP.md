@@ -93,7 +93,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - [x] **Phase 35: Compute, Secrets, and Hardening** - EC2 instance, user-data bootstrap, secrets injection, systemd service, and SIGTERM graceful shutdown (completed 2026-03-07)
 - [x] **Phase 36: CloudWatch Logging** - Docker awslogs driver and EC2 host metrics for remote log access (completed 2026-03-07)
 - [x] **Phase 37: Prometheus + AMP + Managed Grafana** - Metrics pipeline from app through Prometheus sidecar to AMP with Grafana workspace (completed 2026-03-07)
-- [ ] **Phase 38: GitLab CI/CD Pipeline** - Automated test, build, push, and deploy with cargo-chef caching
+- [x] **Phase 38: GitLab CI/CD Pipeline** - Automated test, build, push, and deploy with cargo-chef caching (completed 2026-03-08)
 - [ ] **Phase 39: Grafana Dashboards and Alert Rules** - Five operational dashboards and critical alert rules
 
 ## Phase Details
@@ -163,10 +163,10 @@ Plans:
   3. The deploy stage uses SSM Send-Command to stop the old container, pull the new image, and start the new container on EC2 (no SSH keys in CI)
   4. After deployment, the pipeline verifies the /health endpoint responds 200 before marking the deploy stage as successful
   5. The operator never needs to SSH into the instance or manually run docker commands to deploy
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
-- [ ] 38-01-PLAN.md -- Dockerfile cargo-chef refactor, .gitlab-ci.yml pipeline, CDK CI deploy IAM user
-- [ ] 38-02-PLAN.md -- Deploy CDK, configure GitLab CI variables, verify end-to-end pipeline
+- [x] 38-01-PLAN.md -- Dockerfile cargo-chef refactor, .gitlab-ci.yml pipeline, CDK CI deploy IAM user
+- [x] 38-02-PLAN.md -- Deploy CDK, configure GitLab CI variables, verify end-to-end pipeline
 
 ### Phase 39: Grafana Dashboards and Alert Rules
 **Goal**: Five operational dashboards and critical alert rules enable monitoring and operating the system entirely through Grafana
@@ -201,5 +201,5 @@ Phases execute in numeric order: 34 -> 35 -> 36 -> 37 -> 38 -> 39
 | 35. Compute, Secrets, Hardening | 2/2 | Complete    | 2026-03-07 | - |
 | 36. CloudWatch Logging | 2/2 | Complete    | 2026-03-07 | - |
 | 37. Prometheus + AMP + Grafana | 2/2 | Complete    | 2026-03-07 | - |
-| 38. GitLab CI/CD Pipeline | 1/2 | In Progress|  | - |
+| 38. GitLab CI/CD Pipeline | 2/2 | Complete    | 2026-03-08 | - |
 | 39. Grafana Dashboards + Alerts | 1/2 | In Progress|  | - |
