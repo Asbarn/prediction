@@ -2,6 +2,7 @@ apiVersion: 1
 
 datasources:
   - name: AMP
+    uid: amp
     type: prometheus
     access: proxy
     url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-622e90d2-1edc-48ed-95dd-5d4938ca6659/
