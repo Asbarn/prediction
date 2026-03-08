@@ -47,7 +47,7 @@ build-and-push:
 # --- Stage 3: Deploy to EC2 via SSM ---
 deploy:
   stage: deploy
-  image: amazon/aws-cli:2
+  image: amazon/aws-cli:latest
   script:
     - |
       CMD_ID=$(aws ssm send-command \
