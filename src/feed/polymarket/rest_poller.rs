@@ -66,7 +66,7 @@ impl PolymarketRestPoller {
     ///
     /// Rate-limits before issuing the HTTP request. Returns the parsed
     /// midpoint as a `Decimal`.
-    async fn fetch_midpoint(&self, token_id: &str) -> Result<Decimal, Box<dyn std::error::Error>> {
+    async fn fetch_midpoint(&self, token_id: &str) -> Result<Decimal, Box<dyn std::error::Error + Send + Sync>> {
         self.rate_limiter.wait().await;
 
         let url = format!(
