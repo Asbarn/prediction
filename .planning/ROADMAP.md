@@ -147,6 +147,11 @@ Plans:
 **Goal**: Complete signal pipeline verified working on production EC2 with real market data
 **Depends on**: Phase 40, Phase 41, Phase 42
 **Requirements**: VER-01, VER-02
+**Plans**: 2 plans
+
+Plans:
+- [ ] 43-01-PLAN.md — Fix signal_logs Docker volume mount (docker-compose.yml + CDK)
+- [ ] 43-02-PLAN.md — Deploy to production and verify signals in Grafana + JSONL logs
 
 ## Progress
 
