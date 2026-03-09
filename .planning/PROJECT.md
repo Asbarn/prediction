@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A production-grade cross-venue arbitrage signal generator in Rust that detects pricing discrepancies between crypto prediction markets (Polymarket, Kalshi) and options markets (Deribit, Derive). Compares prediction market binary contract prices against options-implied probabilities derived via Black-76 pricing with call spread replication, generates trading signals when spreads exceed cost-adjusted thresholds, tracks settlement outcomes for signal validation, computes statistical evidence of signal quality, automatically discovers new cross-venue instrument matches with operator-approved proposals, dynamically manages feed subscriptions as instruments are approved or retired, and provides offline CLI analysis tools for statistically rigorous go/no-go decisions. Built as a single-binary service for a solo trader with 36,507 lines of Rust and full deterministic replay capability.
+A production-grade cross-venue arbitrage signal generator in Rust that detects pricing discrepancies between crypto prediction markets (Polymarket, Kalshi) and options markets (Deribit, Derive). Compares prediction market binary contract prices against options-implied probabilities derived via Black-76 pricing with call spread replication, generates trading signals when spreads exceed cost-adjusted thresholds, tracks settlement outcomes for signal validation, computes statistical evidence of signal quality, automatically discovers new cross-venue instrument matches with operator-approved proposals, dynamically manages feed subscriptions as instruments are approved or retired, and provides offline CLI analysis tools for statistically rigorous go/no-go decisions. Deployed to production-hardened AWS infrastructure with CDK, CI/CD, Prometheus/Grafana monitoring, and CloudWatch logging. Built as a single-binary service for a solo trader with 42,732 lines of Rust and full deterministic replay capability.
 
 ## Core Value
 
@@ -65,20 +65,16 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 - v1.5 Dynamic subscription support for Derive instruments via SubscriptionManager with HashSet diff, watch channels, and CleanupEvent population
 - v1.5 REST-based Derive BTC options discovery with cross-venue fuzzy matching and lifecycle integration (300s poll interval)
 
+- v1.6 AWS CDK infrastructure as code: single `cdk deploy` provisions VPC, security groups, EC2, IAM, EBS, CloudWatch log group, Secrets Manager, AMP workspace, and ECR import
+- v1.6 Production EC2 bootstrap with user-data, systemd service, fetch-secrets.sh from Secrets Manager, auto-restart on failure, and graceful SIGTERM shutdown
+- v1.6 CloudWatch log aggregation via conditional JSON stdout layer and awslogs Docker driver, plus CloudWatch Agent for EC2 host metrics
+- v1.6 Prometheus sidecar scraping 80+ app metrics, remote_write to Amazon Managed Prometheus with SigV4, self-hosted Grafana OSS
+- v1.6 GitLab CI/CD pipeline: automated test, Docker build with cargo-chef caching, ECR push, deploy via SSM Send-Command with health check
+- v1.6 4 Grafana operational dashboards (Feed Health, Signal Quality, Paper Trade P&L, System Health) + 3 alert rules provisioned via CDK S3 asset
+
 ### Active
 
-## Current Milestone: v1.6 Production Deployment
-
-**Goal:** Deploy the system to production-hardened AWS infrastructure with CI/CD, monitoring, log aggregation, and infrastructure as code.
-
-**Target features:**
-- AWS CDK infrastructure (VPC, security groups, EC2, ECR, Secrets Manager, CloudWatch, Managed Grafana)
-- GitLab CI pipeline (build, test, Docker push to ECR, deploy to EC2)
-- Amazon Managed Grafana dashboards consuming Prometheus metrics
-- CloudWatch log aggregation from Docker containers
-- AWS Secrets Manager for API keys injected at runtime
-- Grafana alert rules for dashboard-only alerting
-- Production hardening (auto-restart, log rotation, health checks)
+(No active requirements -- planning next milestone)
 
 ### Out of Scope
 
@@ -88,7 +84,7 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 - Risk limits engine and kill switch -- v2
 - Margin monitoring -- v2
 - Multi-asset support (ETH, SOL) -- after BTC binary events validated; architecture supports via config
-- UI / dashboard -- solo trader monitors via logs and metrics
+- UI / dashboard -- solo trader monitors via Grafana dashboards and Prometheus metrics
 - AI/ML signal prediction -- arbs are event-driven, not pattern-driven
 - Sub-millisecond latency -- arb windows are minutes-to-hours
 - NLP/ML-based Polymarket question parsing -- regex sufficient for predictable BTC price patterns
@@ -98,29 +94,36 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 - Database backend (SQLite/DuckDB) for analysis -- JSONL sufficient at current scale; Vec<T> faster for expected volumes
 - Full backtesting engine -- settled data is stronger evidence than simulated backtests
 - Terminal charting -- JSON output + external tools preferred
+- ECS/Fargate deployment -- massive complexity for one container; Docker Compose on EC2 is correct abstraction
+- Multi-AZ / auto-scaling -- single instance by design; downtime tolerance is minutes
+- Blue/green deployments -- solo trader tolerates 30-second restart
+- Kubernetes / EKS -- orchestration overkill for single container
+- Self-hosted Prometheus + Grafana on same EC2 -- hosting monitoring on production instance defeats purpose; AMP used as managed store
 
 ## Context
 
-**Shipped v1.5 Derive.xyz Venue Integration** (2026-03-06) with 39,176 LOC Rust across 33 phases (6 milestones).
-Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prometheus, statrs, comfy-table, tracing, strsim.
+**Shipped v1.6 Production Deployment** (2026-03-09) with 42,732 LOC Rust + 499 LOC CDK TypeScript + 1,093 LOC Grafana provisioning across 39 phases (7 milestones).
+Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prometheus, statrs, comfy-table, tracing, strsim. Infrastructure: AWS CDK (TypeScript), GitLab CI, Docker, systemd, Prometheus, Grafana OSS, Amazon Managed Prometheus, CloudWatch.
 4 venues operational: Deribit (WebSocket + REST settlement + discovery), Polymarket (CLOB WebSocket + Gamma API discovery), Kalshi (WebSocket + REST + discovery), Derive (WebSocket + REST discovery).
 Dynamic subscription: SubscriptionManager with 4-venue reconciliation, watch channels to supervisors, Notify ordering, dry-run mode, and stale state cleanup across 5 engines.
 Automated event management: four-venue discovery with fuzzy matching, confidence-scored proposals, approved-mapping validation, expired event archival, and periodic background pipeline.
 Settlement tracking: 3 venue resolution checkers with 4-tier polling cadence, startup backfill, and auto-settlement (Derive settlement deferred to future).
 Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and `signal-scoring` CLI (hit rate, Sharpe, PSR, drawdown, edge t-test) with E2E golden-value tests.
+Production infrastructure: CDK-managed AWS (VPC, EC2, IAM, EBS, Secrets Manager, CloudWatch, AMP), GitLab CI/CD pipeline (test, build, deploy via SSM), Prometheus sidecar + Grafana OSS with 4 dashboards and 3 alert rules.
 
-**System status:** Fully operational with 4-venue capability. System runs unattended for paper trading with self-managing event lifecycle, self-managing feed subscriptions, and offline analysis CLIs for soak test evaluation. Derive adds third options data source alongside Deribit for cross-venue options spread detection.
+**System status:** Fully operational in production. System runs unattended on AWS EC2 with automated CI/CD deployments, Prometheus/Grafana monitoring, CloudWatch logging, and Secrets Manager credential injection. Paper trading with 4-venue capability, self-managing event lifecycle, self-managing feed subscriptions, and offline analysis CLIs.
 
-**Next priority:** Production-harden the deployment with IaC, CI/CD, monitoring dashboards, and centralized logging. Current deployment is manual (local build → ECR push → SSH deploy).
+**Next priority:** Evaluate paper trading results and determine next milestone (execution engine, multi-asset, or operational improvements).
 
-**Known tech debt:** 10 non-blocking items from v1.0 + 2 low-severity from v1.2 + 3 non-critical from v1.3 audit. See MILESTONES.md for full list.
+**Known tech debt:** 4 non-critical items from v1.6 (stdout_json not codified in user-data, Grafana open to 0.0.0.0/0, dashboard count wording, removed contact-points.yml). See MILESTONES.md for full history.
 
 ## Constraints
 
 - **Language**: Rust (latest stable, 2024 edition)
 - **Async runtime**: tokio
 - **Decimal arithmetic**: `rust_decimal` for all prices and probabilities
-- **Deployment**: Single-binary Linux service
+- **Deployment**: Docker Compose on AWS EC2, deployed via GitLab CI/CD + SSM
+- **Infrastructure**: AWS CDK (TypeScript), single-stack single-instance
 - **Deribit API**: 20 req/s rate limit on private endpoints
 - **Polymarket**: On-chain (Polygon) -- gas, wallet, approvals matter for v2 execution
 - **Kalshi**: US-regulated, different API semantics and fee structures
@@ -178,6 +181,17 @@ Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and 
 | Epoch expiry auto-detect (seconds vs millis) | Threshold at 10 billion handles both formats | v1.5 Validated -- robust parsing |
 | feed_reconnections_total as venue-generic metric | Benefits all 4 venues, not Derive-specific | v1.5 Validated -- clean observability |
 | Copy-and-adapt Deribit feed stack pattern | 7-step pipeline block identical across venues | v1.5 Validated -- consistent architecture |
+| Single CDK stack (no multi-stack) | Single-developer project; simplicity over isolation | v1.6 Validated -- clean deploy |
+| ECR imported by name not created | Preserves existing image history | v1.6 Validated -- no duplicate repos |
+| No NAT gateway (public subnet only) | Saves $32/month; acceptable for single instance | v1.6 Validated -- cost-effective |
+| Secrets injected via .env from Secrets Manager | Simpler than mounted volume for flat key-value pairs | v1.6 Validated -- clean separation |
+| systemd manages restart, docker restart="no" | Single responsibility; systemd handles lifecycle | v1.6 Validated -- clean restart behavior |
+| Self-hosted Grafana OSS replaces AMG | AMG requires IAM Identity Center (SSO) subscription | v1.6 Validated -- equivalent functionality via SigV4 |
+| SigV4AuthType=default for instance role chain | No static credentials; uses EC2 instance role | v1.6 Validated -- secure credential flow |
+| IMDSv2 hop limit=2 for Docker containers | Required for containers to reach instance metadata | v1.6 Validated -- Prometheus and Grafana can auth |
+| SSM Send-Command for CI deploy (not SSH) | No SSH keys in CI; scoped IAM permissions | v1.6 Validated -- secure deployment |
+| S3 Asset for Grafana provisioning | Dashboard JSON exceeded 16KB user-data limit | v1.6 Validated -- more maintainable than heredocs |
+| cargo-chef 3-stage Dockerfile | Dependency layer caching reduces rebuild time | v1.6 Validated -- fast incremental builds |
 
 ---
-*Last updated: 2026-03-07 after v1.6 milestone start*
+*Last updated: 2026-03-09 after v1.6 milestone*

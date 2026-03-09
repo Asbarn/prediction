@@ -125,3 +125,24 @@
 
 ---
 
+
+## v1.6 Production Deployment (Shipped: 2026-03-09)
+
+**Phases completed:** 6 phases, 12 plans
+**LOC delta:** +1,825 lines (42,732 LOC Rust + 499 LOC CDK TypeScript + 1,093 LOC Grafana provisioning)
+**Timeline:** 2 days (2026-03-07 to 2026-03-08)
+**Requirements:** 24/24 satisfied
+**Audit:** 24/24 requirements, 6/6 phases, 24/24 integration, 3/3 E2E flows
+
+**Key accomplishments:**
+- AWS CDK Infrastructure as Code: single `cdk deploy` provisions VPC, security groups, EC2, IAM, EBS, CloudWatch, Secrets Manager, AMP, and ECR import (499 LOC TypeScript)
+- Production EC2 bootstrap with user-data installing Docker, systemd service, secrets injection from Secrets Manager, auto-restart on failure, and graceful SIGTERM shutdown (exit code 0)
+- CloudWatch log aggregation via conditional JSON stdout layer and awslogs Docker driver, plus CloudWatch Agent for EC2 host metrics (CPU, memory, disk)
+- Prometheus sidecar scraping 80+ app metrics, remote_write to Amazon Managed Prometheus with SigV4, self-hosted Grafana OSS as visualization layer (user-approved deviation from AMG)
+- GitLab CI/CD pipeline: automated test, build (cargo-chef 3-stage Dockerfile), push to ECR, deploy via SSM Send-Command with health check verification -- zero SSH required
+- 4 Grafana operational dashboards (Feed Health, Signal Quality, Paper Trade P&L, System Health) + 3 alert rules provisioned via CDK S3 asset
+
+**Tech debt carried forward:** 4 non-critical items (stdout_json not codified in user-data, Grafana open to 0.0.0.0/0 with default creds, dashboard count wording discrepancy, removed contact-points.yml due to SMTP crash)
+
+---
+
