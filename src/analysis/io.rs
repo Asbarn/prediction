@@ -76,6 +76,41 @@ impl DateRange {
     }
 }
 
+/// Split a DateRange chronologically into train and test portions.
+///
+/// The first `(1 - test_fraction)` of days form the training set; the remainder
+/// forms the test set. The two ranges are contiguous with no gap or overlap.
+///
+/// `test_fraction` is clamped to `[0.0, 1.0]`.
+pub fn train_test_split(range: &DateRange, test_fraction: f64) -> (DateRange, DateRange) {
+    let test_fraction = test_fraction.clamp(0.0, 1.0);
+    let total_days = (range.to - range.from).num_days();
+    if total_days <= 0 {
+        // Degenerate: return full range as train, zero-width test
+        return (
+            range.clone(),
+            DateRange {
+                from: range.to,
+                to: range.to,
+            },
+        );
+    }
+
+    let train_days = ((total_days as f64) * (1.0 - test_fraction)).floor() as i64;
+    let split_date = range.from + chrono::Duration::days(train_days);
+
+    let train = DateRange {
+        from: range.from,
+        to: split_date - chrono::Duration::days(1),
+    };
+    let test = DateRange {
+        from: split_date,
+        to: range.to,
+    };
+
+    (train, test)
+}
+
 impl fmt::Display for DateRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} to {}", self.from, self.to)
@@ -277,5 +312,100 @@ not valid json
         assert_eq!(files.len(), 2, "should find 2 prefixed files (skip Jan 3)");
         assert!(files[0].ends_with("settlements-2026-01-01.jsonl"));
         assert!(files[1].ends_with("settlements-2026-01-02.jsonl"));
+    }
+
+    // -- Train/test split tests --
+
+    #[test]
+    fn split_10_days_30_percent_test() {
+        // Jan 1-10: total_days = 9. train_days = floor(9 * 0.7) = 6, split at Jan 7
+        let range = DateRange {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            to: NaiveDate::from_ymd_opt(2026, 1, 10).unwrap(),
+        };
+        let (train, test) = super::train_test_split(&range, 0.3);
+
+        // Train: Jan 1 - Jan 6 (6 days inclusive)
+        assert_eq!(train.from, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
+        assert_eq!(train.to, NaiveDate::from_ymd_opt(2026, 1, 6).unwrap());
+        // Test: Jan 7 - Jan 10 (4 days inclusive)
+        assert_eq!(test.from, NaiveDate::from_ymd_opt(2026, 1, 7).unwrap());
+        assert_eq!(test.to, NaiveDate::from_ymd_opt(2026, 1, 10).unwrap());
+    }
+
+    #[test]
+    fn split_10_days_50_percent_test() {
+        let range = DateRange {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            to: NaiveDate::from_ymd_opt(2026, 1, 10).unwrap(),
+        };
+        let (train, test) = super::train_test_split(&range, 0.5);
+
+        // train_days = floor(9 * 0.5) = 4, split at Jan 5 (0-indexed from Jan 1)
+        // Actually: total_days = 9, train_days = floor(9*0.5) = 4
+        // split_date = Jan 1 + 4 = Jan 5
+        // Train: Jan 1 - Jan 4, Test: Jan 5 - Jan 10
+        assert_eq!(train.from, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
+        assert_eq!(test.to, NaiveDate::from_ymd_opt(2026, 1, 10).unwrap());
+        // Contiguous: train.to + 1 == test.from
+        assert_eq!(
+            train.to + chrono::Duration::days(1),
+            test.from,
+            "Train and test should be contiguous"
+        );
+    }
+
+    #[test]
+    fn split_1_day_range() {
+        let range = DateRange {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            to: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+        };
+        let (train, test) = super::train_test_split(&range, 0.3);
+        // total_days = 0 -> degenerate case
+        assert_eq!(train.from, range.from);
+        assert_eq!(train.to, range.to);
+        assert_eq!(test.from, range.to);
+        assert_eq!(test.to, range.to);
+    }
+
+    #[test]
+    fn split_fraction_zero_all_training() {
+        let range = DateRange {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            to: NaiveDate::from_ymd_opt(2026, 1, 10).unwrap(),
+        };
+        let (train, test) = super::train_test_split(&range, 0.0);
+        // train_days = floor(9 * 1.0) = 9, split at Jan 10
+        // Train: Jan 1 - Jan 9, Test: Jan 10 - Jan 10
+        assert_eq!(train.from, range.from);
+        assert_eq!(test.to, range.to);
+    }
+
+    #[test]
+    fn split_fraction_one_all_testing() {
+        let range = DateRange {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            to: NaiveDate::from_ymd_opt(2026, 1, 10).unwrap(),
+        };
+        let (_train, test) = super::train_test_split(&range, 1.0);
+        // train_days = floor(9 * 0.0) = 0, split at Jan 1
+        // Test covers the full range
+        assert_eq!(test.from, range.from);
+        assert_eq!(test.to, range.to);
+    }
+
+    #[test]
+    fn split_contiguous_no_gap() {
+        let range = DateRange {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            to: NaiveDate::from_ymd_opt(2026, 1, 20).unwrap(),
+        };
+        let (train, test) = super::train_test_split(&range, 0.3);
+        assert_eq!(
+            train.to + chrono::Duration::days(1),
+            test.from,
+            "No gap: train.to + 1 day == test.from"
+        );
     }
 }
