@@ -9,18 +9,20 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 
 ## Current Position
 
-Phase: 42 of 43 (REST Polling Fallback & Source Coordination) -- IN PROGRESS
-Plan: 1 of 2 in current phase (42-01 complete)
-Status: Executing
-Last activity: 2026-03-09 -- Completed 42-01 (REST polling client)
+Phase: 42 of 43 (REST Polling Fallback & Source Coordination) -- COMPLETE
+Plan: 2 of 2 in current phase (42-02 complete)
+Status: Phase complete
+Last activity: 2026-03-09 -- Completed 42-02 (source coordinator)
 
-Progress (overall): 7 milestones shipped (v1.0-v1.6), 41 phases, 96 plans complete
-Progress (v1.7): [███░░░░░░░] 25%
+Progress (overall): 7 milestones shipped (v1.0-v1.6), 42 phases, 98 plans complete
+Progress (v1.7): [████░░░░░░] 30%
 
 ## Accumulated Context
 
 ### Decisions
 
+- 42-02: 5-second grace period before WS-to-REST switch (allows supervisor self-recovery via backoff)
+- 42-02: WS probe uses separate temporary channel, never sends to snapshot_tx (isolation guarantee)
 - 42-01: Midpoint-only REST polling (no /book endpoint) per GitHub #180 stale ghost data issue
 - 42-01: bid=ask=midpoint for REST snapshots since /midpoint provides single price point
 - 41-01: Keep deribit_taker_fee_rate config name unchanged (Derive fees comparable, cosmetic rename unnecessary for v1.7)
@@ -42,5 +44,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 42-01-PLAN.md
-Next action: Execute 42-02-PLAN.md (source coordinator)
+Stopped at: Completed 42-02-PLAN.md
+Next action: Execute Phase 43
