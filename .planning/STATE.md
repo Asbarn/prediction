@@ -9,18 +9,18 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 
 ## Current Position
 
-Phase: 46 of 48 (Diagnostic CLI Tools) -- IN PROGRESS
-Plan: 1 of 2 in current phase (46-01 complete)
-Status: 46-01 complete, ready for 46-02
-Last activity: 2026-03-09 -- Completed 46-01 (Stats Extensions and Cost-Audit CLI)
+Phase: 46 of 48 (Diagnostic CLI Tools) -- COMPLETE
+Plan: 2 of 2 in current phase (all complete)
+Status: Phase 46 complete, ready for phase 47
+Last activity: 2026-03-09 -- Completed 46-02 (Book-Depth CLI)
 
-Progress (overall): 8 milestones shipped (v1.0-v1.7), 46 phases, 108 plans complete
-Progress (v1.8): [█████░░░░░] 50%
+Progress (overall): 8 milestones shipped (v1.0-v1.7), 46 phases, 110 plans complete
+Progress (v1.8): [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 105
+- Total plans completed: 110
 - Total execution time: 8 milestones across 18 days
 - Average: ~5.6 plans/day
 
@@ -52,6 +52,8 @@ Progress (v1.8): [█████░░░░░] 50%
 - v1.8/45-02: All mappings include 3 venues (Polymarket + Deribit + Derive) for maximum coverage
 - v1.8/46-01: Components sorted by mean magnitude descending for immediate visibility of largest cost drivers
 - v1.8/46-01: cost-audit CLI follows same --from/--to/--last/--by-event/--output pattern as spread-analytics
+- v1.8/46-02: Depth quality score: fill_ratio_mean * min(depth_levels_mean / 10.0, 1.0) combines fill and depth
+- v1.8/46-02: Instruments sorted worst-first so operator immediately sees problem areas
 - Decisions also logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -68,5 +70,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 46-01-PLAN.md (Stats Extensions and Cost-Audit CLI)
-Next action: Continue with 46-02-PLAN.md (Book-Depth CLI)
+Stopped at: Completed 46-02-PLAN.md (Book-Depth CLI)
+Next action: Phase 46 complete. Proceed to phase 47 if applicable.

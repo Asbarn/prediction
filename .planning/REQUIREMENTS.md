@@ -22,7 +22,7 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 ### Diagnostic Tooling
 
 - [x] **DIAG-01**: Cost-audit CLI breaks down cost components per signal and identifies which costs dominate negative edge
-- [ ] **DIAG-02**: Book-depth CLI analyzes Polymarket order book quality (effective spread, fill simulation, depth at price levels)
+- [x] **DIAG-02**: Book-depth CLI analyzes Polymarket order book quality (effective spread, fill simulation, depth at price levels)
 - [x] **DIAG-03**: Stats module extended with Pearson correlation and KS test for signal analysis
 
 ### Cost Model Validation
@@ -66,7 +66,7 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 | INST-02 | Phase 45 | Complete |
 | INST-03 | Phase 45 | Complete |
 | DIAG-01 | Phase 46 | Complete |
-| DIAG-02 | Phase 46 | Pending |
+| DIAG-02 | Phase 46 | Complete |
 | DIAG-03 | Phase 46 | Complete |
 | COST-01 | Phase 47 | Pending |
 | COST-02 | Phase 47 | Pending |

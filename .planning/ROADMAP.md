@@ -113,7 +113,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 - [x] **Phase 44: Critical Bug Fixes and Data Pipeline Repair** - Fix cost model unit mismatch, Kalshi fee rounding, and spread logger silence
 - [x] **Phase 45: Instrument Quality and Event Mapping** - Populate events.toml with near-the-money BTC pairs, build match-audit CLI, add OTM filtering (completed 2026-03-09)
-- [ ] **Phase 46: Diagnostic CLI Tools** - Cost-audit and book-depth CLIs plus stats module extensions for signal analysis
+- [x] **Phase 46: Diagnostic CLI Tools** - Cost-audit and book-depth CLIs plus stats module extensions for signal analysis (completed 2026-03-09)
 - [ ] **Phase 47: Cost Model Validation** - Validate fee parameters against exchange docs, run sensitivity analysis, estimate on-chain costs
 - [ ] **Phase 48: Statistical Validation and Go/No-Go** - Autocorrelation-corrected analysis, out-of-sample validation, final confidence-interval report
 
@@ -154,7 +154,7 @@ Plans:
   2. book-depth CLI reads signal_logs and reports effective spread, fill simulation at configurable sizes, and depth quality scores per instrument
   3. Stats module provides Pearson correlation and KS test functions usable by cost-audit and signal-scoring CLIs
   4. Both CLIs support --output json and --by-event flags consistent with existing spread-analytics and signal-scoring patterns
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 46-01-PLAN.md -- Stats module extensions (Pearson, KS test) and cost-audit CLI
 - [ ] 46-02-PLAN.md -- Book-depth CLI for order book quality analysis
@@ -200,6 +200,6 @@ Plans:
 | 40-43 | v1.7 Signal Pipeline | 7/7 | Complete | 2026-03-09 |
 | 44 | v1.8 Bug Fixes | Complete    | 2026-03-09 | 2026-03-09 |
 | 45 | 2/2 | Complete    | 2026-03-09 | - |
-| 46 | 1/2 | In Progress|  | - |
+| 46 | 2/2 | Complete   | 2026-03-09 | - |
 | 47 | v1.8 Signal Quality | 0/TBD | Not started | - |
 | 48 | v1.8 Signal Quality | 0/TBD | Not started | - |
