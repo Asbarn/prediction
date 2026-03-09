@@ -105,6 +105,36 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - [ ] **Phase 42: REST Polling Fallback and Source Coordination** - REST price polling with exclusive-mode WS/REST switching
 - [ ] **Phase 43: E2E Production Verification** - Prove signal pipeline on AWS EC2 with live data
 
+### Phase 40: Polymarket WS Diagnosis and Data Watchdog
+**Goal**: Polymarket data flows reliably from production EC2, with automatic recovery from silent freezes
+**Depends on**: Nothing (first phase of v1.7)
+**Requirements**: POLY-01, POLY-02, POLY-03
+**Plans**: 2 plans
+**Success Criteria**:
+  1. Operator can see a documented diagnosis of the Polymarket WebSocket failure mode from EC2
+  2. Polymarket supervisor automatically detects data inactivity and triggers reconnection after configurable timeout
+  3. Polymarket WebSocket feed delivers order book data from the production EC2 instance (or diagnosis conclusively shows it cannot)
+  4. Prometheus metrics reflect Polymarket feed liveness state and reconnection events
+
+Plans:
+- [ ] 40-01-PLAN.md — Config extension (data_timeout_secs) and WS diagnostic integration test
+- [ ] 40-02-PLAN.md — Supervisor data inactivity watchdog with tokio::time::timeout
+
+### Phase 41: Signal Engine Generalization
+**Goal**: CrossAssetEngine correctly generates arbitrage signals using options-implied probabilities from any venue
+**Depends on**: Nothing (independent of Phase 40)
+**Requirements**: SIG-01, SIG-02, SIG-03
+
+### Phase 42: REST Polling Fallback and Source Coordination
+**Goal**: Polymarket price data is available via REST polling when WebSocket is unreliable, with exclusive-mode switching
+**Depends on**: Phase 40, Phase 41
+**Requirements**: POLY-04, POLY-05
+
+### Phase 43: End-to-End Production Verification
+**Goal**: Complete signal pipeline verified working on production EC2 with real market data
+**Depends on**: Phase 40, Phase 41, Phase 42
+**Requirements**: VER-01, VER-02
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
