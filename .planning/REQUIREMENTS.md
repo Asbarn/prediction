@@ -27,9 +27,9 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 
 ### Cost Model Validation
 
-- [ ] **COST-01**: Cost model parameters validated against exchange fee documentation (Deribit, Derive, Polymarket)
+- [x] **COST-01**: Cost model parameters validated against exchange fee documentation (Deribit, Derive, Polymarket)
 - [ ] **COST-02**: Parameter sensitivity analysis shows which cost components have largest impact on net edge
-- [ ] **COST-03**: On-chain execution costs (gas, bridging) estimated and included in Polymarket leg cost model
+- [x] **COST-03**: On-chain execution costs (gas, bridging) estimated and included in Polymarket leg cost model
 
 ### Statistical Validation
 
@@ -68,9 +68,9 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 | DIAG-01 | Phase 46 | Complete |
 | DIAG-02 | Phase 46 | Complete |
 | DIAG-03 | Phase 46 | Complete |
-| COST-01 | Phase 47 | Pending |
+| COST-01 | Phase 47 | Complete |
 | COST-02 | Phase 47 | Pending |
-| COST-03 | Phase 47 | Pending |
+| COST-03 | Phase 47 | Complete |
 | STAT-01 | Phase 48 | Pending |
 | STAT-02 | Phase 48 | Pending |
 | STAT-03 | Phase 48 | Pending |

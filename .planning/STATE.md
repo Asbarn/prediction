@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.8 Signal Quality Validation -- Phase 46 (Diagnostic CLI Tools)
+**Current focus:** v1.8 Signal Quality Validation -- Phase 47 (Cost Model Validation)
 
 ## Current Position
 
-Phase: 46 of 48 (Diagnostic CLI Tools) -- COMPLETE
-Plan: 2 of 2 in current phase (all complete)
-Status: Phase 46 complete, ready for phase 47
-Last activity: 2026-03-09 -- Completed 46-02 (Book-Depth CLI)
+Phase: 47 of 48 (Cost Model Validation)
+Plan: 1 of 2 in current phase
+Status: Executing phase 47
+Last activity: 2026-03-09 -- Completed 47-01 (Cost Validate CLI + Venue Fee Config)
 
-Progress (overall): 8 milestones shipped (v1.0-v1.7), 46 phases, 110 plans complete
+Progress (overall): 8 milestones shipped (v1.0-v1.7), 47 phases, 111 plans complete
 Progress (v1.8): [██████████] 100%
 
 ## Performance Metrics
@@ -54,6 +54,8 @@ Progress (v1.8): [██████████] 100%
 - v1.8/46-01: cost-audit CLI follows same --from/--to/--last/--by-event/--output pattern as spread-analytics
 - v1.8/46-02: Depth quality score: fill_ratio_mean * min(depth_levels_mean / 10.0, 1.0) combines fill and depth
 - v1.8/46-02: Instruments sorted worst-first so operator immediately sees problem areas
+- v1.8/47-01: On-chain costs fold into dollar normalization to avoid breaking CostBreakdown JSONL schema
+- v1.8/47-01: Bridge cost defaults to zero (Undocumented) since it depends on operator bridging pattern
 - Decisions also logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -70,5 +72,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 46-02-PLAN.md (Book-Depth CLI)
-Next action: Phase 46 complete. Proceed to phase 47 if applicable.
+Stopped at: Completed 47-01-PLAN.md (Cost Validate CLI + Venue Fee Config)
+Next action: Execute 47-02-PLAN.md.
