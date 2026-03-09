@@ -161,5 +161,5 @@ Plans:
 | 34-39 | v1.6 Production Deployment | 12/12 | Complete | 2026-03-09 |
 | 40 | 2/2 | Complete    | 2026-03-09 | - |
 | 41 | 1/1 | Complete    | 2026-03-09 | - |
-| 42 | v1.7 Signal Pipeline | 0/TBD | Not started | - |
+| 42 | 1/2 | In Progress|  | - |
 | 43 | v1.7 Signal Pipeline | 0/TBD | Not started | - |
