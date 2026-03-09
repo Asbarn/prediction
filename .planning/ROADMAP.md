@@ -168,10 +168,10 @@ Plans:
   2. Sensitivity analysis output shows which cost components have the largest impact on net edge (ranked by magnitude)
   3. Polymarket leg cost model includes estimated on-chain execution costs (gas, bridging) with documented source for estimates
   4. config.toml cost parameters reflect validated values, with each change traceable to an external data source
-**Plans**: 2 plans
+**Plans:** 2 plans
 Plans:
-- [ ] 47-01-PLAN.md -- TBD
-- [ ] 47-02-PLAN.md -- TBD
+- [ ] 47-01-PLAN.md -- Venue-differentiated fee config, on-chain cost fields, and cost-validate CLI
+- [ ] 47-02-PLAN.md -- Perturbation-based sensitivity analysis integrated into cost-validate CLI
 
 ### Phase 48: Statistical Validation and Go/No-Go
 **Goal**: Statistically valid assessment of whether profitable cross-venue arbitrage opportunities exist after all fixes, with honest confidence intervals
@@ -201,5 +201,5 @@ Plans:
 | 44 | v1.8 Bug Fixes | Complete    | 2026-03-09 | 2026-03-09 |
 | 45 | 2/2 | Complete    | 2026-03-09 | - |
 | 46 | 2/2 | Complete    | 2026-03-09 | - |
-| 47 | v1.8 Signal Quality | 0/TBD | Not started | - |
+| 47 | v1.8 Signal Quality | 0/2 | Not started | - |
 | 48 | v1.8 Signal Quality | 0/TBD | Not started | - |
