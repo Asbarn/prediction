@@ -26,6 +26,8 @@ use crate::signal::types::{
 };
 use crate::spread::book_walker::walk_the_book;
 use crate::spread::cost_model::{carry_cost, kalshi_taker_fee, polymarket_fee};
+use crate::spread::logger::SpreadLogger;
+use crate::spread::patterns::{SpreadPattern, SpreadResult};
 use crate::spread::rolling_stats::RollingStats;
 use crate::spread::threshold::compute_threshold;
 use crate::subscription::CleanupEvent;
@@ -47,6 +49,8 @@ pub struct CrossAssetEngine {
     config: SignalGenerationConfig,
     /// JSONL logger for all signal computations.
     logger: SignalLogger,
+    /// JSONL logger for cross-asset spread results.
+    spread_logger: SpreadLogger,
     /// Count of signals that passed threshold and were emitted.
     signal_count: u64,
     /// Count of signals filtered by threshold.
@@ -65,12 +69,14 @@ impl CrossAssetEngine {
     /// Create a new CrossAssetEngine with the given configuration.
     pub fn new(config: SignalGenerationConfig) -> Self {
         let logger = SignalLogger::new(&config.log_dir);
+        let spread_logger = SpreadLogger::new(&config.spread_log_dir);
         Self {
             latest_prob: HashMap::new(),
             latest_pred: HashMap::new(),
             stats: HashMap::new(),
             config,
             logger,
+            spread_logger,
             signal_count: 0,
             filtered_count: 0,
             replay_mode: false,
@@ -178,6 +184,10 @@ impl CrossAssetEngine {
                         filtered_count = self.filtered_count,
                         "CrossAssetEngine shutting down"
                     );
+                    // Flush spread logs before shutdown
+                    if let Err(e) = self.spread_logger.flush() {
+                        tracing::warn!(error = %e, "failed to flush spread logger on shutdown");
+                    }
                     break;
                 }
 
@@ -575,12 +585,63 @@ impl CrossAssetEngine {
                 prediction_venue: pred_venue,
                 threshold_status,
                 threshold_value,
-                threshold_components: Some(components),
+                threshold_components: Some(components.clone()),
             };
 
             // --- Log to JSONL (ALL signals, regardless of status) ---
             if let Err(e) = self.logger.log(&signal).await {
                 tracing::warn!(error = %e, "failed to write signal log");
+            }
+
+            // --- Log SpreadResult to spread_logs ---
+            let spread_pattern = match direction {
+                ArbDirection::BuyPredictionSellOptions => SpreadPattern::BuyPredictionSellOptionsImplied,
+                ArbDirection::SellPredictionBuyOptions => SpreadPattern::SellPredictionBuyOptionsImplied,
+            };
+            let spread_result = SpreadResult {
+                event_id: event_id.to_string(),
+                pattern: spread_pattern,
+                gross_spread: raw_spread,
+                net_spread: net_edge,
+                buy_fill_price: match direction {
+                    ArbDirection::BuyPredictionSellOptions => walk.avg_fill_price,
+                    ArbDirection::SellPredictionBuyOptions => options_executable,
+                },
+                sell_fill_price: match direction {
+                    ArbDirection::BuyPredictionSellOptions => options_executable,
+                    ArbDirection::SellPredictionBuyOptions => walk.avg_fill_price,
+                },
+                buy_fee: match direction {
+                    ArbDirection::BuyPredictionSellOptions => prediction_fee / target,
+                    ArbDirection::SellPredictionBuyOptions => options_fee_estimate / target,
+                },
+                sell_fee: match direction {
+                    ArbDirection::BuyPredictionSellOptions => options_fee_estimate / target,
+                    ArbDirection::SellPredictionBuyOptions => prediction_fee / target,
+                },
+                carry_cost: carry / target,
+                total_cost,
+                basis_risk_premium,
+                buy_fill_ratio: match direction {
+                    ArbDirection::BuyPredictionSellOptions => walk.fill_ratio(),
+                    ArbDirection::SellPredictionBuyOptions => Decimal::ONE,
+                },
+                sell_fill_ratio: match direction {
+                    ArbDirection::BuyPredictionSellOptions => Decimal::ONE,
+                    ArbDirection::SellPredictionBuyOptions => walk.fill_ratio(),
+                },
+                target_notional: self.config.target_notional,
+                timestamp_ms: now_ms,
+                poly_exchange_ts: Some(snap.exchange_timestamp.unwrap_or(now_ms)),
+                kalshi_exchange_ts: None,
+                options_exchange_ts: Some(now_ms),
+                threshold: Some(threshold_value),
+                threshold_components: Some(components),
+                threshold_status: Some(threshold_status),
+            };
+
+            if let Err(e) = self.spread_logger.log(&spread_result).await {
+                tracing::warn!(error = %e, "failed to write cross-asset spread log");
             }
 
             // --- Emit on channel only if PassedBoth ---

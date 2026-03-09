@@ -98,6 +98,7 @@ fn make_spread_result() -> SpreadResult {
         timestamp_ms: 1700000000000,
         poly_exchange_ts: Some(1700000000100),
         kalshi_exchange_ts: None,
+        options_exchange_ts: None,
         threshold: Some(dec("0.025")),
         threshold_components: Some(ThresholdComponents {
             static_floor: dec("0.01"),
@@ -135,6 +136,7 @@ fn spread_result_schema_stable() {
         "timestamp_ms",
         "poly_exchange_ts",
         "kalshi_exchange_ts",
+        "options_exchange_ts",
         "threshold",
         "threshold_components",
     ];
