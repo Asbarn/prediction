@@ -201,5 +201,5 @@ Plans:
 | 44 | v1.8 Bug Fixes | Complete    | 2026-03-09 | 2026-03-09 |
 | 45 | 2/2 | Complete    | 2026-03-09 | - |
 | 46 | 2/2 | Complete    | 2026-03-09 | - |
-| 47 | 2/2 | Complete   | 2026-03-09 | - |
+| 47 | 2/2 | Complete    | 2026-03-09 | - |
 | 48 | v1.8 Signal Quality | 0/TBD | Not started | - |
