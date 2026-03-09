@@ -74,7 +74,15 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ### Active
 
-(No active requirements -- planning next milestone)
+## Current Milestone: v1.7 Prediction Market Signal Pipeline
+
+**Goal:** Get Polymarket data flowing in production and generate actual cross-asset arbitrage signals (options-implied probability vs prediction market price).
+
+**Target features:**
+- Investigate and fix Polymarket WebSocket connectivity from AWS EC2
+- Generalize spread engine beyond Polymarket+Kalshi hardcoding to support single prediction market vs options-implied probability
+- Generalize signal engine to work with any single prediction market venue
+- End-to-end production verification of signal generation pipeline
 
 ### Out of Scope
 
@@ -113,7 +121,7 @@ Production infrastructure: CDK-managed AWS (VPC, EC2, IAM, EBS, Secrets Manager,
 
 **System status:** Fully operational in production. System runs unattended on AWS EC2 with automated CI/CD deployments, Prometheus/Grafana monitoring, CloudWatch logging, and Secrets Manager credential injection. Paper trading with 4-venue capability, self-managing event lifecycle, self-managing feed subscriptions, and offline analysis CLIs.
 
-**Next priority:** Evaluate paper trading results and determine next milestone (execution engine, multi-asset, or operational improvements).
+**Next priority:** v1.7 Prediction Market Signal Pipeline -- get Polymarket data flowing and generate cross-asset arbitrage signals.
 
 **Known tech debt:** 4 non-critical items from v1.6 (stdout_json not codified in user-data, Grafana open to 0.0.0.0/0, dashboard count wording, removed contact-points.yml). See MILESTONES.md for full history.
 
@@ -194,4 +202,4 @@ Production infrastructure: CDK-managed AWS (VPC, EC2, IAM, EBS, Secrets Manager,
 | cargo-chef 3-stage Dockerfile | Dependency layer caching reduces rebuild time | v1.6 Validated -- fast incremental builds |
 
 ---
-*Last updated: 2026-03-09 after v1.6 milestone*
+*Last updated: 2026-03-09 after v1.7 milestone start*

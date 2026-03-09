@@ -5,35 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** Planning next milestone
+**Current focus:** v1.7 Prediction Market Signal Pipeline
 
 ## Current Position
 
-Phase: 39 of 39 -- all milestones through v1.6 complete
-Plan: All plans complete
-Status: v1.6 Production Deployment shipped 2026-03-09
-Last activity: 2026-03-09 -- Completed v1.6 milestone archival
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-09 — Milestone v1.7 started
 
 Progress (overall): 7 milestones shipped (v1.0-v1.6), 39 phases, 91 plans complete
-
-## Performance Metrics
-
-**Velocity:**
-- Total plans completed: 91
-- Total phases completed: 39
-- Total execution time: ~16 days across 7 milestones
-
-**By Milestone:**
-
-| Milestone | Phases | Plans | Timeline |
-|-----------|--------|-------|----------|
-| v1.0 | 13 | 36 | 4 days |
-| v1.1 | 4 | 11 | 5 days |
-| v1.2 | 4 | 8 | 2 days |
-| v1.3 | 4 | 7 | 2 days |
-| v1.4 | 4 | 7 | 1 day |
-| v1.5 | 4 | 10 | 2 days |
-| v1.6 | 6 | 12 | 2 days |
 
 ## Accumulated Context
 
@@ -47,10 +28,12 @@ None.
 
 ### Blockers/Concerns
 
-None. All previous blockers resolved.
+- Polymarket WS "Connection reset by peer" from EC2 us-east-1 -- needs investigation
+- Spread engine hardcoded to Polymarket+Kalshi pair -- needs generalization
+- Signal engine requires prediction market venue data -- no signals possible without fix
 
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed v1.6 milestone archival
-Next action: /gsd:new-milestone to plan next milestone
+Stopped at: Defining v1.7 requirements
+Next action: Complete requirements and roadmap
