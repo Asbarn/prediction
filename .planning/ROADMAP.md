@@ -114,7 +114,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - [x] **Phase 44: Critical Bug Fixes and Data Pipeline Repair** - Fix cost model unit mismatch, Kalshi fee rounding, and spread logger silence
 - [x] **Phase 45: Instrument Quality and Event Mapping** - Populate events.toml with near-the-money BTC pairs, build match-audit CLI, add OTM filtering (completed 2026-03-09)
 - [x] **Phase 46: Diagnostic CLI Tools** - Cost-audit and book-depth CLIs plus stats module extensions for signal analysis (completed 2026-03-09)
-- [ ] **Phase 47: Cost Model Validation** - Validate fee parameters against exchange docs, run sensitivity analysis, estimate on-chain costs
+- [x] **Phase 47: Cost Model Validation** - Validate fee parameters against exchange docs, run sensitivity analysis, estimate on-chain costs (completed 2026-03-09)
 - [ ] **Phase 48: Statistical Validation and Go/No-Go** - Autocorrelation-corrected analysis, out-of-sample validation, final confidence-interval report
 
 ### Phase 44: Critical Bug Fixes and Data Pipeline Repair
@@ -168,7 +168,7 @@ Plans:
   2. Sensitivity analysis output shows which cost components have the largest impact on net edge (ranked by magnitude)
   3. Polymarket leg cost model includes estimated on-chain execution costs (gas, bridging) with documented source for estimates
   4. config.toml cost parameters reflect validated values, with each change traceable to an external data source
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 47-01-PLAN.md -- Venue-differentiated fee config, on-chain cost fields, and cost-validate CLI
 - [ ] 47-02-PLAN.md -- Perturbation-based sensitivity analysis integrated into cost-validate CLI
@@ -201,5 +201,5 @@ Plans:
 | 44 | v1.8 Bug Fixes | Complete    | 2026-03-09 | 2026-03-09 |
 | 45 | 2/2 | Complete    | 2026-03-09 | - |
 | 46 | 2/2 | Complete    | 2026-03-09 | - |
-| 47 | 1/2 | In Progress|  | - |
+| 47 | 2/2 | Complete   | 2026-03-09 | - |
 | 48 | v1.8 Signal Quality | 0/TBD | Not started | - |
