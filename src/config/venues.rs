@@ -76,6 +76,10 @@ fn default_polymarket_ping_interval() -> u64 {
     10_000
 }
 
+fn default_data_timeout_secs() -> u64 {
+    120
+}
+
 /// Deribit connection settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DeribitConfig {
@@ -140,6 +144,11 @@ pub struct PolymarketConfig {
     /// PING interval in milliseconds (Polymarket requires PING every 10s).
     #[serde(default = "default_polymarket_ping_interval")]
     pub ping_interval_ms: u64,
+    /// Data inactivity timeout in seconds. If no order book data arrives within
+    /// this period, the supervisor forces a reconnect. Detects silent freezes
+    /// (GitHub #292).
+    #[serde(default = "default_data_timeout_secs")]
+    pub data_timeout_secs: u64,
 }
 
 /// Kalshi connection settings.

@@ -19,6 +19,8 @@ gamma_api_url = "https://gamma-api.polymarket.com"
 staleness_threshold_ms = 5000
 rate_limit_per_second = 10
 ping_interval_ms = 10000
+# Force reconnect after N seconds of no data (silent freeze detection)
+data_timeout_secs = 120
 
 # Reconnection backoff configuration
 [polymarket.reconnect]
