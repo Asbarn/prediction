@@ -146,3 +146,23 @@
 
 ---
 
+
+## v1.7 Prediction Market Signal Pipeline (Shipped: 2026-03-09)
+
+**Phases completed:** 4 phases, 7 plans
+**LOC delta:** +4,513 lines (40,582 LOC Rust total)
+**Timeline:** 1 day (2026-03-09)
+**Requirements:** 10/10 satisfied
+
+**Key accomplishments:**
+- Polymarket WS diagnostic test covering 5 failure modes (connection reset, silent freeze, geo-block, read error, server close) with data_timeout_secs config for runtime tuning
+- Data inactivity watchdog in Polymarket supervisor detecting silent freezes via tokio::time::timeout, emitting feed_data_timeout_total counter, and forcing reconnect with preserved backoff
+- Venue-generic signal generation: ImpliedProbability carries source_venue through pricing pipeline, CrossAssetEngine uses dynamic venue iteration from cache instead of hardcoded venue lists
+- REST polling fallback using /midpoint endpoint with rate limiting, producing MarketSnapshot values for WS-down scenarios (avoiding /book endpoint which returns stale ghost data)
+- SourceCoordinator state machine managing exclusive WS/REST switching with probe-based WS recovery, cancel-before-switch invariant, and Prometheus mode metrics
+- End-to-end production verification: 3 venues connected via WebSocket, ~5 ops/s signal computation, 19,844 JSONL log entries with correct venue attribution
+
+**Tech debt carried forward:** Spread logger not producing output (spread_logs empty); all signals currently filtered (negative edge, cold start threshold)
+
+---
+

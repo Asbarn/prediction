@@ -72,17 +72,16 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 - v1.6 GitLab CI/CD pipeline: automated test, Docker build with cargo-chef caching, ECR push, deploy via SSM Send-Command with health check
 - v1.6 4 Grafana operational dashboards (Feed Health, Signal Quality, Paper Trade P&L, System Health) + 3 alert rules provisioned via CDK S3 asset
 
+- v1.7 Polymarket WS diagnostic test covering 5 failure modes with data_timeout_secs config
+- v1.7 Data inactivity watchdog in Polymarket supervisor with tokio::time::timeout and automatic reconnect
+- v1.7 Venue-generic signal generation: ImpliedProbability source_venue through pipeline, dynamic venue iteration
+- v1.7 REST polling fallback for Polymarket /midpoint with rate limiting and MarketSnapshot production
+- v1.7 SourceCoordinator state machine for exclusive WS/REST switching with probe-based WS recovery
+- v1.7 End-to-end production verification: 3 venues live, ~5 ops/s computation, JSONL logs with venue attribution
+
 ### Active
 
-## Current Milestone: v1.7 Prediction Market Signal Pipeline
-
-**Goal:** Get Polymarket data flowing in production and generate actual cross-asset arbitrage signals (options-implied probability vs prediction market price).
-
-**Target features:**
-- Investigate and fix Polymarket WebSocket connectivity from AWS EC2
-- Generalize spread engine beyond Polymarket+Kalshi hardcoding to support single prediction market vs options-implied probability
-- Generalize signal engine to work with any single prediction market venue
-- End-to-end production verification of signal generation pipeline
+(None — milestone planning needed)
 
 ### Out of Scope
 
@@ -110,20 +109,22 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ## Context
 
-**Shipped v1.6 Production Deployment** (2026-03-09) with 42,732 LOC Rust + 499 LOC CDK TypeScript + 1,093 LOC Grafana provisioning across 39 phases (7 milestones).
+**Shipped v1.7 Prediction Market Signal Pipeline** (2026-03-09) with 40,582 LOC Rust + 499 LOC CDK TypeScript + 1,093 LOC Grafana provisioning across 43 phases (8 milestones).
 Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prometheus, statrs, comfy-table, tracing, strsim. Infrastructure: AWS CDK (TypeScript), GitLab CI, Docker, systemd, Prometheus, Grafana OSS, Amazon Managed Prometheus, CloudWatch.
-4 venues operational: Deribit (WebSocket + REST settlement + discovery), Polymarket (CLOB WebSocket + Gamma API discovery), Kalshi (WebSocket + REST + discovery), Derive (WebSocket + REST discovery).
+4 venues operational: Deribit (WebSocket + REST settlement + discovery), Polymarket (CLOB WebSocket with REST /midpoint fallback + Gamma API discovery), Kalshi (WebSocket + REST + discovery), Derive (WebSocket + REST discovery).
+SourceCoordinator manages Polymarket WS/REST mode switching with exclusive-mode guarantee, probe-based WS recovery, and Prometheus mode metrics.
+Venue-generic signal generation: ImpliedProbability carries source_venue, CrossAssetEngine uses dynamic venue iteration from cache, signals attributed to correct options venue.
 Dynamic subscription: SubscriptionManager with 4-venue reconciliation, watch channels to supervisors, Notify ordering, dry-run mode, and stale state cleanup across 5 engines.
 Automated event management: four-venue discovery with fuzzy matching, confidence-scored proposals, approved-mapping validation, expired event archival, and periodic background pipeline.
 Settlement tracking: 3 venue resolution checkers with 4-tier polling cadence, startup backfill, and auto-settlement (Derive settlement deferred to future).
 Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and `signal-scoring` CLI (hit rate, Sharpe, PSR, drawdown, edge t-test) with E2E golden-value tests.
 Production infrastructure: CDK-managed AWS (VPC, EC2, IAM, EBS, Secrets Manager, CloudWatch, AMP), GitLab CI/CD pipeline (test, build, deploy via SSM), Prometheus sidecar + Grafana OSS with 4 dashboards and 3 alert rules.
 
-**System status:** Fully operational in production. System runs unattended on AWS EC2 with automated CI/CD deployments, Prometheus/Grafana monitoring, CloudWatch logging, and Secrets Manager credential injection. Paper trading with 4-venue capability, self-managing event lifecycle, self-managing feed subscriptions, and offline analysis CLIs.
+**System status:** Fully operational in production generating cross-asset arbitrage signals. 3 venues connected (Polymarket WS, Deribit, Derive), ~5 ops/s signal computation rate, JSONL signal logs with venue attribution. System runs unattended on AWS EC2 with Prometheus/Grafana monitoring, CloudWatch logging, and Secrets Manager credential injection.
 
-**Next priority:** v1.7 Prediction Market Signal Pipeline -- get Polymarket data flowing and generate cross-asset arbitrage signals.
+**Next priority:** To be determined via `/gsd:new-milestone`.
 
-**Known tech debt:** 4 non-critical items from v1.6 (stdout_json not codified in user-data, Grafana open to 0.0.0.0/0, dashboard count wording, removed contact-points.yml). See MILESTONES.md for full history.
+**Known tech debt:** Spread logger not producing output (spread_logs empty); all signals currently filtered (negative edge); 4 non-critical items from v1.6 (stdout_json not codified in user-data, Grafana open to 0.0.0.0/0, dashboard count wording, removed contact-points.yml). GitLab CI/CD minutes exhausted — deploy manually via SSM. See MILESTONES.md for full history.
 
 ## Constraints
 
@@ -200,6 +201,12 @@ Production infrastructure: CDK-managed AWS (VPC, EC2, IAM, EBS, Secrets Manager,
 | SSM Send-Command for CI deploy (not SSH) | No SSH keys in CI; scoped IAM permissions | v1.6 Validated -- secure deployment |
 | S3 Asset for Grafana provisioning | Dashboard JSON exceeded 16KB user-data limit | v1.6 Validated -- more maintainable than heredocs |
 | cargo-chef 3-stage Dockerfile | Dependency layer caching reduces rebuild time | v1.6 Validated -- fast incremental builds |
+| tokio::time::timeout on recv() only, not full select! | Cancellation and subscription arms stay responsive | v1.7 Validated -- clean watchdog pattern |
+| Backoff NOT reset on data timeout | Silent freeze is a failure condition; backoff should grow | v1.7 Validated -- prevents rapid reconnect loops |
+| REST /midpoint endpoint (not /book) | /book returns stale ghost data per GitHub #180 | v1.7 Validated -- accurate midpoint prices |
+| Cancel-before-switch invariant in SourceCoordinator | NEVER run WS and REST simultaneously on same channel | v1.7 Validated -- no duplicate/conflicting prices |
+| Probe-based WS recovery with threshold | Temporary WS client counts messages before switching back | v1.7 Validated -- confirms stability before commit |
+| source_venue on ImpliedProbability (not lookup) | Venue travels with data through pipeline, no external lookup | v1.7 Validated -- clean data flow |
 
 ---
-*Last updated: 2026-03-09 after v1.7 milestone start*
+*Last updated: 2026-03-09 after v1.7 milestone completion*
