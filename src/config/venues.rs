@@ -80,6 +80,18 @@ fn default_data_timeout_secs() -> u64 {
     120
 }
 
+fn default_rest_poll_interval() -> u64 {
+    5
+}
+
+fn default_ws_recovery_check_secs() -> u64 {
+    60
+}
+
+fn default_ws_recovery_threshold() -> u32 {
+    3
+}
+
 /// Deribit connection settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DeribitConfig {
@@ -149,6 +161,15 @@ pub struct PolymarketConfig {
     /// (GitHub #292).
     #[serde(default = "default_data_timeout_secs")]
     pub data_timeout_secs: u64,
+    /// REST polling interval in seconds (how often to poll /midpoint when in REST mode).
+    #[serde(default = "default_rest_poll_interval")]
+    pub rest_poll_interval_secs: u64,
+    /// How often to attempt WS reconnection while in REST mode (seconds).
+    #[serde(default = "default_ws_recovery_check_secs")]
+    pub ws_recovery_check_secs: u64,
+    /// Number of WS messages needed to confirm WS is recovered before switching back.
+    #[serde(default = "default_ws_recovery_threshold")]
+    pub ws_recovery_threshold: u32,
 }
 
 /// Kalshi connection settings.

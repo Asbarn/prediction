@@ -298,6 +298,9 @@ async fn multi_venue_replay_pipeline_processes_deribit_recordings() {
             rate_limit_per_second: 10,
             ping_interval_ms: 10000,
             data_timeout_secs: 120,
+            rest_poll_interval_secs: 5,
+            ws_recovery_check_secs: 60,
+            ws_recovery_threshold: 3,
         },
         kalshi: KalshiConfig {
             rest_url: "https://api.elections.kalshi.com/trade-api/v2".to_string(),
@@ -392,6 +395,9 @@ async fn multi_venue_replay_graceful_empty_dir() {
             rate_limit_per_second: 10,
             ping_interval_ms: 10000,
             data_timeout_secs: 120,
+            rest_poll_interval_secs: 5,
+            ws_recovery_check_secs: 60,
+            ws_recovery_threshold: 3,
         },
         kalshi: KalshiConfig {
             rest_url: "https://api.elections.kalshi.com/trade-api/v2".to_string(),
