@@ -126,7 +126,10 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
   2. Cost model subtracts fees in probability space (same units as raw spread), not dollar space -- verifiable by inspecting net_edge values that are the same order of magnitude as raw_spread
   3. Kalshi taker fee on a $0.25 contract computes to $0.02 (not $1.00) -- verifiable by unit test
   4. Signal log entries show net_edge values in a plausible range (not uniformly -19.5)
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 44-01-PLAN.md -- Fix Kalshi fee ceiling rounding and normalize cost units to probability space
+- [ ] 44-02-PLAN.md -- Wire SpreadLogger into CrossAssetEngine for spread_logs output
 
 ### Phase 45: Instrument Quality and Event Mapping
 **Goal**: Production system analyzes near-the-money BTC instruments where prediction market prices and options-implied probabilities measure the same economic bet
@@ -183,7 +186,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 | 30-33 | v1.5 Derive Integration | 10/10 | Complete | 2026-03-06 |
 | 34-39 | v1.6 Production Deployment | 12/12 | Complete | 2026-03-09 |
 | 40-43 | v1.7 Signal Pipeline | 7/7 | Complete | 2026-03-09 |
-| 44 | v1.8 Signal Quality | 0/TBD | Not started | - |
+| 44 | v1.8 Signal Quality | 0/2 | In progress | - |
 | 45 | v1.8 Signal Quality | 0/TBD | Not started | - |
 | 46 | v1.8 Signal Quality | 0/TBD | Not started | - |
 | 47 | v1.8 Signal Quality | 0/TBD | Not started | - |
