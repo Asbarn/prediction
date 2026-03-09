@@ -31,6 +31,10 @@ pub enum SpreadPattern {
     /// Sell Polymarket NO (at bid complement), Buy Kalshi NO (at ask complement).
     /// Complement of pattern 1.
     SellPolyNoBuyKalshiNo,
+    /// Buy prediction market, sell options-implied position.
+    BuyPredictionSellOptionsImplied,
+    /// Sell prediction market, buy options-implied position.
+    SellPredictionBuyOptionsImplied,
 }
 
 impl SpreadPattern {
@@ -51,6 +55,8 @@ impl SpreadPattern {
             SpreadPattern::SellPolyYesBuyKalshiYes => "sell_poly_yes_buy_kalshi_yes",
             SpreadPattern::BuyPolyNoSellKalshiNo => "buy_poly_no_sell_kalshi_no",
             SpreadPattern::SellPolyNoBuyKalshiNo => "sell_poly_no_buy_kalshi_no",
+            SpreadPattern::BuyPredictionSellOptionsImplied => "buy_pred_sell_options",
+            SpreadPattern::SellPredictionBuyOptionsImplied => "sell_pred_buy_options",
         }
     }
 
@@ -61,6 +67,8 @@ impl SpreadPattern {
             SpreadPattern::SellPolyYesBuyKalshiYes => Venue::Kalshi,
             SpreadPattern::BuyPolyNoSellKalshiNo => Venue::Polymarket,
             SpreadPattern::SellPolyNoBuyKalshiNo => Venue::Kalshi,
+            SpreadPattern::BuyPredictionSellOptionsImplied => Venue::Polymarket,
+            SpreadPattern::SellPredictionBuyOptionsImplied => Venue::Deribit,
         }
     }
 
@@ -93,6 +101,8 @@ impl SpreadPattern {
             SpreadPattern::SellPolyYesBuyKalshiYes => Venue::Polymarket,
             SpreadPattern::BuyPolyNoSellKalshiNo => Venue::Kalshi,
             SpreadPattern::SellPolyNoBuyKalshiNo => Venue::Polymarket,
+            SpreadPattern::BuyPredictionSellOptionsImplied => Venue::Deribit,
+            SpreadPattern::SellPredictionBuyOptionsImplied => Venue::Polymarket,
         }
     }
 }
@@ -160,6 +170,10 @@ pub fn compute_gross_spread(
             let sell = poly_bid.complement().into_inner();
             (buy, sell)
         }
+        // Cross-asset patterns are not used with compute_gross_spread
+        // (they are constructed directly in CrossAssetEngine).
+        SpreadPattern::BuyPredictionSellOptionsImplied
+        | SpreadPattern::SellPredictionBuyOptionsImplied => return None,
     };
 
     let gross_spread = sell_price - buy_price;
@@ -253,6 +267,9 @@ pub struct SpreadResult {
     pub poly_exchange_ts: Option<i64>,
     /// Exchange timestamp from Kalshi snapshot (if available).
     pub kalshi_exchange_ts: Option<i64>,
+    /// Exchange timestamp from options venue snapshot (if available).
+    #[serde(default)]
+    pub options_exchange_ts: Option<i64>,
     /// Dynamic threshold at the time of computation (if available).
     pub threshold: Option<Decimal>,
     /// Breakdown of threshold components for post-hoc analysis.
@@ -532,6 +549,7 @@ mod tests {
             timestamp_ms: 1700000000000,
             poly_exchange_ts: Some(1700000000100),
             kalshi_exchange_ts: None,
+            options_exchange_ts: None,
             threshold: Some(dec("0.025")),
             threshold_components: Some(ThresholdComponents {
                 static_floor: dec("0.01"),
@@ -575,6 +593,7 @@ mod tests {
             timestamp_ms: 1700000000000,
             poly_exchange_ts: None,
             kalshi_exchange_ts: None,
+            options_exchange_ts: None,
             threshold: None,
             threshold_components: None,
             threshold_status: None,

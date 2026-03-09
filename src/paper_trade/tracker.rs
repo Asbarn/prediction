@@ -1147,6 +1147,7 @@ mod tests {
             timestamp_ms: 1700000000000,
             poly_exchange_ts: None,
             kalshi_exchange_ts: None,
+            options_exchange_ts: None,
             threshold: None,
             threshold_components: None,
             threshold_status: None,

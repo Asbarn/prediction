@@ -329,6 +329,7 @@ impl SpreadEngine {
                 timestamp_ms: now_ms,
                 poly_exchange_ts: poly.exchange_timestamp,
                 kalshi_exchange_ts: kalshi.exchange_timestamp,
+                options_exchange_ts: None,
                 threshold: Some(threshold_value),
                 threshold_components: Some(components),
                 threshold_status: Some(threshold_status),
@@ -485,6 +486,12 @@ impl SpreadEngine {
             }
             SpreadPattern::SellPolyNoBuyKalshiNo => {
                 (&kalshi.depth_bids, &poly.depth_asks)
+            }
+            // Cross-asset patterns are not used by SpreadEngine.
+            // Return empty walks as a safety fallback.
+            SpreadPattern::BuyPredictionSellOptionsImplied
+            | SpreadPattern::SellPredictionBuyOptionsImplied => {
+                return (walk_the_book(&[], target), walk_the_book(&[], target));
             }
         };
 

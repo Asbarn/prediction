@@ -666,6 +666,7 @@ mod tests {
             timestamp_ms: 1700000000000,
             poly_exchange_ts: Some(1700000000100),
             kalshi_exchange_ts: Some(1700000000200),
+            options_exchange_ts: None,
             threshold: Some(dec("0.025")),
             threshold_components: None,
             threshold_status: Some(ThresholdStatus::PassedBoth),

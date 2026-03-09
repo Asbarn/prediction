@@ -47,6 +47,10 @@ pub struct SignalGenerationConfig {
     /// Directory for signal JSONL log files.
     pub log_dir: String,
 
+    /// Directory for cross-asset spread JSONL log files.
+    /// When set, the CrossAssetEngine also writes SpreadResult entries here.
+    pub spread_log_dir: String,
+
     /// Summary emission interval (seconds).
     pub summary_interval_secs: u64,
 
@@ -82,6 +86,7 @@ impl Default for SignalGenerationConfig {
             threshold: ThresholdConfig::default(),
             rolling_window_secs: 14_400,
             log_dir: "signal_logs".to_string(),
+            spread_log_dir: "spread_logs".to_string(),
             summary_interval_secs: 300,
             carry: CarryConfig::default(),
             polymarket_fees: PolymarketFeeConfig::default(),
@@ -106,6 +111,7 @@ mod tests {
         assert_eq!(cfg.deribit_taker_fee_rate, Decimal::new(3, 4));
         assert_eq!(cfg.rolling_window_secs, 14_400);
         assert_eq!(cfg.log_dir, "signal_logs");
+        assert_eq!(cfg.spread_log_dir, "spread_logs");
         assert_eq!(cfg.summary_interval_secs, 300);
     }
 
