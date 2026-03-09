@@ -94,3 +94,7 @@ path = "src/bin/spread_analytics.rs"
 [[bin]]
 name = "signal-scoring"
 path = "src/bin/signal_scoring.rs"
+
+[[bin]]
+name = "match-audit"
+path = "src/bin/match_audit.rs"
