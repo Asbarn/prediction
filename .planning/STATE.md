@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.7 Prediction Market Signal Pipeline -- Phase 43
+**Current focus:** v1.8 Signal Quality Validation
 
 ## Current Position
 
-Phase: 43 of 43 (E2E Production Verification) -- COMPLETE
-Plan: 2 of 2 in current phase (all plans complete)
-Status: Phase complete
-Last activity: 2026-03-09 -- Completed 43-02 (e2e production verification)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-09 — Milestone v1.8 started
 
-Progress (overall): 7 milestones shipped (v1.0-v1.6), 43 phases, 101 plans complete
-Progress (v1.7): [██████████] 100%
+Progress (overall): 8 milestones shipped (v1.0-v1.7), 43 phases, 101 plans complete
+Progress (v1.8): [░░░░░░░░░░] 0%
 
 ## Accumulated Context
 
@@ -47,5 +47,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 43-02-PLAN.md -- v1.7 milestone complete
-Next action: v1.7 complete. All phases 40-43 shipped. Pipeline operational in production.
+Stopped at: Starting v1.8 milestone — research phase
+Next action: Research domain, define requirements, create roadmap

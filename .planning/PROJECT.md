@@ -81,7 +81,17 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ### Active
 
-(None — milestone planning needed)
+## Current Milestone: v1.8 Signal Quality Validation
+
+**Goal:** Understand why all signals show negative edge, validate instrument matching quality, tune cost model, and determine if profitable cross-venue arb opportunities exist in current market structure.
+
+**Target features:**
+- Production signal data analysis (spread distributions, cost breakdowns, instrument pair quality)
+- Instrument matching quality audit (are paired contracts actually representing the same bet?)
+- Cost model validation and tuning against real market data
+- Polymarket book depth and liquidity analysis per instrument
+- Near-the-money strike coverage where liquidity actually lives
+- Spread logger fix for complete data capture
 
 ### Out of Scope
 
