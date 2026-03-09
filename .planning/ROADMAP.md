@@ -13,7 +13,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - v1.4 Analysis Tooling -- Phases 26-29 (shipped 2026-03-02) | [Full details](milestones/v1.4-ROADMAP.md)
 - v1.5 Derive.xyz Venue Integration -- Phases 30-33 (shipped 2026-03-06) | [Full details](milestones/v1.5-ROADMAP.md)
 - v1.6 Production Deployment -- Phases 34-39 (shipped 2026-03-09) | [Full details](milestones/v1.6-ROADMAP.md)
-- v1.7 Prediction Market Signal Pipeline -- Phases 40-43 (in progress) | [Full details](milestones/v1.7-ROADMAP.md)
+- v1.7 Prediction Market Signal Pipeline -- Phases 40-43 (shipped 2026-03-09) | [Full details](milestones/v1.7-ROADMAP.md)
 
 ## Phases
 
@@ -98,12 +98,12 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 </details>
 
-### v1.7 Prediction Market Signal Pipeline (In Progress)
+### v1.7 Prediction Market Signal Pipeline -- SHIPPED 2026-03-09
 
 - [x] **Phase 40: Polymarket WS Diagnosis and Data Watchdog** - Investigate WS failure from EC2, implement data inactivity detection (completed 2026-03-09)
 - [x] **Phase 41: Signal Engine Generalization** - Remove hardcoded venue references in CrossAssetEngine (completed 2026-03-09)
 - [x] **Phase 42: REST Polling Fallback and Source Coordination** - REST price polling with exclusive-mode WS/REST switching (completed 2026-03-09)
-- [ ] **Phase 43: E2E Production Verification** - Prove signal pipeline on AWS EC2 with live data
+- [x] **Phase 43: E2E Production Verification** - Prove signal pipeline on AWS EC2 with live data (completed 2026-03-09)
 
 ### Phase 40: Polymarket WS Diagnosis and Data Watchdog
 **Goal**: Polymarket data flows reliably from production EC2, with automatic recovery from silent freezes
@@ -150,8 +150,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 43-01-PLAN.md — Fix signal_logs Docker volume mount (docker-compose.yml + CDK)
-- [ ] 43-02-PLAN.md — Deploy to production and verify signals in Grafana + JSONL logs
+- [x] 43-01-PLAN.md — Fix signal_logs Docker volume mount (docker-compose.yml + CDK)
+- [x] 43-02-PLAN.md — Deploy to production and verify signals in Grafana + JSONL logs
 
 ## Progress
 
@@ -167,4 +167,4 @@ Plans:
 | 40 | 2/2 | Complete    | 2026-03-09 | - |
 | 41 | 1/1 | Complete    | 2026-03-09 | - |
 | 42 | 2/2 | Complete    | 2026-03-09 | - |
-| 43 | 1/2 | In Progress|  | - |
+| 43 | 2/2 | Complete | 2026-03-09 | - |

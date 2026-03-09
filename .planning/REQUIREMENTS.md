@@ -23,7 +23,7 @@ Requirements for Prediction Market Signal Pipeline. Each maps to roadmap phases.
 
 ### Verification
 
-- [ ] **VER-01**: Production system generates cross-asset arbitrage signals visible in Grafana dashboards
+- [x] **VER-01**: Production system generates cross-asset arbitrage signals visible in Grafana dashboards
 - [x] **VER-02**: Signal and spread JSONL logs contain entries from live production data
 
 ## Future Requirements
@@ -58,7 +58,7 @@ Requirements for Prediction Market Signal Pipeline. Each maps to roadmap phases.
 | SIG-01 | Phase 41 | Complete |
 | SIG-02 | Phase 41 | Complete |
 | SIG-03 | Phase 41 | Complete |
-| VER-01 | Phase 43 | Pending |
+| VER-01 | Phase 43 | Complete |
 | VER-02 | Phase 43 | Complete |
 
 **Coverage:**

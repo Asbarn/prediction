@@ -9,18 +9,20 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 
 ## Current Position
 
-Phase: 43 of 43 (E2E Production Verification) -- IN PROGRESS
-Plan: 1 of 2 in current phase (43-01 complete)
-Status: Executing phase
-Last activity: 2026-03-09 -- Completed 43-01 (signal_logs volume mount)
+Phase: 43 of 43 (E2E Production Verification) -- COMPLETE
+Plan: 2 of 2 in current phase (all plans complete)
+Status: Phase complete
+Last activity: 2026-03-09 -- Completed 43-02 (e2e production verification)
 
-Progress (overall): 7 milestones shipped (v1.0-v1.6), 42 phases, 99 plans complete
-Progress (v1.7): [████░░░░░░] 31%
+Progress (overall): 7 milestones shipped (v1.0-v1.6), 43 phases, 101 plans complete
+Progress (v1.7): [██████████] 100%
 
 ## Accumulated Context
 
 ### Decisions
 
+- 43-02: arb_signals_emitted_total=0 is expected (negative edge, all filtered by profitability threshold)
+- 43-02: Spread logs empty is acceptable (spread logger not actively writing, not a pipeline failure)
 - 43-01: Placed signal_logs mount between spread_logs and settlement_logs for consistent ordering
 - 42-02: 5-second grace period before WS-to-REST switch (allows supervisor self-recovery via backoff)
 - 42-02: WS probe uses separate temporary channel, never sends to snapshot_tx (isolation guarantee)
@@ -45,5 +47,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 43-01-PLAN.md
-Next action: Execute 43-02-PLAN.md
+Stopped at: Completed 43-02-PLAN.md -- v1.7 milestone complete
+Next action: v1.7 complete. All phases 40-43 shipped. Pipeline operational in production.
