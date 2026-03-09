@@ -978,4 +978,324 @@ mod tests {
         assert!(sig.net_edge > Decimal::ZERO, "net edge should be positive");
         assert_eq!(sig.threshold_status, ThresholdStatus::PassedBoth);
     }
+
+    // --- Helper: build an EventRegistry from a single EventMapping ---
+    fn make_test_registry(mapping: crate::config::EventMapping) -> Arc<RwLock<EventRegistry>> {
+        let config = crate::config::EventsConfig {
+            events: vec![mapping],
+            risk_weights: None,
+            discovery: None,
+            expiry_thresholds: vec![],
+        };
+        Arc::new(RwLock::new(EventRegistry::from_config(&config)))
+    }
+
+    fn make_event_mapping(
+        id: &str,
+        deribit: Option<&str>,
+        derive: Option<&str>,
+        polymarket: Option<(&str, &str)>,
+    ) -> crate::config::EventMapping {
+        use crate::config::{
+            DeribitMapping, DeriveMapping, Direction, EventVenues, LifecycleStatus,
+            PolymarketMapping,
+        };
+        crate::config::EventMapping {
+            id: id.to_string(),
+            asset: "BTC".to_string(),
+            strike: "100000".to_string(),
+            direction: Direction::Above,
+            expiry: "2025-06-27".to_string(),
+            venues: EventVenues {
+                deribit: deribit.map(|i| DeribitMapping {
+                    instrument: i.to_string(),
+                }),
+                polymarket: polymarket.map(|(cid, tid)| PolymarketMapping {
+                    condition_id: cid.to_string(),
+                    token_id: tid.to_string(),
+                }),
+                kalshi: None,
+                derive: derive.map(|i| DeriveMapping {
+                    instrument: i.to_string(),
+                }),
+            },
+            approved: true,
+            status: LifecycleStatus::Active,
+            discovered_at: None,
+            settlement: None,
+        }
+    }
+
+    // --- Test 4: Derive-sourced probability produces correctly attributed signal ---
+    #[tokio::test]
+    async fn derive_sourced_probability_attributed_correctly() {
+        let config = SignalGenerationConfig {
+            threshold: crate::spread::config::ThresholdConfig {
+                static_floor: dec("0.0001"),
+                k: dec("0"),
+                cold_start_multiplier: dec("1"),
+                liquidity_penalty_scale: dec("0"),
+                min_samples: 1000,
+            },
+            deribit_taker_fee_rate: Decimal::ZERO,
+            carry: crate::spread::config::CarryConfig {
+                annualized_rate: Decimal::ZERO,
+                reference_holding_days: 0,
+            },
+            polymarket_fees: crate::spread::config::PolymarketFeeConfig {
+                fee_rate: Decimal::ZERO,
+                exponent: 2,
+                flat_rate_override: None,
+            },
+            kalshi_fees: crate::spread::config::KalshiFeeConfig {
+                taker_coefficient: Decimal::ZERO,
+                use_ceiling: false,
+            },
+            ..default_config()
+        };
+
+        let mut engine = CrossAssetEngine::new(config);
+        let (signal_tx, mut signal_rx) = mpsc::channel::<ArbSignal>(64);
+
+        // Create a Derive-sourced ImpliedProbability
+        let mut derive_prob = make_implied_probability(
+            "BTC-20250627-100000-C",
+            "0.80",
+            Some("0.79"),
+            Some("0.81"),
+            0.9,
+            1.0,
+            0.8,
+            false,
+        );
+        derive_prob.source_venue = Venue::Derive;
+
+        // Set up registry with a Derive instrument mapping + Polymarket
+        let mapping = make_event_mapping(
+            "BTC-100K",
+            None,
+            Some("BTC-20250627-100000-C"),
+            Some(("0xabc", "12345")),
+        );
+        let registry = make_test_registry(mapping);
+
+        // Cache a Polymarket prediction snapshot
+        let snap = make_prediction_snapshot(
+            Venue::Polymarket,
+            Some("0.28"),
+            Some("0.30"),
+            vec![(Price::new(dec("0.28")), Notional::new(dec("600")))],
+            vec![(Price::new(dec("0.30")), Notional::new(dec("600")))],
+            false,
+        );
+        engine
+            .latest_pred
+            .insert(("BTC-100K".to_string(), Venue::Polymarket), snap);
+
+        // Feed the Derive probability through handle_probability
+        engine
+            .handle_probability(derive_prob, &registry, &signal_tx)
+            .await;
+
+        // Collect emitted signals
+        let mut signals = vec![];
+        while let Ok(sig) = signal_rx.try_recv() {
+            signals.push(sig);
+        }
+
+        // At least one signal should be emitted with options_leg.venue == Venue::Derive
+        let derive_signal = signals
+            .iter()
+            .find(|s| s.options_leg.venue == Venue::Derive);
+        assert!(
+            derive_signal.is_some(),
+            "should emit a signal with options_leg.venue == Derive, got venues: {:?}",
+            signals.iter().map(|s| s.options_leg.venue).collect::<Vec<_>>()
+        );
+
+        // Verify the signal has the correct event_id
+        let sig = derive_signal.unwrap();
+        assert_eq!(sig.event_id, "BTC-100K");
+    }
+
+    // --- Test 5: Single prediction venue (Polymarket only) generates signal ---
+    #[tokio::test]
+    async fn single_prediction_venue_generates_signal() {
+        let config = SignalGenerationConfig {
+            threshold: crate::spread::config::ThresholdConfig {
+                static_floor: dec("0.0001"),
+                k: dec("0"),
+                cold_start_multiplier: dec("1"),
+                liquidity_penalty_scale: dec("0"),
+                min_samples: 1000,
+            },
+            deribit_taker_fee_rate: Decimal::ZERO,
+            carry: crate::spread::config::CarryConfig {
+                annualized_rate: Decimal::ZERO,
+                reference_holding_days: 0,
+            },
+            polymarket_fees: crate::spread::config::PolymarketFeeConfig {
+                fee_rate: Decimal::ZERO,
+                exponent: 2,
+                flat_rate_override: None,
+            },
+            kalshi_fees: crate::spread::config::KalshiFeeConfig {
+                taker_coefficient: Decimal::ZERO,
+                use_ceiling: false,
+            },
+            ..default_config()
+        };
+
+        let mut engine = CrossAssetEngine::new(config);
+        let (signal_tx, mut signal_rx) = mpsc::channel::<ArbSignal>(64);
+
+        // Create a Deribit-sourced probability
+        let prob = make_implied_probability(
+            "BTC-27JUN25-100000-C",
+            "0.80",
+            Some("0.79"),
+            Some("0.81"),
+            0.9,
+            1.0,
+            0.8,
+            false,
+        );
+
+        // Registry with Deribit + Polymarket (no Kalshi)
+        let mapping = make_event_mapping(
+            "BTC-100K",
+            Some("BTC-27JUN25-100000-C"),
+            None,
+            Some(("0xabc", "12345")),
+        );
+        let registry = make_test_registry(mapping);
+
+        // Cache ONLY a Polymarket prediction snapshot (no Kalshi at all)
+        let snap = make_prediction_snapshot(
+            Venue::Polymarket,
+            Some("0.28"),
+            Some("0.30"),
+            vec![(Price::new(dec("0.28")), Notional::new(dec("600")))],
+            vec![(Price::new(dec("0.30")), Notional::new(dec("600")))],
+            false,
+        );
+        engine
+            .latest_pred
+            .insert(("BTC-100K".to_string(), Venue::Polymarket), snap);
+
+        // Feed the probability through handle_probability
+        engine
+            .handle_probability(prob, &registry, &signal_tx)
+            .await;
+
+        // Collect emitted signals
+        let mut signals = vec![];
+        while let Ok(sig) = signal_rx.try_recv() {
+            signals.push(sig);
+        }
+
+        // Should emit at least one signal from Polymarket pair
+        assert!(
+            !signals.is_empty(),
+            "should emit signal(s) with only Polymarket data (no Kalshi required)"
+        );
+
+        // All signals should have prediction_venue == Polymarket
+        for sig in &signals {
+            assert_eq!(
+                sig.prediction_venue,
+                Venue::Polymarket,
+                "all signals should be from Polymarket"
+            );
+        }
+
+        // Verify no Kalshi signals were generated (since no Kalshi data exists)
+        let kalshi_signals: Vec<_> = signals
+            .iter()
+            .filter(|s| s.prediction_venue == Venue::Kalshi)
+            .collect();
+        assert!(
+            kalshi_signals.is_empty(),
+            "should not generate Kalshi signals when no Kalshi data exists"
+        );
+    }
+
+    // --- Test 6: Registry lookup uses correct source venue ---
+    #[tokio::test]
+    async fn registry_lookup_uses_source_venue() {
+        let config = default_config();
+        let mut engine = CrossAssetEngine::new(config);
+        let (signal_tx, _signal_rx) = mpsc::channel::<ArbSignal>(64);
+
+        // Set up a registry with ONLY a Derive instrument (no Deribit) for "BTC-100K"
+        let mapping = make_event_mapping(
+            "BTC-100K",
+            None, // no Deribit
+            Some("BTC-20250627-100000-C"),
+            Some(("0xabc", "12345")),
+        );
+        let registry = make_test_registry(mapping);
+
+        // Cache a Polymarket snapshot so spread computation can proceed
+        let snap = make_prediction_snapshot(
+            Venue::Polymarket,
+            Some("0.28"),
+            Some("0.30"),
+            vec![(Price::new(dec("0.28")), Notional::new(dec("600")))],
+            vec![(Price::new(dec("0.30")), Notional::new(dec("600")))],
+            false,
+        );
+        engine
+            .latest_pred
+            .insert(("BTC-100K".to_string(), Venue::Polymarket), snap);
+
+        // A Derive-sourced probability should find the mapping via Derive venue
+        let mut derive_prob = make_implied_probability(
+            "BTC-20250627-100000-C",
+            "0.55",
+            Some("0.53"),
+            Some("0.57"),
+            0.8,
+            100000.0,
+            0.55,
+            false,
+        );
+        derive_prob.source_venue = Venue::Derive;
+
+        engine
+            .handle_probability(derive_prob, &registry, &signal_tx)
+            .await;
+
+        // Should have cached the probability under "BTC-100K" (found via Derive lookup)
+        assert!(
+            engine.latest_prob.contains_key("BTC-100K"),
+            "Derive-sourced probability should be cached under event_id via Derive registry lookup"
+        );
+
+        // Now test with Deribit source_venue for the same instrument -- should NOT find the mapping
+        // because the registry only has a Derive entry, not a Deribit entry
+        engine.latest_prob.clear();
+
+        let mut deribit_prob = make_implied_probability(
+            "BTC-20250627-100000-C",
+            "0.55",
+            Some("0.53"),
+            Some("0.57"),
+            0.8,
+            100000.0,
+            0.55,
+            false,
+        );
+        deribit_prob.source_venue = Venue::Deribit;
+
+        engine
+            .handle_probability(deribit_prob, &registry, &signal_tx)
+            .await;
+
+        // Should NOT have cached -- Deribit lookup should return None for this instrument
+        assert!(
+            !engine.latest_prob.contains_key("BTC-100K"),
+            "Deribit-sourced probability should NOT find mapping when only Derive is configured"
+        );
+    }
 }
