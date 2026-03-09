@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 
 ## Current Position
 
-Phase: 45 of 48 (Instrument Quality and Event Mapping)
-Plan: 1 of 2 in current phase
-Status: Executing Phase 45
-Last activity: 2026-03-09 -- Completed 45-01 (Polymarket Filtering + Match Audit CLI)
+Phase: 45 of 48 (Instrument Quality and Event Mapping) -- COMPLETE
+Plan: 2 of 2 in current phase (all complete)
+Status: Phase 45 complete, ready for Phase 46
+Last activity: 2026-03-09 -- Completed 45-02 (Near-the-Money BTC Instrument Mappings)
 
-Progress (overall): 8 milestones shipped (v1.0-v1.7), 44 phases, 105 plans complete
-Progress (v1.8): [██░░░░░░░░] 20%
+Progress (overall): 8 milestones shipped (v1.0-v1.7), 45 phases, 107 plans complete
+Progress (v1.8): [████░░░░░░] 40%
 
 ## Performance Metrics
 
@@ -47,6 +47,9 @@ Progress (v1.8): [██░░░░░░░░] 20%
 - v1.8/45-01: Gamma API returns bestBid/bestAsk/spread as JSON strings; custom serde deserializer handles string/number/null
 - v1.8/45-01: Filter predicate extracted as testable helper for unit testing without async runtime
 - v1.8/45-01: match-audit parses Deribit (DDMMMYY) and Derive (YYYYMMDD) expiry formats independently
+- v1.8/45-02: Selected 4 BTC strikes ($60K, $65K, $75K, $80K) covering puts and calls around ~$68K spot
+- v1.8/45-02: 4-day expiry gap (Deribit Friday vs Polymarket end-of-month) acceptable as WARN
+- v1.8/45-02: All mappings include 3 venues (Polymarket + Deribit + Derive) for maximum coverage
 - Decisions also logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -57,11 +60,11 @@ None.
 
 - Spread logger not producing output (spread_logs empty) -- FIXED in 44-02
 - All signals show negative edge (-19.5) due to unit mismatch -- FIXED in 44-01
-- events.toml empty in production -- Phase 45 will populate
+- events.toml empty in production -- FIXED in 45-02 (4 active BTC mappings)
 - GitLab CI/CD minutes exhausted -- deploy manually via SSM
 
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 45-01-PLAN.md (Polymarket Filtering + Match Audit CLI)
-Next action: Continue with 45-02-PLAN.md
+Stopped at: Completed 45-02-PLAN.md (Near-the-Money BTC Instrument Mappings)
+Next action: Continue with Phase 46
