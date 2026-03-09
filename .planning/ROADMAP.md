@@ -124,6 +124,14 @@ Plans:
 **Goal**: CrossAssetEngine correctly generates arbitrage signals using options-implied probabilities from any venue
 **Depends on**: Nothing (independent of Phase 40)
 **Requirements**: SIG-01, SIG-02, SIG-03
+**Plans**: 1 plan
+**Success Criteria**:
+  1. ImpliedProbability values carry their source venue (Deribit or Derive), not a hardcoded assumption
+  2. CrossAssetEngine generates ArbSignals when only one prediction market venue has data (Polymarket alone, without Kalshi)
+  3. CrossAssetEngine pairs Derive-sourced implied probabilities with prediction market snapshots to produce correctly attributed signals
+
+Plans:
+- [ ] 41-01-PLAN.md — Add source_venue to ImpliedProbability, wire through CrossAssetEngine, dynamic prediction venue iteration
 
 ### Phase 42: REST Polling Fallback and Source Coordination
 **Goal**: Polymarket price data is available via REST polling when WebSocket is unreliable, with exclusive-mode switching
