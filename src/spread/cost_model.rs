@@ -53,8 +53,9 @@ pub fn kalshi_taker_fee(
         config.taker_coefficient * price_probability * (Decimal::ONE - price_probability);
 
     if config.use_ceiling {
-        // Kalshi rounds up per contract -- ceil to 2 decimal places (cents)
-        let per_contract_ceil = per_contract_raw.ceil();
+        // Kalshi rounds up per contract to the nearest cent (2 decimal places)
+        let per_contract_ceil =
+            (per_contract_raw * Decimal::new(100, 0)).ceil() / Decimal::new(100, 0);
         per_contract_ceil * contracts
     } else {
         per_contract_raw * contracts
@@ -161,18 +162,25 @@ mod tests {
     #[test]
     fn kalshi_fee_at_p50_with_ceiling() {
         // Per contract: 0.07 * 0.50 * 0.50 = 0.0175
-        // ceil(0.0175) = 1 (ceiling rounds 0.0175 to 1 -- integer cents)
-        // For 10 contracts: 10 * 1 = 10
-        //
-        // Note: Decimal::ceil() rounds to the nearest integer ceiling.
-        // 0.0175.ceil() = 1
+        // Cents ceiling: 0.0175 * 100 = 1.75, ceil(1.75) = 2, 2/100 = 0.02
+        // For 10 contracts: 10 * 0.02 = 0.20
         let config = KalshiFeeConfig {
             taker_coefficient: dec("0.07"),
             use_ceiling: true,
         };
         let fee = kalshi_taker_fee(dec("10"), dec("0.50"), &config);
-        // Per contract raw = 0.0175, ceil(0.0175) = 1, * 10 = 10
-        assert_eq!(fee, dec("10"));
+        assert_eq!(fee, dec("0.20"));
+    }
+
+    #[test]
+    fn kalshi_fee_at_p25_with_ceiling() {
+        let config = KalshiFeeConfig {
+            taker_coefficient: dec("0.07"),
+            use_ceiling: true,
+        };
+        let fee = kalshi_taker_fee(dec("1"), dec("0.25"), &config);
+        // 0.07 * 0.25 * 0.75 = 0.013125, ceil_cents: 0.013125 * 100 = 1.3125, ceil = 2, /100 = 0.02
+        assert_eq!(fee, dec("0.02"));
     }
 
     #[test]
