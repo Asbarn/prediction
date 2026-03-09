@@ -1,160 +1,182 @@
 # Project Research Summary
 
-**Project:** v1.7 Prediction Market Signal Pipeline
-**Domain:** Polymarket WebSocket connectivity fix, REST polling fallback, spread/signal engine generalization
+**Project:** v1.8 Signal Quality Validation
+**Domain:** Cross-venue crypto arbitrage signal quality analysis, cost model diagnostics, and instrument matching validation
 **Researched:** 2026-03-09
 **Confidence:** HIGH
 
 ## Executive Summary
 
-v1.7 is a pure Rust code milestone with zero new crate dependencies and zero infrastructure changes. The 42,732 LOC prediction market arbitrage system (v1.0-v1.6 complete) needs three things to unlock cross-asset signal generation: (1) fix Polymarket WebSocket connectivity from AWS EC2, where a documented server-side silent freeze (GitHub #292) causes the feed to appear healthy while delivering zero data for hours; (2) add a REST polling fallback using existing `reqwest` + `governor` crates to ensure data continuity when WebSocket is unreliable; and (3) generalize the CrossAssetEngine to correctly attribute options-implied probabilities from both Deribit and Derive venues, fixing two hardcoded `Venue::Deribit` references. The SpreadEngine (prediction-vs-prediction) should be left mostly untouched -- the CrossAssetEngine (prediction-vs-options) is the correct engine for v1.7's goal.
+The v1.8 milestone is a diagnostic investigation into why all 19,844 daily arbitrage signals show approximately -19.5 net edge. Research has identified two confirmed code-level bugs that together likely explain the majority of the problem: (1) a unit mismatch where probability-space spreads (0.08 = 8%) are compared against dollar-denominated costs ($26.33), making every signal appear massively unprofitable, and (2) a Kalshi fee ceiling rounding bug where `Decimal::ceil()` rounds to the nearest integer instead of the nearest cent, overstating per-contract fees by up to 57x. Beyond these bugs, the system is analyzing the wrong instruments -- events.toml is empty, and historical signals come from deep-OTM strikes (BTC $105K when spot is $85K) where prediction market prices and options-implied probabilities measure fundamentally different things.
 
-The recommended approach is investigation-first for the WebSocket issue (diagnose from EC2 before writing code), followed by a small data model change (add `source_venue` to `ImpliedProbability`), then two-line fixes in the CrossAssetEngine, and finally REST fallback implementation as insurance against Polymarket's unreliable WebSocket. The critical architectural insight across all four research files is consistent: do NOT refactor SpreadEngine or SpreadPattern for venue generalization. SpreadEngine is correct for its purpose (Polymarket-vs-Kalshi) and should remain dormant while Kalshi is geo-blocked. CrossAssetEngine already has the right architecture for single-prediction-market-vs-options comparison and needs only minor hardcoding fixes.
+The recommended approach is surgical: fix the two known bugs, populate event mappings with near-the-money instruments, then build offline CLI diagnostic tools to determine whether profitable arbitrage opportunities actually exist. This is NOT an architecture overhaul -- the pipeline is sound. The work is primarily new analysis binaries following the established CLI pattern (synchronous, JSONL-reading, table/JSON output), with one new crate dependency (`linregress` for OLS regression). Zero new runtime components, zero new async channels, zero infrastructure changes.
 
-The top risks are: (1) the Polymarket WebSocket silent freeze is server-side and may not be fixable -- REST fallback must be production-ready, not an afterthought; (2) the REST `/book` endpoint has documented staleness issues (GitHub #180) returning ghost market data -- use `/price` or `/midpoint` endpoints instead; and (3) running dual data sources (WS + REST) without exclusive-mode coordination creates price oscillation and spurious signals. All three are preventable with the patterns documented in PITFALLS.md.
+The key risk is "cost model overfitting" -- tuning parameters until signals look profitable without external validation. Every cost parameter change must be justified by exchange documentation or on-chain data, not by what makes the analysis look good. A secondary risk is drawing statistical conclusions from autocorrelated data (19,844 signals are the same handful of pairs recomputed thousands of times, not independent observations). The go/no-go decision on whether cross-venue arb is viable depends on honest analysis after bugs are fixed, not on making numbers work.
 
 ## Key Findings
 
 ### Recommended Stack
 
-Zero new Rust crate dependencies. Every capability is already in `Cargo.toml`. This is entirely a code refactoring and connectivity debugging milestone. See [STACK.md](STACK.md) for full details including Polymarket API endpoints, rate limits, and REST response schemas.
+The existing Rust stack (v1.0-v1.7, 42,732 LOC) requires exactly one new dependency: `linregress = "0.5"` for OLS regression with R-squared, t-statistics, and p-values needed for cost model sensitivity analysis. All other work uses existing dependencies (`statrs`, `rust_decimal`, `clap`, `comfy-table`, `serde`) and extends the existing `analysis::stats` module with ~65 lines of new functions (Pearson correlation, two-sample KS test, weighted mean, coefficient of variation, IQR). See [STACK.md](STACK.md) for full details.
 
-**Core technologies (all existing):**
-- **tokio-tungstenite 0.28:** WebSocket client for Polymarket -- the library is not the problem; the server silently freezes
-- **reqwest 0.12:** REST API calls -- reuse for `GET /price` and `GET /midpoint` polling fallback
-- **governor 0.8:** Rate limiting -- reuse existing Polymarket rate limiter for REST polling (1,500 req/10s for market data endpoints)
-- **backoff 0.4:** Exponential backoff -- extend for REST fallback retry logic
-- **metrics 0.24:** Prometheus metrics -- add labels for WS vs REST data source mode
+**Core technologies (all existing, no version changes):**
+- `statrs 0.18`: Statistical distributions for KS test critical values and regression significance
+- `rust_decimal 1.40`: All cost model computations remain in decimal arithmetic
+- `clap 4.5`: New CLI binaries follow established derive-macro pattern
+- `linregress 0.5` (NEW): OLS regression for cost parameter sensitivity analysis -- lightweight (~500 LOC), shares nalgebra transitive dep with statrs
+
+**What NOT to add:** polars/datafusion (overkill for Vec-based analysis), plotters (JSON output + external tools per PROJECT.md), SQLite/DuckDB (JSONL sufficient at scale), any ML library (problem is a math bug, not prediction accuracy).
 
 ### Expected Features
 
-See [FEATURES.md](FEATURES.md) for full feature landscape, dependency graph, and Polymarket API reference.
+See [FEATURES.md](FEATURES.md) for full feature landscape, dependency graph, and root cause analysis.
 
 **Must have (table stakes):**
-- Polymarket WS data-level liveness detection -- force reconnect on data silence, not just TCP drops
-- REST-based price polling fallback -- `GET /price` or `/midpoint` at configurable interval when WS is down
-- SpreadEngine gate relaxation -- skip gracefully when venue pair is incomplete instead of hard-requiring both
-- CrossAssetEngine venue generalization -- remove hardcoded `Venue::Deribit` lookups (2 sites)
-- SpreadResult struct generalization -- venue-agnostic timestamp fields
-- End-to-end production signal verification on AWS EC2
+- Cost model unit fix -- normalize all costs to probability space (divide dollar costs by target_notional)
+- Kalshi fee ceiling rounding fix -- round to cents, not integers
+- Spread logger fix -- spread_logs is empty, blocking all spread-level analysis
+- Event mapping population -- events.toml is empty; need 3-5 near-the-money BTC mappings
+- Signal data diagnostic CLI (cost-audit) -- decompose the -19.5 edge into components
 
 **Should have (differentiators):**
-- Automatic WS/REST mode switching with hysteresis (3 consecutive WS messages before switching back)
-- Staleness-aware REST freshness marking in MarketSnapshot
-- Prometheus gauges for current data source mode per venue
-- Configurable spread venue pairs in TOML
+- Instrument matching quality audit CLI -- validate paired instruments represent the same economic bet
+- Polymarket book depth analyzer -- distinguish real liquidity from phantom $0.001/$0.999 books
+- Near-the-money strike selector -- filter discovery to instruments with actual liquidity
+- Cost model sensitivity analyzer -- parameter sweeps to find breakeven conditions
+- Options fee model calibration -- verify Deribit fee formula against actual fee schedule (cap rules)
 
 **Defer (v2+):**
-- Full Polymarket CLOB REST client library (only need 2-3 GET endpoints)
-- Polymarket authentication for private channels
-- Multi-venue spread engine supporting 3+ venues simultaneously
-- New Grafana dashboards (existing dashboards likely sufficient)
-- WebSocket connection via proxy/VPN infrastructure
+- Execution engine / order placement -- fix signals before building execution
+- Real-time Grafana dashboards for diagnostics -- CLI tools sufficient for batch analysis
+- New venue integrations -- fix current pipeline first
+- Automated parameter optimization -- premature until manual analysis confirms viable edge
 
 ### Architecture Approach
 
-The existing fan-out architecture (4 venue feeds -> fan-in -> SpreadEngine + PricingEngine + CrossAssetEngine) requires no structural changes. The REST fallback integrates at the supervisor level, producing MarketSnapshot directly (bypassing RawMessage since REST responses are structured JSON). The key data model change is adding `source_venue: Venue` to `ImpliedProbability` so CrossAssetEngine can distinguish Deribit from Derive probabilities. SpreadEngine remains prediction-vs-prediction only; CrossAssetEngine handles prediction-vs-options. See [ARCHITECTURE.md](ARCHITECTURE.md) for component boundaries, data flow diagrams, and build order.
+All new v1.8 functionality is offline CLI tools and config changes. The live pipeline receives only the spread logger bug fix. Three new binaries (`cost-audit`, `match-audit`, `book-depth`) follow the exact pattern of existing `spread-analytics` and `signal-scoring`: synchronous main, JSONL loading via `load_jsonl`, dual table/JSON output, clap-derived CLI arguments with date range filtering. New analysis logic lives in `src/analysis/` modules, reusing the battle-tested stats, io, and output infrastructure proven across 13 E2E golden-value tests. See [ARCHITECTURE.md](ARCHITECTURE.md) for component boundaries and data flow.
 
-**Major components (changes only):**
-1. **ImpliedProbability struct** -- add `source_venue: Venue` field (1 line, propagated from PricingEngine)
-2. **CrossAssetEngine** -- replace 2 hardcoded `Venue::Deribit` references with `prob.source_venue`
-3. **PolymarketSupervisor** -- add data inactivity watchdog timer; coordinate WS/REST source priority
-4. **PolymarketRestPoller (new)** -- minimal REST poller using existing `reqwest` + `governor`, producing MarketSnapshot
-5. **SpreadEngine** -- relax Poly+Kalshi gate to "2+ prediction markets" (no-op currently, forward-compatible)
-6. **SignalGenerationConfig** -- rename `deribit_taker_fee_rate` to `options_taker_fee_rate`
+**Major components:**
+1. `bin/cost-audit` -- Reads signal_logs, decomposes cost breakdown per event/component, runs parameter sensitivity
+2. `bin/match-audit` -- Reads events.toml, validates strike/expiry/direction alignment across venues
+3. `bin/book-depth` -- Reads signal_logs, analyzes fill ratio, book depth, and liquidity quality per instrument
+4. `spread::logger` (fix) -- Diagnose and fix empty spread_logs output
+5. `spread::cost_model` (fixes) -- Unit normalization and Kalshi ceiling rounding correction
 
 ### Critical Pitfalls
 
 See [PITFALLS.md](PITFALLS.md) for all 8 pitfalls with recovery strategies and phase mapping.
 
-1. **WebSocket silent freeze (Pitfall 1)** -- Connection alive, ping/pong works, zero data for hours. Add data inactivity watchdog that tracks `last_data_received_at` (not ping/pong). Force reconnect after configurable timeout (e.g., 120s).
-2. **REST `/book` endpoint returns stale ghost data (Pitfall 4)** -- Use `/price` or `/midpoint` instead of `/book`. Cross-validate REST prices against last WS price within tolerance threshold.
-3. **Dual WS+REST source creates price oscillation (Pitfall 8)** -- Implement exclusive-mode source priority: only one active at a time per venue. REST activates on WS silence, deactivates after N consecutive WS data messages.
-4. **SpreadPattern refactoring breaks JSONL serialization (Pitfall 3)** -- Do NOT refactor SpreadPattern. Leave SpreadEngine unchanged. CrossAssetEngine is the correct target for v1.7 generalization.
-5. **EC2 connection resets are network-level, not application-level (Pitfall 2)** -- Investigate with `websocat` from EC2 before changing Rust code. Enable TCP keepalive. REST fallback may become primary path.
+1. **Unit mismatch in cost model (CONFIRMED BUG)** -- Probability-space spreads subtracted from dollar-denominated costs. Fix: divide all dollar costs by target_notional before comparison. This single fix changes net_edge from -11.88 to +0.04 (4% edge) on the same data.
+
+2. **Kalshi fee ceiling rounding (CONFIRMED BUG)** -- `Decimal::ceil()` rounds $0.0175 to $1.00, not $0.02. Up to 57x cost overstatement. Fix: round to cents with `(raw * 100).ceil() / 100`.
+
+3. **Instrument mismatch between prediction markets and options** -- Deep OTM instruments show 192x probability gaps (0.26% options-implied vs 50% Polymarket). These are not arbitrage opportunities; they are different instruments. Avoid by adding probability coherence gating (ratio < 5x) and focusing on near-the-money strikes.
+
+4. **Prediction market liquidity illusion** -- Book depth at $0.001/$0.999 is phantom. Walk-the-book produces fill_ratio=1.0 on ghost books. Avoid by filtering depth levels outside $0.02-$0.98 and adding depth quality scoring.
+
+5. **Statistical analysis errors from autocorrelated data** -- 19,844 daily signals are the same pairs recomputed thousands of times, not independent observations. T-tests and Sharpe ratios are meaningless without effective sample size correction. Avoid by deduplicating to unique market state changes before statistical analysis.
 
 ## Implications for Roadmap
 
-Based on combined research, the build decomposes into 4 phases with clear dependency ordering. The first phase is investigative (may change subsequent plans), the second is a safe data model change, the third is the core value delivery, and the fourth is production verification.
+Based on research, suggested phase structure:
 
-### Phase 1: Polymarket WebSocket Diagnosis and Data Watchdog
-**Rationale:** Without Polymarket data flowing from EC2, nothing else in v1.7 matters. The WebSocket issue may be trivially fixable (headers, URL change) or fundamentally unfixable (Cloudflare datacenter IP blocking). The diagnosis outcome determines whether REST is a fallback or the primary data source.
-**Delivers:** Root cause identified; data inactivity watchdog implemented in PolymarketSupervisor; decision documented on WS viability from EC2.
-**Addresses:** Data-level liveness detection (table stakes), EC2 connectivity investigation
-**Avoids:** Pitfall 1 (silent freeze -- watchdog prevents indefinite stale state), Pitfall 2 (connection reset -- systematic diagnosis before code changes)
+### Phase 1: Critical Bug Fixes and Data Pipeline Repair
 
-### Phase 2: ImpliedProbability Source Venue and CrossAssetEngine Fix
-**Rationale:** This is a pure additive data model change (add one field) plus two one-line fixes. Zero behavior change for existing tests. Unblocks correct Derive-sourced signal attribution. Can be done independently of WebSocket diagnosis.
-**Delivers:** `source_venue` field on ImpliedProbability; CrossAssetEngine correctly pairs Derive probabilities with prediction market snapshots; `options_taker_fee_rate` config rename; SpreadEngine gate relaxed to "2+ prediction markets".
-**Addresses:** CrossAssetEngine venue generalization (table stakes), SpreadEngine gate relaxation (table stakes), SpreadResult generalization (table stakes)
-**Avoids:** Pitfall 3 (SpreadPattern left untouched), Pitfall 5 (venue filter change paired with registry validation), Pitfall 6 (spread engine stays dormant, signal engine is the correct target)
+**Rationale:** Nothing downstream is valid until the two confirmed code bugs are fixed and the spread logger produces data. These are the highest-leverage changes in the entire milestone -- combined, they likely explain most of the -19.5 negative edge.
+**Delivers:** Corrected cost computation (probability-space normalized), working spread logger, Kalshi fee rounding fix
+**Addresses:** Cost model unit fix, Kalshi ceiling rounding fix, spread logger fix (table stakes)
+**Avoids:** Pitfall 1 (instrument mismatch awareness), Pitfall 8 (Kalshi fee overstatement)
+**Stack:** No new dependencies. Pure code fixes in `cost_model.rs`, `signal/engine.rs`, `spread/logger.rs`
 
-### Phase 3: REST Polling Fallback and Source Coordination
-**Rationale:** Depends on Phase 1 diagnosis to determine whether REST is fallback or primary. Depends on Phase 2 data model being in place so REST-sourced snapshots flow through the generalized engine correctly. This is the most complex phase -- new code path, rate limiting, source coordination.
-**Delivers:** PolymarketRestPoller producing MarketSnapshot from `/price` endpoint; exclusive-mode WS/REST coordination in supervisor; Prometheus metrics for data source mode; configurable poll interval.
-**Addresses:** REST-based price polling (table stakes), automatic WS/REST mode switching (differentiator), data source metrics (differentiator)
-**Avoids:** Pitfall 4 (stale `/book` data -- uses `/price` instead), Pitfall 7 (aggressive polling -- starts at 30s interval), Pitfall 8 (dual source conflicts -- exclusive mode prevents oscillation)
+### Phase 2: Event Mapping and Instrument Quality
 
-### Phase 4: End-to-End Production Verification
-**Rationale:** All code changes complete. This phase proves the system works on AWS EC2 with real Polymarket data flowing through the generalized engines to produce ArbSignals.
-**Delivers:** Verified signal flow on EC2; Prometheus metrics confirming data source, signal emission, and paper trade recording; JSONL logs with correct venue attribution; documented test results.
-**Addresses:** End-to-end production signal verification (table stakes), Grafana dashboard verification (differentiator)
-**Avoids:** "Looks done but isn't" checklist from PITFALLS.md -- systematic verification of all 7 items.
+**Rationale:** With bugs fixed, the system needs valid instruments to analyze. Empty events.toml means no real market data flows through the corrected pipeline. This phase populates mappings and validates they represent genuine economic equivalents.
+**Delivers:** Populated events.toml with 3-5 near-the-money BTC pairs, match-audit CLI for ongoing validation, moneyness filtering in discovery
+**Addresses:** Event mapping population (table stakes), instrument matching quality audit (differentiator), near-the-money strike selector (differentiator)
+**Avoids:** Pitfall 1 (instrument mismatch), Pitfall 4 (survivorship bias)
+**Stack:** No new dependencies. Reuses existing `config::EventsConfig`, discovery modules
+
+### Phase 3: Diagnostic CLI Tools
+
+**Rationale:** With correct cost math and valid instruments generating data, build the analysis tools that answer the go/no-go question: "Do profitable arbitrage opportunities exist?"
+**Delivers:** cost-audit CLI, book-depth CLI, cost model sensitivity analysis
+**Addresses:** Signal data diagnostic CLI (table stakes), Polymarket book depth analyzer (differentiator), cost model sensitivity analyzer (differentiator)
+**Avoids:** Pitfall 2 (cost model overfitting -- tools provide evidence before tuning), Pitfall 3 (liquidity illusion -- book-depth CLI quantifies real vs phantom depth)
+**Uses:** `linregress` crate (NEW), existing analysis infrastructure, new stats functions (Pearson correlation, KS test)
+
+### Phase 4: Cost Model Tuning and Validation
+
+**Rationale:** With diagnostic data from Phase 3, tune cost parameters based on evidence. Each parameter change must cite external data (exchange docs, on-chain data). This is where the go/no-go decision happens.
+**Delivers:** Calibrated cost model parameters in config.toml, options fee model refinement, validated go/no-go assessment
+**Addresses:** Options fee model calibration (differentiator), cost breakdown logging enhancement (table stakes)
+**Avoids:** Pitfall 2 (overfitting -- each change requires external evidence), Pitfall 5 (prediction market premium confusion), Pitfall 6 (missing on-chain costs)
+**Stack:** Config changes only. No code changes beyond what Phase 3 built.
+
+### Phase 5: Statistical Validation and Conclusions
+
+**Rationale:** After tuning, run rigorous statistical analysis on post-fix data. Correct for autocorrelation, apply multiple comparison corrections, use out-of-sample validation. This produces the final assessment.
+**Delivers:** Statistically valid signal quality report, effective sample size analysis, Sharpe ratio with autocorrelation correction, final go/no-go recommendation
+**Addresses:** Time-of-day/expiry-proximity analysis (deferred differentiator)
+**Avoids:** Pitfall 7 (statistical analysis errors -- methodology fixed before drawing conclusions)
 
 ### Phase Ordering Rationale
 
-- Phase 1 first because it is investigative and may redirect the approach for Phase 3 (REST as fallback vs primary)
-- Phase 2 second because it is low-risk, no behavior change, and unblocks correct signal attribution regardless of WS outcome
-- Phase 3 third because it is the most complex new code and depends on both Phase 1 (diagnosis) and Phase 2 (data model)
-- Phase 4 last because it is integration verification that depends on all prior phases being complete
-- Phases 1 and 2 can be parallelized since they have no code dependencies on each other
+- Phase 1 before everything: Two confirmed bugs make all current data meaningless. Fixing them is the single highest-ROI action.
+- Phase 2 before Phase 3: Analysis tools need real market data flowing through the corrected pipeline. Without valid event mappings, CLI tools analyze test fixtures.
+- Phase 3 before Phase 4: Diagnostic tools must exist before tuning. Tuning without measurement is the primary pitfall identified in research.
+- Phase 4 before Phase 5: Statistical validation should run on the final calibrated system, not on intermediate states.
+- Phases 1 and 2 are sequential (fixes must land before real data collection). Phase 3 tools can be built in parallel (cost-audit, book-depth, match-audit are independent). Phase 4 depends on Phase 3 output. Phase 5 depends on Phase 4 deployment.
 
 ### Research Flags
 
 Phases likely needing deeper research during planning:
-- **Phase 1 (WS Diagnosis):** Investigative phase by nature. The root cause is unknown until EC2 testing is done. May require researching Cloudflare bypass techniques, TCP keepalive configuration for tokio-tungstenite, or Polymarket API URL changes.
-- **Phase 3 (REST Fallback):** Source coordination (exclusive-mode switching with hysteresis) is a non-trivial state machine. Validate Polymarket `/price` endpoint reliability and batch `/prices` endpoint availability during phase planning.
+- **Phase 2:** Needs investigation of what Polymarket Gamma API and Deribit currently offer for near-the-money BTC strikes. The available instrument universe determines what can be mapped.
+- **Phase 4:** Needs Kalshi exchange fee documentation to validate the ceiling rounding fix. Needs Deribit fee schedule verification (cap rules: 0.03% of underlying OR 12.5% of option price, whichever is lower).
 
 Phases with standard patterns (skip research-phase):
-- **Phase 2 (Engine Generalization):** Two-line fix plus one struct field addition. The exact code locations and changes are already identified in ARCHITECTURE.md. No ambiguity.
-- **Phase 4 (Production Verification):** Standard deployment and metric verification. The metrics and log formats are already documented. Verification criteria are enumerated in PITFALLS.md "Looks Done But Isn't" checklist.
+- **Phase 1:** Bug fixes are fully specified by code inspection. The unit mismatch and ceiling rounding issues are unambiguous.
+- **Phase 3:** CLI tools follow the exact pattern of existing `spread-analytics` and `signal-scoring` binaries. 13 E2E golden-value tests prove the pattern.
+- **Phase 5:** Standard statistical methodology (effective sample size, block bootstrap, Bonferroni correction). Well-documented in literature.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Zero new dependencies. All crate versions verified from Cargo.toml. Polymarket API endpoints verified from official docs. |
-| Features | HIGH | Feature list derived from direct codebase analysis of hardcoded lines. All code locations identified with line numbers. |
-| Architecture | HIGH | Based on direct source code inspection of all affected files. Data flow traced through fan-out, engines, and signal output. |
-| Pitfalls | HIGH | 8 pitfalls identified from Polymarket GitHub issues (first-hand bug reports), official docs, and codebase analysis. REST `/book` staleness confirmed by GitHub #180. |
+| Stack | HIGH | One new dependency (linregress). Existing stack sufficient. Verified via crates.io, code inspection. |
+| Features | HIGH | Root cause identified by direct code inspection. Cost model unit mismatch and Kalshi ceiling rounding confirmed in source. Feature priorities clear from dependency analysis. |
+| Architecture | HIGH | New components follow proven CLI pattern with 13 E2E tests. Zero runtime changes beyond logger bug fix. All researchers agree: no architectural overhaul needed. |
+| Pitfalls | HIGH | Two confirmed bugs from code inspection. Statistical methodology pitfalls grounded in standard practice. Liquidity illusion documented in Polymarket GitHub issues. |
 
 **Overall confidence:** HIGH
 
+All four research files converge on the same diagnosis: the system's architecture and data pipeline are sound, but two code bugs (unit mismatch, ceiling rounding) and poor instrument selection (deep OTM strikes, empty events.toml) produce garbage signals. The fix is targeted: correct the math, select better instruments, build diagnostic tools, validate rigorously.
+
 ### Gaps to Address
 
-- **Polymarket WebSocket root cause from EC2:** Unknown until Phase 1 diagnosis. Could be Cloudflare, could be server-side, could be trivial. This is the single largest uncertainty in the milestone.
-- **REST `/prices` (plural) batch endpoint availability:** PITFALLS.md recommends batching. FEATURES.md and STACK.md document single-token `/price` endpoint but the batch variant needs verification during Phase 3 planning. If unavailable, per-token polling at 30s interval is within rate limits for single-digit token counts.
-- **TOML config migration for `options_taker_fee_rate` rename:** The `deribit_taker_fee_rate` -> `options_taker_fee_rate` rename requires updating the deployed config file. This is a trivial change but must be coordinated with deployment in Phase 4. Verify the existing config file path and deployment process.
-- **`Venue::is_prediction_market()` method placement:** PITFALLS.md recommends this as the venue filter replacement. Decide during Phase 2 whether this is a method on the Venue enum or a config-driven check. The enum method is simpler and preferred at 4 venues.
+- **Kalshi actual fee schedule:** The ceiling rounding fix assumes Kalshi rounds to cents. This needs verification against their exchange documentation during Phase 4 planning.
+- **Available near-the-money instruments:** Whether Polymarket currently lists BTC contracts at strikes near spot ($80K-$90K range) with meaningful liquidity is unknown. Phase 2 planning needs to check.
+- **On-chain execution costs:** Gas costs ($2-$5 per transaction) and bridging costs are not modeled. For signal validation (v1.8), this affects go/no-go threshold but not the immediate bug fixes. Must be addressed before any capital deployment decision.
+- **Prediction market premium magnitude:** The non-probability component of prediction market prices (risk premium, liquidity premium, favorite-longshot bias) is acknowledged but not quantified. Phase 4 should estimate this from cross-venue comparison (Polymarket vs Kalshi on identical events).
+- **Settlement data coverage:** Signal scoring requires settled outcomes. Whether sufficient settled signals exist for statistical validation is unknown until Phase 2 generates data through the corrected pipeline.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- [Polymarket WSS Overview](https://docs.polymarket.com/developers/CLOB/websocket/wss-overview) -- WebSocket URLs, subscription format, heartbeat
-- [Polymarket CLOB Public Methods](https://docs.polymarket.com/developers/CLOB/clients/methods-public) -- REST endpoints for book, price, midpoint
-- [Polymarket Rate Limits](https://docs.polymarket.com/quickstart/introduction/rate-limits) -- CLOB rate limits per endpoint
-- [GitHub #292: CLOB WSS Silent Freeze](https://github.com/Polymarket/py-clob-client/issues/292) -- Server-side silent data freeze (2026-03-05)
-- [GitHub #180: REST /book Stale Data](https://github.com/Polymarket/py-clob-client/issues/180) -- Order book endpoint returns ghost market data
-- [GitHub #26: WebSocket Stream Stops](https://github.com/Polymarket/real-time-data-client/issues/26) -- Data stream stops after ~20 minutes
-- Direct codebase analysis: `src/spread/engine.rs`, `src/signal/engine.rs`, `src/pricing/engine.rs`, `src/feed/polymarket/client.rs`, `src/feed/polymarket/supervisor.rs`
+- Direct codebase analysis: `src/signal/engine.rs` lines 396-471, `src/spread/cost_model.rs` lines 52-61, `src/spread/engine.rs`, `src/analysis/stats.rs`, `src/bin/spread_analytics.rs` -- confirmed unit mismatch and ceiling rounding bugs
+- [linregress on crates.io](https://crates.io/crates/linregress) -- v0.5.4, 888K downloads, verified API
+- PROJECT.md constraints -- "JSONL sufficient at current scale", "JSON output + external tools preferred", "settled data is stronger evidence than simulated backtests"
+- Deribit taker fee: 0.03% (0.0003) for options -- matches public fee schedule
 
 ### Secondary (MEDIUM confidence)
-- [Cloudflare WAF Blocking](https://community.cloudflare.com/t/cloudflare-waf-blocking-legitimate-api-requests-from-supabase-edge-functions-to-pol/869437) -- Datacenter IP blocking for Polymarket
-- [Polymarket rs-clob-client](https://github.com/Polymarket/rs-clob-client) -- Official Rust SDK v0.3 (decided against due to heavy dependency tree)
-- [tokio-tungstenite Connection Reset #296](https://github.com/snapview/tokio-tungstenite/issues/296) -- Protocol-level reset without closing handshake
+- [Polymarket CLOB Introduction](https://docs.polymarket.com/developers/CLOB/introduction) -- order book architecture
+- [Polymarket /book stale data issue #180](https://github.com/Polymarket/py-clob-client/issues/180) -- known stale order book data
+- [Arbitrage in Prediction Markets (IMDEA)](https://arxiv.org/abs/2508.03474) -- academic analysis of prediction market arb
+- Polygon gas costs: $0.01-$5.00 per transaction -- network-condition-dependent
+- Kalshi fee structure: taker coefficient 0.07 with ceiling rounding -- from code, needs exchange doc verification
 
 ### Tertiary (LOW confidence)
-- None. All findings verified against at least two sources or direct code inspection.
+- Prediction market pricing biases (Wolfers & Zitzewitz 2004, Manski 2006) -- bias existence confirmed, magnitude in current crypto prediction markets unquantified
+- Available near-the-money Polymarket BTC contracts -- needs live API check
 
 ---
 *Research completed: 2026-03-09*

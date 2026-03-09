@@ -1,157 +1,183 @@
-# Stack Research: v1.7 Prediction Market Signal Pipeline
+# Stack Research: v1.8 Signal Quality Validation
 
-**Domain:** Polymarket WebSocket/REST connectivity, spread engine generalization
+**Domain:** Signal quality analysis, cost model tuning, market microstructure analysis, liquidity assessment
 **Researched:** 2026-03-09
-**Confidence:** HIGH (zero new crate dependencies; all changes are Rust code refactoring using existing deps)
+**Confidence:** HIGH (minimal new dependencies; most work extends existing stats module and CLI patterns)
 
 ## Scope
 
-This document covers ONLY the stack additions/changes needed for v1.7 Prediction Market Signal Pipeline. The existing Rust application stack (v1.0-v1.6) is unchanged. This milestone is a **pure code change milestone** -- no new crate dependencies, no new infrastructure.
+This document covers ONLY the stack additions/changes needed for v1.8 Signal Quality Validation. The existing Rust application stack (v1.0-v1.7) is unchanged. This milestone is primarily a **data analysis milestone** -- the bulk of work is new CLI tools and analysis functions built on existing infrastructure.
 
 ---
 
-## Executive Finding: Zero New Dependencies
+## Executive Finding: Zero or One New Dependency
 
-v1.7 adds zero new Rust crate dependencies. Every capability needed is already in the dependency tree:
+The v1.8 analysis work needs:
+1. **Statistical functions** beyond what the existing `stats.rs` module provides (linear regression, correlation, Kolmogorov-Smirnov test)
+2. **Order book liquidity metrics** (bid-ask spread, book depth, VWAP-like walk-the-book analysis)
+3. **Cost model sensitivity analysis** (parameter sweeps over fee/slippage/carry parameters)
+4. **Instrument matching quality audit** (comparison of paired contract terms)
 
-- **reqwest 0.12** -- already used for Polymarket Gamma API, Kalshi REST, Derive REST discovery. Sufficient for REST-based order book polling fallback.
-- **tokio-tungstenite 0.28** -- already used for all 4 venue WebSocket feeds. No changes needed for Polymarket WS fix.
-- **serde/serde_json** -- already used for all JSON parsing. Sufficient for REST book response deserialization.
-- **governor 0.8** -- already used for Polymarket rate limiting. Reuse existing shared rate limiter for REST polling.
-- **backoff 0.4** -- already used in all 4 supervisors for reconnection. No changes.
-- **rust_decimal 1.40** -- already used for all price/probability arithmetic. No changes.
+Of these, items 2-4 require zero new dependencies -- they are pure Rust computation over existing data structures using `rust_decimal`, `statrs`, and the existing `stats.rs` module.
 
-The work is entirely **refactoring existing Rust code** to:
-1. Diagnose and fix Polymarket WebSocket connectivity from EC2
-2. Add REST-based book polling as a fallback data source
-3. Generalize the spread engine to work with single prediction market venues (not just Polymarket+Kalshi pairs)
-4. Generalize the signal engine to work with any single prediction market venue
+Item 1 (linear regression/correlation) can be implemented in ~50 lines of Rust for simple linear regression and Pearson correlation. For more rigorous regression with R-squared, standard errors, and p-values, the `linregress` crate (0.5.4) is a lightweight option at ~500 lines of code with minimal transitive deps.
+
+**Recommendation: Add `linregress = "0.5"` as the single new dependency.** It provides OLS regression with R-squared, t-statistics, p-values, and standard errors -- exactly what cost model tuning needs. Hand-rolling regression with proper inference would duplicate this work.
 
 ---
 
 ## Recommended Stack
 
+### New Dependencies
+
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| linregress | 0.5.4 | OLS linear regression with R-squared, t-stats, p-values | Cost model parameter sensitivity analysis needs regression with inference. ~500 LOC library, minimal deps (nalgebra). Hand-rolling regression with proper standard errors and p-values is error-prone. |
+
 ### Existing Technologies (No Version Changes)
 
-| Technology | Version | Purpose | Status for v1.7 |
-|------------|---------|---------|-----------------|
-| tokio-tungstenite | 0.28 | Polymarket WebSocket client | Keep as-is; fix connectivity logic, not library |
-| reqwest | 0.12 | REST API calls (Gamma, Kalshi, Derive, now Polymarket CLOB) | Reuse for REST book polling fallback |
-| governor | 0.8 | Rate limiting | Reuse existing Polymarket rate limiter (CLOB: 9000 req/10s general, 500-1500 req/10s market data) |
-| serde + serde_json | 1.0 | JSON serialization | Reuse for REST book response parsing |
-| backoff | 0.4 | Exponential backoff reconnection | Reuse in supervisor; extend for REST fallback retry |
-| tokio | 1.x | Async runtime | No changes |
-| rust_decimal | 1.40 | Decimal arithmetic | No changes |
-| tracing | 0.1 | Structured logging | No changes |
-| metrics | 0.24 | Prometheus metrics | Add new metric labels for REST vs WS data source |
+| Technology | Version | Purpose | Role in v1.8 |
+|------------|---------|---------|--------------|
+| statrs | 0.18 | Statistical distributions (Normal, T, Chi-Squared CDF/PDF) | Two-sample KS test critical values, t-distribution for regression significance, goodness-of-fit tests |
+| rust_decimal | 1.40 | Decimal arithmetic | All cost model computations, fee breakdowns, spread calculations remain in Decimal |
+| serde + serde_json | 1.0 | Serialization | JSONL loading for spread/signal logs, JSON output from new CLI tools |
+| clap | 4.5 | CLI argument parsing | New CLI binaries follow existing `spread-analytics` and `signal-scoring` patterns |
+| comfy-table | 7 | Terminal table rendering | Table output mode for new analysis tools |
+| chrono | 0.4 | Timestamps and date ranges | Date-range file enumeration for JSONL loading (existing `DateRange` pattern) |
+| tracing | 0.1 | Structured logging | Diagnostic output in analysis tools |
 
-### No New Libraries Needed
+### What the Existing Stats Module Already Provides
 
-The REST fallback pattern for Polymarket follows the exact same architecture as the existing Derive feed (snapshot-only via REST) and Kalshi settlement checker (periodic REST polling). Both use `reqwest` with `governor` rate limiting and `backoff` retry logic.
+The `src/analysis/stats.rs` module already has everything needed for basic statistical analysis:
 
----
+| Function | Provided By | Used For in v1.8 |
+|----------|------------|-----------------|
+| `mean_f64`, `mean_decimal` | stats.rs | Cost component means, spread distribution centers |
+| `stddev_f64` | stats.rs | Spread volatility, cost variability |
+| `percentile_f64`, `median_f64` | stats.rs | Spread distribution quantiles (P5/P25/P50/P75/P95) |
+| `wilson_ci` | stats.rs | Confidence intervals on hit rates |
+| `skewness_f64`, `kurtosis_f64` | stats.rs | Distribution shape analysis for spreads |
+| Normal CDF/PDF | statrs | Probability calculations, z-scores |
+| T-distribution CDF | statrs | t-test p-values for edge significance |
+| `RollingStats` | rolling_stats.rs | Windowed online statistics (if needed for streaming analysis) |
 
-## Polymarket API Stack Details
+### What Needs to Be Added to Stats Module (Pure Rust, No New Deps)
 
-### WebSocket Channel (Primary -- Existing)
+| Function | Lines of Code | Used For |
+|----------|--------------|----------|
+| `pearson_correlation(x, y)` | ~15 | Correlation between cost components and spread, instrument price correlation |
+| `two_sample_ks_test(a, b)` | ~30 | Compare spread distributions across instruments/venues |
+| `weighted_mean_f64(values, weights)` | ~10 | Volume-weighted spread averages |
+| `coefficient_of_variation(values)` | ~5 | Cost component stability metric |
+| `iqr_f64(sorted)` | ~5 | Outlier detection in spread data |
 
-| Attribute | Value | Source |
-|-----------|-------|--------|
-| URL | `wss://ws-subscriptions-clob.polymarket.com/ws/market` | Official docs |
-| Auth | None (public market channel) | Official docs |
-| Subscription | `{"assets_ids": [...], "type": "market"}` | Official docs |
-| Heartbeat | PING every 10s | Official docs; already implemented |
-| Known Issue | Silent freeze -- accepts connections but sends no data for hours | GitHub issue #292 (2026-03-05) |
-
-**Connectivity Problem Analysis:**
-
-The Polymarket WebSocket has a known server-side issue (reported 2026-03-05, GitHub `py-clob-client` #292) where the server enters a state where:
-- TCP connection succeeds
-- Subscription message is accepted
-- Application-level PING/PONG works
-- **Zero book or price_change events are delivered** for extended periods (hours)
-
-This is NOT a client-side bug. It is a server-side silent freeze. The current codebase (`PolymarketClient`) has no data inactivity watchdog -- it only breaks on connection errors or stream end, not on data silence.
-
-**Required Fix (code only, no new deps):**
-- Add a `data_inactivity_timeout` to `PolymarketConfig` (e.g., 120s)
-- In the supervisor's forwarding loop, track last data message time
-- Force reconnect when no book data received within timeout
-- This is the same pattern already used in `KalshiSupervisor` heartbeat timeout
-
-### REST API (Fallback -- New Usage of Existing reqwest)
-
-| Attribute | Value | Source |
-|-----------|-------|--------|
-| Base URL | `https://clob.polymarket.com` | Official docs |
-| Book Endpoint | `GET /book?token_id={token_id}` | Official docs (public methods) |
-| Midpoint Endpoint | `GET /midpoint?token_id={token_id}` | Official docs |
-| Price Endpoint | `GET /price?token_id={token_id}&side={BUY\|SELL}` | Official docs |
-| Rate Limit | 9000 req/10s general; 500-1500 req/10s market data | Official docs |
-| Auth | None for public endpoints | Official docs |
-
-**REST Polling Architecture:**
-- Poll `GET /book` every N seconds (configurable, e.g., 5-10s)
-- Parse response into existing `MarketSnapshot` via a new normalizer (same pattern as Derive snapshot-only model)
-- Use `reqwest` client (already in deps) with shared `governor` rate limiter (already exists for Polymarket)
-- Fallback activates when WebSocket data inactivity timeout fires
-
-**REST Book Response Schema (from official docs):**
-```json
-{
-  "market": "condition_id",
-  "asset_id": "token_id",
-  "timestamp": "1234567890",
-  "hash": "...",
-  "bids": [{"price": "0.50", "size": "100"}],
-  "asks": [{"price": "0.52", "size": "200"}],
-  "min_tick_size": "0.01"
-}
-```
-
-### Cloudflare Considerations
-
-Polymarket routes through Cloudflare. Known issues for datacenter IPs:
-- REST POST endpoints (trading) are sometimes blocked with 403
-- REST GET endpoints (public data) are less affected
-- WebSocket connections from datacenter IPs generally work but may be silenced
-
-The EC2 instance uses a public IP in AWS datacenter space. The WebSocket silent freeze may be Cloudflare-related throttling for datacenter IPs. REST GET polling is a more resilient fallback because each request is independent (no persistent connection to silently fail).
+These are trivial to implement and do not justify adding a dependency.
 
 ---
 
-## Spread Engine Generalization
+## Analysis Tools Architecture
 
-### Current Hardcoding (What Changes)
+### New CLI Binaries (Following Existing Pattern)
 
-The `SpreadEngine` is hardcoded to Polymarket+Kalshi pairs:
+All new tools follow the exact pattern of `spread-analytics` and `signal-scoring`:
+- Synchronous `fn main()` (no tokio runtime)
+- JSONL file loading via `analysis::io::load_jsonl` with `DateRange` filtering
+- Dual output mode: `--output table` (default, comfy-table) or `--output json` (serde_json)
+- `--by-event` breakdown support
+- `--from/--to/--last` date range arguments via clap derive
 
-1. **`process_snapshot()`** line 228: `if mapping.venues.polymarket.is_none() || mapping.venues.kalshi.is_none() { return; }` -- requires BOTH venues
-2. **`SpreadPattern` enum**: All 4 variants are `BuyPoly*SellKalshi*` or vice versa
-3. **`walk_both_sides()`**: Hardcoded to `poly` and `kalshi` parameters
-4. **`compute_fees()`**: Only handles Polymarket and Kalshi fee models
-5. **`SpreadResult`**: Fields named `poly_exchange_ts` and `kalshi_exchange_ts`
+| Binary | Data Source | Purpose |
+|--------|------------|---------|
+| `cost-analyzer` | `spread_logs/*.jsonl` | Break down cost model components, parameter sensitivity |
+| `liquidity-analyzer` | `spread_logs/*.jsonl` + recorded feed data | Book depth, bid-ask spread, fill simulation |
+| `instrument-audit` | `events.toml` + `spread_logs/*.jsonl` | Matching quality, expiry alignment, price correlation |
 
-### Generalization Approach (Code Changes, No New Deps)
+### No New Infrastructure
 
-The spread engine currently serves the **prediction market vs prediction market** use case (Polymarket vs Kalshi). The signal engine (`CrossAssetEngine`) already handles the **prediction market vs options-implied probability** use case and already works with any single prediction market venue.
+No database, no new services, no new Prometheus metrics (beyond what analysis reveals should be added to the live pipeline). This is offline batch analysis.
 
-**Key insight:** The spread engine does NOT need to be generalized for v1.7. The `CrossAssetEngine` (signal engine) is the correct engine for the "single prediction market vs options" comparison, and it already:
-- Accepts any `Venue::Polymarket` or `Venue::Kalshi` snapshot
-- Pairs with options-implied probabilities from Deribit/Derive
-- Computes venue-appropriate fees via match on `pred_venue`
-- Supports per-venue staleness thresholds
+---
 
-**What needs fixing in `CrossAssetEngine`:**
-1. The `options_leg.venue` is hardcoded to `Venue::Deribit` (line 548) -- should use the actual venue from the `ImpliedProbability` source
-2. The `handle_probability()` method hardcodes `Venue::Deribit` for lookup (line 252) -- should accept any options venue
+## Cost Model Analysis Stack Details
 
-**What needs fixing in `SpreadEngine`:**
-1. The guard on line 228 should be relaxed to work when only ONE prediction market venue is available (not require both)
-2. When only one prediction market is available, skip the prediction-market-vs-prediction-market spread computation (there's no second leg)
-3. Alternatively, the SpreadEngine can remain Polymarket+Kalshi-specific and simply not block startup when one venue has no data yet
+### What Already Exists
 
-**Recommended approach:** Make the `SpreadEngine` guard permissive (skip gracefully when a venue pair isn't available rather than hard-requiring both), and fix the two `CrossAssetEngine` hardcodings. This minimizes code changes and preserves existing test coverage.
+The cost model (`src/spread/cost_model.rs`) already computes:
+- Polymarket dynamic fees: `shares * fee_rate * (p * (1-p))^exponent`
+- Kalshi taker fees: `coefficient * contracts * P * (1-P)` with optional ceiling rounding
+- Carry cost: `notional * annualized_rate * holding_days / 365`
+- Total one-way cost: `fee + carry`
+
+The spread engine (`src/spread/engine.rs`) logs `SpreadResult` to JSONL with:
+- Gross spread, net spread, cost breakdown
+- Venue exchange timestamps
+- Bid/ask prices used, book depth walked
+
+### What v1.8 Adds (Code, Not Deps)
+
+**Parameter sweep analysis:** Iterate over ranges of cost model parameters (fee_rate, exponent, carry_rate, slippage_bps) and recompute net spreads from historical gross spreads. This is pure arithmetic over `Vec<SpreadResult>` -- no simulation framework needed.
+
+**Regression analysis (uses linregress):** Regress net spread against cost components to identify which cost term dominates the negative edge. Provides R-squared and p-values for each component's contribution.
+
+**Break-even analysis:** Compute the cost parameter values where mean net spread crosses zero. Simple root-finding over the parameter sweep results.
+
+---
+
+## Liquidity Analysis Stack Details
+
+### What Already Exists
+
+The order book structure is already parsed and maintained in memory:
+- `OrderBook` with `bids` and `asks` as `BTreeMap<Decimal, Decimal>` (price -> size)
+- `book_walker.rs`: Walk-the-book slippage calculator that simulates filling an order through book levels
+- `MarketSnapshot` captures best bid/ask and book depth
+
+### What v1.8 Adds (Code, Not Deps)
+
+All liquidity metrics are computed from the existing `OrderBook` and `MarketSnapshot` data structures:
+
+| Metric | Computation | Source |
+|--------|------------|--------|
+| Bid-ask spread (absolute & bps) | `best_ask - best_bid` | MarketSnapshot |
+| Book depth at N levels | Sum sizes at top N price levels | OrderBook BTreeMap |
+| Cumulative depth to price | Sum sizes from best to target price | OrderBook BTreeMap |
+| Effective spread (after slippage) | Walk-the-book for target size | Existing `book_walker.rs` |
+| Book imbalance | `(bid_depth - ask_depth) / (bid_depth + ask_depth)` | OrderBook BTreeMap |
+| Depth ratio at top-of-book | `bid_size_L1 / ask_size_L1` | OrderBook BTreeMap |
+| Quote stability (time-weighted) | Track quote changes over time in JSONL | MarketSnapshot timestamps |
+
+**No external order book library needed.** The codebase already parses, maintains, and walks the book for all 4 venues. The liquidity analyzer reads recorded feed data and computes metrics offline.
+
+---
+
+## Instrument Matching Audit Stack Details
+
+### What Already Exists
+
+- `events.toml` with event mappings across venues (instrument IDs, strikes, expiries)
+- `strsim` crate for fuzzy string matching (used in discovery)
+- `FuzzyMatchKey` (asset/strike/direction) matching logic
+
+### What v1.8 Adds (Code, Not Deps)
+
+- **Expiry alignment check:** Compare expiry timestamps across venues, flag mismatches beyond tolerance
+- **Price correlation analysis:** Compute Pearson correlation between venue prices for each paired instrument over time (uses new `pearson_correlation` function in stats.rs)
+- **Strike mapping verification:** For options-implied probabilities, verify the strike price used actually brackets the prediction market question
+- **Coverage report:** Which instruments have sufficient data density for reliable signal generation
+
+---
+
+## Alternatives Considered
+
+| Recommended | Alternative | Why Not |
+|-------------|-------------|---------|
+| `linregress` 0.5 | Hand-rolled OLS regression | `linregress` provides proper inference (standard errors, t-stats, p-values, R-squared) that would be error-prone to implement from scratch. ~500 LOC library with clean API. |
+| `linregress` 0.5 | `ndarray-stats` + `ndarray` | Massive dependency tree (ndarray, blas bindings). Overkill for simple OLS on <100 variables. |
+| `linregress` 0.5 | `polars` for dataframe analysis | 10+ MB compile-time addition, Python-style API. We process `Vec<T>` from JSONL -- no DataFrame needed. |
+| Pure Rust liquidity metrics | `orderbook-rs` crate | External crate is for building order books from scratch. We already have fully functional order books with walk-the-book. Adding a crate would duplicate existing data structures. |
+| Pure Rust stats extensions | `rs-stats` or `scirs2-stats` | These are comprehensive stats packages. We need only Pearson correlation and KS test -- trivial to add to existing stats.rs (~45 lines total). |
+| Existing CLI pattern | `barter-rs` backtesting framework | v1.8 is analysis of historical signals, not backtesting. We compare actual spreads against cost model parameters. No simulation engine needed. |
+| JSON output + external tools | Terminal charting crate (e.g., `textplots`) | PROJECT.md explicitly states "JSON output + external tools preferred" for visualization. Terminal charts are cosmetic, not analytical. |
 
 ---
 
@@ -159,89 +185,111 @@ The spread engine currently serves the **prediction market vs prediction market*
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `polymarket-rs-clob-client` crate | Adds large dependency tree (alloy, k256, auth); we only need public GET endpoints | Use existing `reqwest` directly -- 3 endpoints, trivial to call |
-| `tungstenite` feature flags changes | The WebSocket library is not the problem; the server silently freezes | Add data inactivity watchdog in supervisor logic |
-| Any new async runtime features | tokio 1.x already has everything needed | -- |
-| WebSocket compression (permessage-deflate) | Polymarket doesn't advertise it; would add complexity | -- |
-| Connection pooling crate | Single REST endpoint, single token per request | reqwest's built-in connection pool is sufficient |
-| Database for caching REST responses | REST responses are consumed immediately as MarketSnapshot | Existing in-memory `latest` HashMap in engine is correct |
+| `polars` / `datafusion` | Massive compile-time cost (10+ MB binary size increase). Vec-based analysis is faster for expected data volumes (<1M records). | `Vec<T>` with iterator chains -- already proven in spread-analytics and signal-scoring |
+| `plotters` / `textplots` | PROJECT.md: "Terminal charting -- JSON output + external tools preferred". Visualization belongs in Grafana or external notebooks. | `--output json` piped to external visualization tools (Python matplotlib, jq+gnuplot) |
+| `ndarray` / `nalgebra` (directly) | Only needed as transitive dep of linregress. No matrix operations needed in our analysis code. | linregress handles matrix math internally |
+| SQLite / DuckDB | PROJECT.md: "Database backend for analysis -- JSONL sufficient at current scale; Vec<T> faster for expected volumes". | Existing JSONL loading with `load_jsonl` |
+| `ta-rs` (technical analysis) | Designed for candlestick/price indicators (RSI, MACD). Prediction market arb signals are not time-series price patterns. | Custom spread/cost analysis specific to the domain |
+| Full backtesting framework | PROJECT.md: "Full backtesting engine -- settled data is stronger evidence than simulated backtests". v1.8 analyzes real production data. | Parameter sweep over historical spreads using offline CLI tools |
+| Any ML/AI library | PROJECT.md: "AI/ML signal prediction -- arbs are event-driven, not pattern-driven". The signal quality problem is cost model calibration, not prediction. | Statistical analysis: regression, correlation, distribution tests |
+| New Prometheus metrics crate | metrics 0.24 + metrics-exporter-prometheus 0.18 are already in the stack. If analysis reveals new metrics to track, they go in the existing pipeline. | Existing metrics infrastructure |
+
+---
+
+## Installation
+
+```toml
+# Add to [dependencies] in Cargo.toml
+linregress = "0.5"
+```
+
+```bash
+# No other installation steps. cargo build picks up the new dep.
+cargo build --release
+```
+
+### New Binaries (add to Cargo.toml)
+
+```toml
+[[bin]]
+name = "cost-analyzer"
+path = "src/bin/cost_analyzer.rs"
+
+[[bin]]
+name = "liquidity-analyzer"
+path = "src/bin/liquidity_analyzer.rs"
+
+[[bin]]
+name = "instrument-audit"
+path = "src/bin/instrument_audit.rs"
+```
+
+---
+
+## Version Compatibility
+
+| Package | Compatible With | Notes |
+|---------|-----------------|-------|
+| linregress 0.5.4 | nalgebra (transitive) | nalgebra is already a transitive dep via statrs 0.18 |
+| linregress 0.5.4 | Rust 2024 edition | Verified: uses standard Rust, no edition-specific issues |
+| statrs 0.18 | linregress 0.5.4 | Both depend on nalgebra; versions should unify in dependency resolution |
+
+**Risk assessment:** linregress 0.5.4 is a stable crate (last update Oct 2024, 888K downloads). Its nalgebra dependency should unify with statrs's nalgebra dependency, meaning near-zero compile time increase.
 
 ---
 
 ## Integration Points
 
-### How REST Fallback Integrates with Existing Architecture
+### How New Tools Integrate with Existing Architecture
 
 ```
-Existing:
-  PolymarketSupervisor -> PolymarketClient (WS) -> RawMessage -> PolymarketProcessor -> MarketSnapshot
+Existing data flow (live pipeline):
+  Feeds -> SpreadEngine -> spread_logs/*.jsonl
+  Feeds -> SignalEngine -> signal_logs/*.jsonl
+  Settlements -> settlement_logs/*.jsonl
 
-With REST fallback:
-  PolymarketSupervisor -> PolymarketClient (WS) -> RawMessage -> PolymarketProcessor -> MarketSnapshot
-                       \-> PolymarketRestPoller  -> RawMessage -/
-                       (activates on WS data silence)
+Existing analysis tools:
+  spread_logs/ -> spread-analytics CLI -> table/JSON
+  settlement_logs/ -> signal-scoring CLI -> table/JSON
+
+New v1.8 analysis tools:
+  spread_logs/ -> cost-analyzer CLI -> table/JSON (cost breakdowns, parameter sweeps, regression)
+  spread_logs/ + feed recordings -> liquidity-analyzer CLI -> table/JSON (book depth, spreads, fill sim)
+  events.toml + spread_logs/ -> instrument-audit CLI -> table/JSON (matching quality, correlation)
 ```
 
-The REST poller produces `RawMessage` structs identical to WS messages, feeding into the same `PolymarketProcessor` normalizer pipeline. This is the same pattern used for Derive (snapshot-only feed).
+All new tools are **read-only, offline, batch analysis**. They consume the same JSONL files produced by the live pipeline. No changes to the live pipeline are needed for the analysis phase.
 
-Alternatively, the REST poller can produce `MarketSnapshot` directly (bypassing the RawMessage layer), since REST responses are already structured JSON books rather than streaming deltas. This is simpler and avoids synthesizing fake "raw" messages.
+If analysis reveals that the cost model needs tuning, the changes are to `config.toml` parameters (not code). If analysis reveals that certain instruments should be dropped, the changes are to `events.toml` (not code). If analysis reveals new metrics to track, those are added to the live pipeline in a subsequent phase.
 
-### How Engine Generalization Integrates
+### Shared Analysis Infrastructure
 
-No new channels or data flow changes. The `CrossAssetEngine` already receives:
-- `ImpliedProbability` from `PricingEngine` (Deribit + Derive options data)
-- `MarketSnapshot` from prediction market feeds (Polymarket + Kalshi)
+All three new tools reuse:
+- `analysis::io::load_jsonl` and `DateRange` for file loading
+- `analysis::output::{OutputFormat, new_table, render_output}` for rendering
+- `analysis::stats::*` for statistical computations
+- `spread::patterns::SpreadResult` as the primary data record type
 
-It already pairs them by event ID and computes spreads. The only changes are:
-- Remove `Venue::Deribit` hardcoding in options leg info
-- Make the `SpreadEngine` guard permissive for single-venue events
+This is the same pattern established in v1.4 and proven across 13 E2E golden-value tests.
 
 ---
 
-## Existing Dependency Versions (Verified from Cargo.toml)
+## Spread Logger Fix (Prerequisite)
 
-| Crate | Version | Relevant Feature Flags |
-|-------|---------|----------------------|
-| tokio | 1.x | full |
-| tokio-tungstenite | 0.28 | native-tls |
-| reqwest | 0.12 | json, rustls-tls |
-| serde | 1.0 | derive |
-| serde_json | 1.0 | -- |
-| governor | 0.8 | -- |
-| backoff | 0.4 | tokio |
-| rust_decimal | 1.40 | maths, serde-with-str |
-| tracing | 0.1 | -- |
-| metrics | 0.24 | -- |
-| chrono | 0.4 | serde |
+PROJECT.md notes: "Spread logger not producing output (spread_logs empty)". This must be fixed before any analysis tools can run. The fix is a code change in `src/spread/logger.rs` -- no new dependencies needed.
 
-No version bumps needed. All crates are at versions compatible with the new functionality.
-
----
-
-## Polymarket Rate Limit Budget for REST Polling
-
-| Scenario | Tokens | Poll Interval | Req/10s | Within Limit? |
-|----------|--------|---------------|---------|---------------|
-| 1 token, 10s poll | 1 | 10s | 1 | Yes (500-1500 allowed) |
-| 5 tokens, 5s poll | 5 | 5s | 10 | Yes |
-| 10 tokens, 3s poll | 10 | 3s | ~33 | Yes |
-| 50 tokens, 1s poll | 50 | 1s | 500 | Borderline |
-
-For the current scale (single-digit token count), REST polling every 5-10 seconds is well within limits and shares the existing `governor` rate limiter already configured for Polymarket in the codebase.
+**This is the highest-priority item in v1.8.** Without spread data, all analysis tools have no input.
 
 ---
 
 ## Sources
 
-- [Polymarket WSS Overview](https://docs.polymarket.com/developers/CLOB/websocket/wss-overview) -- WebSocket URLs, subscription format, heartbeat requirements (HIGH confidence)
-- [Polymarket CLOB Public Methods](https://docs.polymarket.com/developers/CLOB/clients/methods-public) -- REST endpoints for book, price, midpoint (HIGH confidence)
-- [Polymarket Rate Limits](https://docs.polymarket.com/quickstart/introduction/rate-limits) -- CLOB 9000 req/10s general, market data 500-1500 req/10s (HIGH confidence)
-- [Polymarket CLOB Endpoints](https://docs.polymarket.com/quickstart/reference/endpoints) -- Base URL `https://clob.polymarket.com` (HIGH confidence)
-- [GitHub Issue #292: CLOB WSS silent freeze](https://github.com/Polymarket/py-clob-client/issues/292) -- Server-side silent data freeze documented 2026-03-05 (HIGH confidence, first-hand bug report)
-- [Cloudflare WAF blocking datacenter API requests](https://community.cloudflare.com/t/cloudflare-waf-blocking-legitimate-api-requests-from-supabase-edge-functions-to-pol/869437) -- Cloudflare blocks some datacenter-origin requests (MEDIUM confidence)
-- [Polymarket rs-clob-client](https://github.com/Polymarket/rs-clob-client) -- Official Rust SDK v0.3; decided against due to heavy dependency tree (MEDIUM confidence)
-- Existing codebase analysis: `src/feed/polymarket/client.rs`, `src/spread/engine.rs`, `src/signal/engine.rs` -- direct code inspection (HIGH confidence)
+- [linregress on crates.io](https://crates.io/crates/linregress) -- v0.5.4, 888K downloads, OLS regression with inference (HIGH confidence, verified via crates.io API)
+- [statrs on crates.io](https://crates.io/crates/statrs) -- v0.18.0, latest stable, already in Cargo.toml (HIGH confidence, verified via crates.io API)
+- [linregress docs](https://docs.rs/linregress) -- API reference for FormulaRegressionBuilder (MEDIUM confidence, training data)
+- Existing codebase analysis: `Cargo.toml`, `src/analysis/stats.rs`, `src/spread/cost_model.rs`, `src/spread/book_walker.rs`, `src/bin/spread_analytics.rs`, `src/bin/signal_scoring.rs` -- direct code inspection (HIGH confidence)
+- PROJECT.md constraints: "JSONL sufficient at current scale", "JSON output + external tools preferred", "settled data is stronger evidence than simulated backtests" (HIGH confidence, project decisions)
 
 ---
-*Stack research for: v1.7 Prediction Market Signal Pipeline*
+*Stack research for: v1.8 Signal Quality Validation*
 *Researched: 2026-03-09*
