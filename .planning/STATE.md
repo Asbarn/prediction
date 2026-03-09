@@ -10,18 +10,20 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 ## Current Position
 
 Phase: 40 of 43 (Polymarket WS Diagnosis and Data Watchdog)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-09 -- Roadmap created for v1.7
+Plan: 1 of 2 in current phase
+Status: Executing
+Last activity: 2026-03-09 -- Completed 40-01 (Polymarket WS diagnosis and config)
 
-Progress (overall): 7 milestones shipped (v1.0-v1.6), 39 phases, 91 plans complete
-Progress (v1.7): [░░░░░░░░░░] 0%
+Progress (overall): 7 milestones shipped (v1.0-v1.6), 39 phases, 92 plans complete
+Progress (v1.7): [█░░░░░░░░░] 10%
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
+- 40-01: 30s timeout in diagnostic test (vs 120s config default) for faster manual diagnosis
+- 40-01: Runtime Gamma API token_id lookup avoids stale placeholder IDs
+- Decisions also logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
@@ -37,5 +39,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Roadmap created for v1.7 (4 phases, 10 requirements)
-Next action: Plan Phase 40
+Stopped at: Completed 40-01-PLAN.md
+Next action: Execute 40-02-PLAN.md
