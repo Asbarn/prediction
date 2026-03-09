@@ -103,6 +103,7 @@ mod tests {
             fee_rate: dec("0.25"),
             exponent: 2,
             flat_rate_override: None,
+            ..PolymarketFeeConfig::default()
         };
         let fee = polymarket_fee(dec("100"), dec("0.50"), &config);
         assert_eq!(fee, dec("1.5625"));
@@ -117,6 +118,7 @@ mod tests {
             fee_rate: dec("0.0175"),
             exponent: 1,
             flat_rate_override: None,
+            ..PolymarketFeeConfig::default()
         };
         let fee = polymarket_fee(dec("100"), dec("0.50"), &config);
         assert_eq!(fee, dec("0.4375"));
@@ -142,6 +144,7 @@ mod tests {
             fee_rate: dec("0.25"),
             exponent: 2,
             flat_rate_override: Some(dec("0.01")),
+            ..PolymarketFeeConfig::default()
         };
         let fee = polymarket_fee(dec("100"), dec("0.50"), &config);
         // flat rate: 100 * 0.01 = 1.00

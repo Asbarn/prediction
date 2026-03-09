@@ -439,10 +439,21 @@ impl CrossAssetEngine {
                 _ => Decimal::ZERO,
             };
 
-            // Options fee estimate: taker_fee_rate * underlying_price * |delta|
-            let options_fee_estimate = self.config.deribit_taker_fee_rate
-                * Decimal::from_f64(prob.underlying_price).unwrap_or(Decimal::ZERO)
-                * Decimal::from_f64(prob.greeks.delta.abs()).unwrap_or(Decimal::ZERO);
+            // Options fee estimate: venue-aware taker fee calculation.
+            // Derive uses 0.04% + $0.50 base fee; Deribit uses 0.03% (no base fee).
+            let options_fee_estimate = match prob.source_venue {
+                Venue::Derive => {
+                    let pct_fee = self.config.derive_taker_fee_rate
+                        * Decimal::from_f64(prob.underlying_price).unwrap_or(Decimal::ZERO)
+                        * Decimal::from_f64(prob.greeks.delta.abs()).unwrap_or(Decimal::ZERO);
+                    pct_fee + self.config.derive_base_fee_usd
+                }
+                _ => {
+                    self.config.deribit_taker_fee_rate
+                        * Decimal::from_f64(prob.underlying_price).unwrap_or(Decimal::ZERO)
+                        * Decimal::from_f64(prob.greeks.delta.abs()).unwrap_or(Decimal::ZERO)
+                }
+            };
 
             // Carry cost
             let carry = carry_cost(self.config.target_notional, &self.config.carry);
@@ -473,13 +484,20 @@ impl CrossAssetEngine {
             // Basis risk premium from settlement risk cache
             let basis_risk_premium = self.lookup_basis_risk_premium(event_id);
 
+            // On-chain costs (Polygon gas + bridge amortization).
+            // Folded into the dollar-denominated normalization alongside prediction_fee
+            // rather than adding new CostBreakdown fields, to avoid breaking downstream
+            // JSONL parsing. Conceptually these are Polymarket-leg costs.
+            let on_chain_cost = self.config.polymarket_fees.gas_cost_usd
+                + self.config.polymarket_fees.bridge_cost_amortized_usd;
+
             // Normalize dollar-denominated costs to probability space.
-            // prediction_fee, options_fee_estimate, and carry are in dollars;
+            // prediction_fee, options_fee_estimate, carry, and on_chain_cost are in dollars;
             // prediction_slippage, options_spread_cost, basis_risk_premium are
             // already in probability space.
             let target = self.config.target_notional;
             debug_assert!(target > Decimal::ZERO, "target_notional must be positive");
-            let total_cost = (prediction_fee + options_fee_estimate + carry) / target
+            let total_cost = (prediction_fee + options_fee_estimate + carry + on_chain_cost) / target
                 + prediction_slippage + options_spread_cost + basis_risk_premium;
 
             // Net edge = (raw_spread - total_cost) * liquidity_factor
@@ -964,6 +982,8 @@ mod tests {
                 fee_rate: Decimal::ZERO,
                 exponent: 2,
                 flat_rate_override: None,
+                gas_cost_usd: Decimal::ZERO,
+                bridge_cost_amortized_usd: Decimal::ZERO,
             },
             kalshi_fees: crate::spread::config::KalshiFeeConfig {
                 taker_coefficient: Decimal::ZERO,
@@ -1112,6 +1132,8 @@ mod tests {
                 fee_rate: Decimal::ZERO,
                 exponent: 2,
                 flat_rate_override: None,
+                gas_cost_usd: Decimal::ZERO,
+                bridge_cost_amortized_usd: Decimal::ZERO,
             },
             kalshi_fees: crate::spread::config::KalshiFeeConfig {
                 taker_coefficient: Decimal::ZERO,
@@ -1204,6 +1226,8 @@ mod tests {
                 fee_rate: Decimal::ZERO,
                 exponent: 2,
                 flat_rate_override: None,
+                gas_cost_usd: Decimal::ZERO,
+                bridge_cost_amortized_usd: Decimal::ZERO,
             },
             kalshi_fees: crate::spread::config::KalshiFeeConfig {
                 taker_coefficient: Decimal::ZERO,

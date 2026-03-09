@@ -134,6 +134,24 @@ pub struct PolymarketFeeConfig {
     /// If set, overrides the dynamic formula with a flat per-share rate.
     /// `None` means use the dynamic formula.
     pub flat_rate_override: Option<Decimal>,
+
+    /// Estimated Polygon gas cost per transaction (USD).
+    /// Default: $0.01 (conservative estimate per PolygonScan avg tx fee data).
+    #[serde(default = "default_gas_cost_usd")]
+    #[serde(with = "rust_decimal::serde::str")]
+    pub gas_cost_usd: Decimal,
+
+    /// Amortized bridging cost per trade (USD).
+    /// Default: 0.0 -- operator must configure based on their bridging pattern
+    /// ($5-20 per bridge from Ethereum, $0.50-2 from exchanges).
+    #[serde(default)]
+    #[serde(with = "rust_decimal::serde::str")]
+    pub bridge_cost_amortized_usd: Decimal,
+}
+
+/// Default Polygon gas cost: $0.01 (conservative per PolygonScan data).
+fn default_gas_cost_usd() -> Decimal {
+    Decimal::new(1, 2)
 }
 
 impl Default for PolymarketFeeConfig {
@@ -142,6 +160,8 @@ impl Default for PolymarketFeeConfig {
             fee_rate: Decimal::new(25, 2), // 0.25
             exponent: 2,
             flat_rate_override: None,
+            gas_cost_usd: default_gas_cost_usd(),
+            bridge_cost_amortized_usd: Decimal::ZERO,
         }
     }
 }
@@ -223,6 +243,8 @@ mod tests {
         assert_eq!(cfg.fee_rate, Decimal::new(25, 2));
         assert_eq!(cfg.exponent, 2);
         assert!(cfg.flat_rate_override.is_none());
+        assert_eq!(cfg.gas_cost_usd, Decimal::new(1, 2)); // 0.01
+        assert_eq!(cfg.bridge_cost_amortized_usd, Decimal::ZERO);
     }
 
     #[test]

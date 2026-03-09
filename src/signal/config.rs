@@ -67,11 +67,31 @@ pub struct SignalGenerationConfig {
     #[serde(default = "default_basis_risk_scale")]
     #[serde(with = "rust_decimal::serde::str")]
     pub basis_risk_scale: Decimal,
+
+    /// Derive taker fee rate (0.0004 = 0.04% of notional per Derive help center).
+    #[serde(default = "default_derive_taker_fee_rate")]
+    #[serde(with = "rust_decimal::serde::str")]
+    pub derive_taker_fee_rate: Decimal,
+
+    /// Derive base fee per trade in USD ($0.50 per Derive help center).
+    #[serde(default = "default_derive_base_fee_usd")]
+    #[serde(with = "rust_decimal::serde::str")]
+    pub derive_base_fee_usd: Decimal,
 }
 
 /// Default basis risk scale: 0.01 (1% of composite score).
 fn default_basis_risk_scale() -> Decimal {
     Decimal::new(1, 2)
+}
+
+/// Default Derive taker fee rate: 0.0004 (0.04% per Derive help center docs).
+fn default_derive_taker_fee_rate() -> Decimal {
+    Decimal::new(4, 4)
+}
+
+/// Default Derive base fee: $0.50 per trade (per Derive help center docs).
+fn default_derive_base_fee_usd() -> Decimal {
+    Decimal::new(50, 2)
 }
 
 impl Default for SignalGenerationConfig {
@@ -92,6 +112,8 @@ impl Default for SignalGenerationConfig {
             polymarket_fees: PolymarketFeeConfig::default(),
             kalshi_fees: KalshiFeeConfig::default(),
             basis_risk_scale: default_basis_risk_scale(),
+            derive_taker_fee_rate: default_derive_taker_fee_rate(),
+            derive_base_fee_usd: default_derive_base_fee_usd(),
         }
     }
 }
@@ -113,6 +135,8 @@ mod tests {
         assert_eq!(cfg.log_dir, "signal_logs");
         assert_eq!(cfg.spread_log_dir, "spread_logs");
         assert_eq!(cfg.summary_interval_secs, 300);
+        assert_eq!(cfg.derive_taker_fee_rate, Decimal::new(4, 4)); // 0.0004
+        assert_eq!(cfg.derive_base_fee_usd, Decimal::new(50, 2)); // 0.50
     }
 
     #[test]
