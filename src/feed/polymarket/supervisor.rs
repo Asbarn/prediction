@@ -104,9 +104,12 @@ impl PolymarketSupervisor {
                                 }
                             }
 
-                            msg = raw_rx.recv() => {
-                                match msg {
-                                    Some(raw) => {
+                            result = tokio::time::timeout(
+                                Duration::from_secs(self.config.data_timeout_secs),
+                                raw_rx.recv()
+                            ) => {
+                                match result {
+                                    Ok(Some(raw)) => {
                                         if !received_first {
                                             received_first = true;
                                             backoff.reset();
@@ -122,13 +125,25 @@ impl PolymarketSupervisor {
                                             return;
                                         }
                                     }
-                                    None => {
+                                    Ok(None) => {
                                         self.health.mark_unavailable("connection lost".to_string());
                                         tracing::warn!(
                                             attempt = attempt,
                                             "PolymarketSupervisor: connection lost, will reconnect"
                                         );
                                         break;
+                                    }
+                                    Err(_elapsed) => {
+                                        self.health.mark_unavailable("data inactivity timeout".to_string());
+                                        metrics::counter!(
+                                            "feed_data_timeout_total",
+                                            "venue" => "polymarket"
+                                        ).increment(1);
+                                        tracing::warn!(
+                                            timeout_secs = self.config.data_timeout_secs,
+                                            "PolymarketSupervisor: data inactivity detected, forcing reconnect"
+                                        );
+                                        break; // -> reconnect with backoff (do NOT reset backoff)
                                     }
                                 }
                             }

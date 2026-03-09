@@ -231,6 +231,7 @@ mod tests {
                 assets: vec![],
                 rate_limit_per_second: 10,
                 ping_interval_ms: 10_000,
+                data_timeout_secs: 120,
             },
             kalshi: KalshiConfig {
                 rest_url: "https://trading-api.kalshi.com".to_string(),

@@ -297,6 +297,7 @@ async fn multi_venue_replay_pipeline_processes_deribit_recordings() {
             assets: vec![],
             rate_limit_per_second: 10,
             ping_interval_ms: 10000,
+            data_timeout_secs: 120,
         },
         kalshi: KalshiConfig {
             rest_url: "https://api.elections.kalshi.com/trade-api/v2".to_string(),
@@ -390,6 +391,7 @@ async fn multi_venue_replay_graceful_empty_dir() {
             assets: vec![],
             rate_limit_per_second: 10,
             ping_interval_ms: 10000,
+            data_timeout_secs: 120,
         },
         kalshi: KalshiConfig {
             rest_url: "https://api.elections.kalshi.com/trade-api/v2".to_string(),
