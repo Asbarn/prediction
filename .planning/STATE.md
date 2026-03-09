@@ -5,32 +5,41 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.8 Signal Quality Validation
+**Current focus:** v1.8 Signal Quality Validation -- Phase 44 (Bug Fixes)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-09 — Milestone v1.8 started
+Phase: 44 of 48 (Critical Bug Fixes and Data Pipeline Repair)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-03-09 -- Roadmap created for v1.8
 
 Progress (overall): 8 milestones shipped (v1.0-v1.7), 43 phases, 101 plans complete
 Progress (v1.8): [░░░░░░░░░░] 0%
+
+## Performance Metrics
+
+**Velocity:**
+- Total plans completed: 101
+- Total execution time: 8 milestones across 18 days
+- Average: ~5.6 plans/day
+
+**Recent Trend:**
+- v1.7: 7 plans in 1 day
+- Trend: Stable
+
+*Updated after each plan completion*
 
 ## Accumulated Context
 
 ### Decisions
 
-- 43-02: arb_signals_emitted_total=0 is expected (negative edge, all filtered by profitability threshold)
-- 43-02: Spread logs empty is acceptable (spread logger not actively writing, not a pipeline failure)
-- 43-01: Placed signal_logs mount between spread_logs and settlement_logs for consistent ordering
-- 42-02: 5-second grace period before WS-to-REST switch (allows supervisor self-recovery via backoff)
-- 42-02: WS probe uses separate temporary channel, never sends to snapshot_tx (isolation guarantee)
-- 42-01: Midpoint-only REST polling (no /book endpoint) per GitHub #180 stale ghost data issue
-- 42-01: bid=ask=midpoint for REST snapshots since /midpoint provides single price point
-- 41-01: Keep deribit_taker_fee_rate config name unchanged (Derive fees comparable, cosmetic rename unnecessary for v1.7)
-- 41-01: Dynamic prediction venue iteration from cache keys instead of hardcoded venue list
-- 41-01: Single latest_prob cache key per event_id (sufficient for v1.7 single-options-source model)
+- v1.7/43-02: arb_signals_emitted_total=0 is expected (negative edge, all filtered by profitability threshold)
+- v1.7/43-02: Spread logs empty is acceptable for v1.7 (spread logger fix deferred to v1.8)
+- v1.8 research: Unit mismatch in cost subtraction confirmed as primary cause of -19.5 net_edge
+- v1.8 research: Kalshi fee ceiling rounds to integers instead of cents (up to 57x overstatement)
+- v1.8 research: events.toml empty in production -- historical signals from deep OTM strikes
+- v1.8 research: One new dependency only (linregress = "0.5" for OLS regression)
 - Decisions also logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -39,13 +48,13 @@ None.
 
 ### Blockers/Concerns
 
-- Polymarket WS "Connection reset by peer" from EC2 us-east-1 -- Phase 40 will diagnose
-- Polymarket WS silent freeze (GitHub #292) -- server-side issue, may not be fixable
-- REST `/book` endpoint returns stale ghost data (GitHub #180) -- use `/price` or `/midpoint` instead
-- CrossAssetEngine venue hardcoding RESOLVED in Phase 41
+- Spread logger not producing output (spread_logs empty) -- Phase 44 will fix
+- All signals show negative edge (-19.5) due to unit mismatch -- Phase 44 will fix
+- events.toml empty in production -- Phase 45 will populate
+- GitLab CI/CD minutes exhausted -- deploy manually via SSM
 
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Starting v1.8 milestone — research phase
-Next action: Research domain, define requirements, create roadmap
+Stopped at: Roadmap created for v1.8 Signal Quality Validation
+Next action: /gsd:plan-phase 44

@@ -59,27 +59,27 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FIX-01 | - | Pending |
-| FIX-02 | - | Pending |
-| FIX-03 | - | Pending |
-| INST-01 | - | Pending |
-| INST-02 | - | Pending |
-| INST-03 | - | Pending |
-| DIAG-01 | - | Pending |
-| DIAG-02 | - | Pending |
-| DIAG-03 | - | Pending |
-| COST-01 | - | Pending |
-| COST-02 | - | Pending |
-| COST-03 | - | Pending |
-| STAT-01 | - | Pending |
-| STAT-02 | - | Pending |
-| STAT-03 | - | Pending |
+| FIX-01 | Phase 44 | Pending |
+| FIX-02 | Phase 44 | Pending |
+| FIX-03 | Phase 44 | Pending |
+| INST-01 | Phase 45 | Pending |
+| INST-02 | Phase 45 | Pending |
+| INST-03 | Phase 45 | Pending |
+| DIAG-01 | Phase 46 | Pending |
+| DIAG-02 | Phase 46 | Pending |
+| DIAG-03 | Phase 46 | Pending |
+| COST-01 | Phase 47 | Pending |
+| COST-02 | Phase 47 | Pending |
+| COST-03 | Phase 47 | Pending |
+| STAT-01 | Phase 48 | Pending |
+| STAT-02 | Phase 48 | Pending |
+| STAT-03 | Phase 48 | Pending |
 
 **Coverage:**
 - v1.8 requirements: 15 total
-- Mapped to phases: 0
-- Unmapped: 15
+- Mapped to phases: 15
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-09*
-*Last updated: 2026-03-09 after initial definition*
+*Last updated: 2026-03-09 after roadmap creation*
