@@ -140,7 +140,10 @@ Plans:
   2. match-audit CLI confirms all active mappings have aligned strike, expiry (within tolerance), and direction across venues
   3. Discovery pipeline skips Polymarket contracts where bid-ask spread exceeds configurable threshold (no more deep OTM phantom liquidity pairs)
   4. Operator can run match-audit at any time to validate instrument quality before approving new mappings
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 45-01-PLAN.md -- Polymarket bid-ask filtering and match-audit CLI
+- [ ] 45-02-PLAN.md -- Populate events.toml with near-the-money BTC mappings
 
 ### Phase 46: Diagnostic CLI Tools
 **Goal**: Operator can decompose signal economics and book quality to answer "where does negative edge come from?"
@@ -151,7 +154,10 @@ Plans:
   2. book-depth CLI reads signal_logs and reports effective spread, fill simulation at configurable sizes, and depth quality scores per instrument
   3. Stats module provides Pearson correlation and KS test functions usable by cost-audit and signal-scoring CLIs
   4. Both CLIs support --output json and --by-event flags consistent with existing spread-analytics and signal-scoring patterns
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 45-01-PLAN.md -- Polymarket bid-ask filtering and match-audit CLI
+- [ ] 45-02-PLAN.md -- Populate events.toml with near-the-money BTC mappings
 
 ### Phase 47: Cost Model Validation
 **Goal**: Every cost parameter is justified by external evidence (exchange docs or on-chain data), not by what makes signals look profitable
@@ -162,7 +168,10 @@ Plans:
   2. Sensitivity analysis output shows which cost components have the largest impact on net edge (ranked by magnitude)
   3. Polymarket leg cost model includes estimated on-chain execution costs (gas, bridging) with documented source for estimates
   4. config.toml cost parameters reflect validated values, with each change traceable to an external data source
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 45-01-PLAN.md -- Polymarket bid-ask filtering and match-audit CLI
+- [ ] 45-02-PLAN.md -- Populate events.toml with near-the-money BTC mappings
 
 ### Phase 48: Statistical Validation and Go/No-Go
 **Goal**: Statistically valid assessment of whether profitable cross-venue arbitrage opportunities exist after all fixes, with honest confidence intervals
@@ -172,7 +181,10 @@ Plans:
   1. Signal analysis reports effective sample size (autocorrelation-corrected), not raw signal count, for all statistical tests
   2. Evaluation uses out-of-sample data that was not used during cost model tuning (explicit train/test split documented)
   3. Final go/no-go report states expected edge with confidence intervals, effective sample size, and a clear recommendation on whether to proceed to execution readiness
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 45-01-PLAN.md -- Polymarket bid-ask filtering and match-audit CLI
+- [ ] 45-02-PLAN.md -- Populate events.toml with near-the-money BTC mappings
 
 ## Progress
 
