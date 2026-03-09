@@ -5,17 +5,17 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.8 Signal Quality Validation -- Phase 45 (Instrument Quality and Event Mapping)
+**Current focus:** v1.8 Signal Quality Validation -- Phase 46 (Diagnostic CLI Tools)
 
 ## Current Position
 
-Phase: 45 of 48 (Instrument Quality and Event Mapping) -- COMPLETE
-Plan: 2 of 2 in current phase (all complete)
-Status: Phase 45 complete, ready for Phase 46
-Last activity: 2026-03-09 -- Completed 45-02 (Near-the-Money BTC Instrument Mappings)
+Phase: 46 of 48 (Diagnostic CLI Tools) -- IN PROGRESS
+Plan: 1 of 2 in current phase (46-01 complete)
+Status: 46-01 complete, ready for 46-02
+Last activity: 2026-03-09 -- Completed 46-01 (Stats Extensions and Cost-Audit CLI)
 
-Progress (overall): 8 milestones shipped (v1.0-v1.7), 45 phases, 107 plans complete
-Progress (v1.8): [████░░░░░░] 40%
+Progress (overall): 8 milestones shipped (v1.0-v1.7), 46 phases, 108 plans complete
+Progress (v1.8): [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -50,6 +50,8 @@ Progress (v1.8): [████░░░░░░] 40%
 - v1.8/45-02: Selected 4 BTC strikes ($60K, $65K, $75K, $80K) covering puts and calls around ~$68K spot
 - v1.8/45-02: 4-day expiry gap (Deribit Friday vs Polymarket end-of-month) acceptable as WARN
 - v1.8/45-02: All mappings include 3 venues (Polymarket + Deribit + Derive) for maximum coverage
+- v1.8/46-01: Components sorted by mean magnitude descending for immediate visibility of largest cost drivers
+- v1.8/46-01: cost-audit CLI follows same --from/--to/--last/--by-event/--output pattern as spread-analytics
 - Decisions also logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -66,5 +68,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 45-02-PLAN.md (Near-the-Money BTC Instrument Mappings)
-Next action: Continue with Phase 46
+Stopped at: Completed 46-01-PLAN.md (Stats Extensions and Cost-Audit CLI)
+Next action: Continue with 46-02-PLAN.md (Book-Depth CLI)
