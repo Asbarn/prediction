@@ -16,8 +16,8 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 ### Instrument Quality
 
 - [ ] **INST-01**: Production events.toml contains active near-the-money BTC instrument mappings with real liquidity
-- [ ] **INST-02**: Instrument match-audit CLI validates that paired contracts represent the same economic bet (strike, expiry, direction alignment)
-- [ ] **INST-03**: Discovery pipeline filters out deep OTM contracts where Polymarket bid-ask spread exceeds configurable threshold
+- [x] **INST-02**: Instrument match-audit CLI validates that paired contracts represent the same economic bet (strike, expiry, direction alignment)
+- [x] **INST-03**: Discovery pipeline filters out deep OTM contracts where Polymarket bid-ask spread exceeds configurable threshold
 
 ### Diagnostic Tooling
 
@@ -63,8 +63,8 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 | FIX-02 | Phase 44 | Complete |
 | FIX-03 | Phase 44 | Complete |
 | INST-01 | Phase 45 | Pending |
-| INST-02 | Phase 45 | Pending |
-| INST-03 | Phase 45 | Pending |
+| INST-02 | Phase 45 | Complete |
+| INST-03 | Phase 45 | Complete |
 | DIAG-01 | Phase 46 | Pending |
 | DIAG-02 | Phase 46 | Pending |
 | DIAG-03 | Phase 46 | Pending |

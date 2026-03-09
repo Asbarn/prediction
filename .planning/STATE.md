@@ -5,22 +5,22 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.8 Signal Quality Validation -- Phase 44 (Bug Fixes)
+**Current focus:** v1.8 Signal Quality Validation -- Phase 45 (Instrument Quality and Event Mapping)
 
 ## Current Position
 
-Phase: 44 of 48 (Critical Bug Fixes and Data Pipeline Repair) -- COMPLETE
-Plan: 2 of 2 in current phase (phase complete)
-Status: Phase 44 complete, ready for Phase 45
-Last activity: 2026-03-09 -- Completed 44-02 (Cross-Asset Spread Logger Integration)
+Phase: 45 of 48 (Instrument Quality and Event Mapping)
+Plan: 1 of 2 in current phase
+Status: Executing Phase 45
+Last activity: 2026-03-09 -- Completed 45-01 (Polymarket Filtering + Match Audit CLI)
 
-Progress (overall): 8 milestones shipped (v1.0-v1.7), 43 phases, 104 plans complete
-Progress (v1.8): [██░░░░░░░░] 13%
+Progress (overall): 8 milestones shipped (v1.0-v1.7), 44 phases, 105 plans complete
+Progress (v1.8): [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 102
+- Total plans completed: 105
 - Total execution time: 8 milestones across 18 days
 - Average: ~5.6 plans/day
 
@@ -44,6 +44,9 @@ Progress (v1.8): [██░░░░░░░░] 13%
 - v1.8/44-01: Dollar costs normalized by dividing by target_notional before probability-space subtraction
 - v1.8/44-02: Cross-asset SpreadPattern variants separate from Kalshi variants to isolate SpreadEngine behavior
 - v1.8/44-02: SpreadResult fee fields divided by target_notional for probability-space consistency
+- v1.8/45-01: Gamma API returns bestBid/bestAsk/spread as JSON strings; custom serde deserializer handles string/number/null
+- v1.8/45-01: Filter predicate extracted as testable helper for unit testing without async runtime
+- v1.8/45-01: match-audit parses Deribit (DDMMMYY) and Derive (YYYYMMDD) expiry formats independently
 - Decisions also logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -60,5 +63,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 44-02-PLAN.md (Cross-Asset Spread Logger Integration) -- Phase 44 complete
-Next action: /gsd:execute-phase 45
+Stopped at: Completed 45-01-PLAN.md (Polymarket Filtering + Match Audit CLI)
+Next action: Continue with 45-02-PLAN.md
