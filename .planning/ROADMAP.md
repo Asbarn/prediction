@@ -101,7 +101,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 ### v1.7 Prediction Market Signal Pipeline (In Progress)
 
 - [x] **Phase 40: Polymarket WS Diagnosis and Data Watchdog** - Investigate WS failure from EC2, implement data inactivity detection (completed 2026-03-09)
-- [ ] **Phase 41: Signal Engine Generalization** - Remove hardcoded venue references in CrossAssetEngine
+- [x] **Phase 41: Signal Engine Generalization** - Remove hardcoded venue references in CrossAssetEngine (completed 2026-03-09)
 - [ ] **Phase 42: REST Polling Fallback and Source Coordination** - REST price polling with exclusive-mode WS/REST switching
 - [ ] **Phase 43: E2E Production Verification** - Prove signal pipeline on AWS EC2 with live data
 
@@ -155,6 +155,6 @@ Plans:
 | 30-33 | v1.5 Derive Integration | 10/10 | Complete | 2026-03-06 |
 | 34-39 | v1.6 Production Deployment | 12/12 | Complete | 2026-03-09 |
 | 40 | 2/2 | Complete    | 2026-03-09 | - |
-| 41 | v1.7 Signal Pipeline | 0/TBD | Not started | - |
+| 41 | 1/1 | Complete   | 2026-03-09 | - |
 | 42 | v1.7 Signal Pipeline | 0/TBD | Not started | - |
 | 43 | v1.7 Signal Pipeline | 0/TBD | Not started | - |

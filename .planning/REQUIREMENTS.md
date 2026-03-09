@@ -17,9 +17,9 @@ Requirements for Prediction Market Signal Pipeline. Each maps to roadmap phases.
 
 ### Signal Engine
 
-- [ ] **SIG-01**: ImpliedProbability struct includes source venue field (Deribit or Derive) instead of hardcoded Deribit
-- [ ] **SIG-02**: CrossAssetEngine generates ArbSignals using implied probabilities from any options venue (not just Deribit)
-- [ ] **SIG-03**: CrossAssetEngine generates signals with a single prediction market venue (Polymarket alone, without requiring Kalshi)
+- [x] **SIG-01**: ImpliedProbability struct includes source venue field (Deribit or Derive) instead of hardcoded Deribit
+- [x] **SIG-02**: CrossAssetEngine generates ArbSignals using implied probabilities from any options venue (not just Deribit)
+- [x] **SIG-03**: CrossAssetEngine generates signals with a single prediction market venue (Polymarket alone, without requiring Kalshi)
 
 ### Verification
 
@@ -55,9 +55,9 @@ Requirements for Prediction Market Signal Pipeline. Each maps to roadmap phases.
 | POLY-03 | Phase 40 | Complete |
 | POLY-04 | Phase 42 | Pending |
 | POLY-05 | Phase 42 | Pending |
-| SIG-01 | Phase 41 | Pending |
-| SIG-02 | Phase 41 | Pending |
-| SIG-03 | Phase 41 | Pending |
+| SIG-01 | Phase 41 | Complete |
+| SIG-02 | Phase 41 | Complete |
+| SIG-03 | Phase 41 | Complete |
 | VER-01 | Phase 43 | Pending |
 | VER-02 | Phase 43 | Pending |
 
