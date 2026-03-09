@@ -43,7 +43,8 @@ pub fn validate_config(
     for event in &events.events {
         let has_venue = event.venues.deribit.is_some()
             || event.venues.polymarket.is_some()
-            || event.venues.kalshi.is_some();
+            || event.venues.kalshi.is_some()
+            || event.venues.derive.is_some();
 
         if !has_venue {
             return Err(ConfigError::Validation {
@@ -83,6 +84,7 @@ pub fn validate_config(
                 event.venues.deribit.is_some(),
                 event.venues.polymarket.is_some(),
                 event.venues.kalshi.is_some(),
+                event.venues.derive.is_some(),
             ]
             .iter()
             .filter(|&&v| v)
