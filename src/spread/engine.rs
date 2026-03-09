@@ -273,10 +273,14 @@ impl SpreadEngine {
             // Settlement basis risk premium
             let basis_risk_premium = self.lookup_basis_risk_premium(&event_id);
 
-            // Total cost
-            let total_cost = buy_fee + sell_fee + carry + basis_risk_premium;
+            // Normalize dollar-denominated costs to probability space.
+            // buy_fee, sell_fee, and carry are in dollars;
+            // basis_risk_premium is already in probability space.
+            let target = self.config.target_notional;
+            debug_assert!(target > Decimal::ZERO, "target_notional must be positive");
+            let total_cost = (buy_fee + sell_fee + carry) / target + basis_risk_premium;
 
-            // Net spread: sell_fill_price - buy_fill_price - total_cost
+            // Net spread: sell_fill_price - buy_fill_price - total_cost (all in probability space)
             let net_spread = sell_walk.avg_fill_price - buy_walk.avg_fill_price - total_cost;
 
             // Rolling stats update
@@ -838,7 +842,7 @@ mod tests {
             let (buy_walk, sell_walk) = engine.walk_both_sides(pattern, &poly, &kalshi);
             let (buy_fee, sell_fee) = engine.compute_fees(pattern, &buy_walk, &sell_walk, &poly, &kalshi);
             let carry = carry_cost(config.target_notional, &config.carry);
-            let total_cost = buy_fee + sell_fee + carry;
+            let total_cost = (buy_fee + sell_fee + carry) / config.target_notional;
             let net_spread = sell_walk.avg_fill_price - buy_walk.avg_fill_price - total_cost;
 
             results.push((pattern, net_spread));

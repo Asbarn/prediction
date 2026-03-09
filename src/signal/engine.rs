@@ -463,9 +463,14 @@ impl CrossAssetEngine {
             // Basis risk premium from settlement risk cache
             let basis_risk_premium = self.lookup_basis_risk_premium(event_id);
 
-            // Total cost (excluding liquidity factor, which multiplies edge)
-            let total_cost =
-                prediction_fee + options_fee_estimate + carry + prediction_slippage + options_spread_cost + basis_risk_premium;
+            // Normalize dollar-denominated costs to probability space.
+            // prediction_fee, options_fee_estimate, and carry are in dollars;
+            // prediction_slippage, options_spread_cost, basis_risk_premium are
+            // already in probability space.
+            let target = self.config.target_notional;
+            debug_assert!(target > Decimal::ZERO, "target_notional must be positive");
+            let total_cost = (prediction_fee + options_fee_estimate + carry) / target
+                + prediction_slippage + options_spread_cost + basis_risk_premium;
 
             // Net edge = (raw_spread - total_cost) * liquidity_factor
             let net_edge = (raw_spread - total_cost) * liquidity_factor;
