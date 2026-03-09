@@ -199,7 +199,7 @@ Plans:
 | 34-39 | v1.6 Production Deployment | 12/12 | Complete | 2026-03-09 |
 | 40-43 | v1.7 Signal Pipeline | 7/7 | Complete | 2026-03-09 |
 | 44 | v1.8 Bug Fixes | Complete    | 2026-03-09 | 2026-03-09 |
-| 45 | 2/2 | Complete   | 2026-03-09 | - |
+| 45 | 2/2 | Complete    | 2026-03-09 | - |
 | 46 | v1.8 Signal Quality | 0/TBD | Not started | - |
 | 47 | v1.8 Signal Quality | 0/TBD | Not started | - |
 | 48 | v1.8 Signal Quality | 0/TBD | Not started | - |
