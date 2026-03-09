@@ -22,6 +22,11 @@ ping_interval_ms = 10000
 # Force reconnect after N seconds of no data (silent freeze detection)
 data_timeout_secs = 120
 
+# REST polling fallback (used when WebSocket is unavailable)
+# rest_poll_interval_secs = 5
+# ws_recovery_check_secs = 60
+# ws_recovery_threshold = 3
+
 # Reconnection backoff configuration
 [polymarket.reconnect]
 initial_backoff_ms = 1000

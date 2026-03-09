@@ -8,7 +8,7 @@
 //! Live mode (multi-venue):
 //!
 //! [DeribitSupervisor]      --RawMessage-->  [DeribitProcessor]      --+
-//! [PolymarketSupervisor]   --RawMessage-->  [PolymarketProcessor]  --+--> shared mpsc --> [downstream]
+//! [SourceCoordinator(WS|REST)]                                    --+--> shared mpsc --> [downstream]
 //! [KalshiSupervisor]       --RawMessage-->  [KalshiProcessor]      --+
 //! [DeriveSupervisor]       --RawMessage-->  [DeriveProcessor]      --+
 //!
@@ -35,8 +35,7 @@ use crate::feed::kalshi::normalize::KalshiProcessor;
 use crate::feed::kalshi::supervisor::KalshiSupervisor;
 use crate::feed::mock::replay::ReplayDataSource;
 use crate::feed::mock::synthetic::SyntheticDataSource;
-use crate::feed::polymarket::normalize::PolymarketProcessor;
-use crate::feed::polymarket::supervisor::PolymarketSupervisor;
+use crate::feed::polymarket::coordinator::SourceCoordinator;
 use crate::feed::recording::RecordingService;
 use crate::feed::reliability::VenueRateLimiter;
 use crate::feed::traits::{RawDataSource, RawMessage};
@@ -222,7 +221,7 @@ async fn run_live_multi_venue(
         tracing::info!(venue = "deribit", "Deribit pipeline started");
     }
 
-    // --- Polymarket pipeline ---
+    // --- Polymarket pipeline (via SourceCoordinator for WS/REST switching) ---
     {
         let health = VenueHealth::new(Venue::Polymarket);
         venue_health_handles.push(health.clone());
@@ -234,12 +233,10 @@ async fn run_live_multi_venue(
             venue_cancel.clone(),
         );
 
-        // Create rate limiter for settlement sharing (Polymarket feed is WS, not rate-limited,
-        // but settlement checker needs a rate limiter for REST API calls).
+        // Rate limiter shared between coordinator (REST mode) and settlement checker.
         let poly_rate_limiter = VenueRateLimiter::new("polymarket", 5);
-        rate_limiters.insert(Venue::Polymarket, poly_rate_limiter);
+        rate_limiters.insert(Venue::Polymarket, poly_rate_limiter.clone());
 
-        let (supervisor_tx, supervisor_rx) = mpsc::channel::<RawMessage>(1024);
         let assets_rx = match polymarket_rx {
             Some(rx) => rx,
             None => {
@@ -251,25 +248,25 @@ async fn run_live_multi_venue(
                 rx
             }
         };
-        let supervisor = PolymarketSupervisor::new(
+
+        // SourceCoordinator manages exclusive WS/REST mode switching internally.
+        // It spawns supervisor+processor in WS mode, or REST poller in REST mode.
+        let (coordinator_tx, coordinator_rx) = mpsc::channel::<MarketSnapshot>(256);
+        let coordinator = SourceCoordinator::new(
             config.polymarket.clone(),
             assets_rx,
             venue_cancel.clone(),
             health.clone(),
-        );
-        tokio::spawn(supervisor.run(supervisor_tx));
-
-        let (processor, venue_snapshot_rx) = PolymarketProcessor::new(
-            supervisor_rx,
+            poly_rate_limiter,
+            reqwest::Client::new(),
             Some(poly_recording.sender()),
-            venue_cancel.clone(),
-            config.polymarket.staleness_threshold_ms,
         );
-        tokio::spawn(processor.run());
+        tokio::spawn(coordinator.run(coordinator_tx));
 
+        // Forward coordinator output to fan-in (event_id annotation happens here)
         let fan_in_tx = snapshot_tx.clone();
         tokio::spawn(forward_snapshots(
-            venue_snapshot_rx,
+            coordinator_rx,
             fan_in_tx,
             Venue::Polymarket,
             venue_cancel,
@@ -277,7 +274,7 @@ async fn run_live_multi_venue(
             event_registry.clone(),
         ));
 
-        tracing::info!(venue = "polymarket", "Polymarket pipeline started");
+        tracing::info!(venue = "polymarket", "Polymarket pipeline started (via SourceCoordinator)");
     }
 
     // --- Kalshi pipeline ---
