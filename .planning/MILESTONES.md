@@ -166,3 +166,23 @@
 
 ---
 
+
+## v1.8 Signal Quality Validation (Shipped: 2026-03-09)
+
+**Phases completed:** 5 phases, 10 plans
+**LOC delta:** +7,964 lines (47,856 LOC Rust total)
+**Timeline:** 1 day (2026-03-09)
+**Requirements:** 15/15 satisfied
+**Audit:** 15/15 requirements, 5/5 phases, 18/18 integration, 5/5 E2E flows
+
+**Key accomplishments:**
+- Fixed cost model unit mismatch — fees now subtract in probability space (not dollar space), correcting the -19.5 net_edge bug; Kalshi fee rounds to cents via ceiling arithmetic
+- Polymarket discovery filtering skips illiquid contracts by bid-ask spread and minimum price thresholds; match-audit CLI validates instrument quality across 3 venues
+- Diagnostic CLIs: cost-audit decomposes 7 cost components ranked by magnitude, book-depth scores order book quality with worst-first instrument sorting
+- Cost model validated against exchange fee documentation with source citations; perturbation sensitivity analysis ranks component impact on net edge
+- Go/no-go CLI produces statistically rigorous recommendation with autocorrelation-corrected confidence intervals, effective sample size, and out-of-sample train/test validation
+
+**Tech debt carried forward:** pearson_correlation and ks_test_two_sample exported but not yet consumed by any CLI (foundation for future analysis)
+
+---
+

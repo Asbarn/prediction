@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A production-grade cross-venue arbitrage signal generator in Rust that detects pricing discrepancies between crypto prediction markets (Polymarket, Kalshi) and options markets (Deribit, Derive). Compares prediction market binary contract prices against options-implied probabilities derived via Black-76 pricing with call spread replication, generates trading signals when spreads exceed cost-adjusted thresholds, tracks settlement outcomes for signal validation, computes statistical evidence of signal quality, automatically discovers new cross-venue instrument matches with operator-approved proposals, dynamically manages feed subscriptions as instruments are approved or retired, and provides offline CLI analysis tools for statistically rigorous go/no-go decisions. Deployed to production-hardened AWS infrastructure with CDK, CI/CD, Prometheus/Grafana monitoring, and CloudWatch logging. Built as a single-binary service for a solo trader with 42,732 lines of Rust and full deterministic replay capability.
+A production-grade cross-venue arbitrage signal generator in Rust that detects pricing discrepancies between crypto prediction markets (Polymarket, Kalshi) and options markets (Deribit, Derive). Compares prediction market binary contract prices against options-implied probabilities derived via Black-76 pricing with call spread replication, generates trading signals when spreads exceed cost-adjusted thresholds, tracks settlement outcomes for signal validation, computes statistical evidence of signal quality, automatically discovers new cross-venue instrument matches with operator-approved proposals, dynamically manages feed subscriptions as instruments are approved or retired, and provides a complete offline analysis toolkit — cost decomposition, book quality assessment, fee validation, sensitivity analysis, and a statistically rigorous go/no-go recommendation engine with autocorrelation-corrected confidence intervals. Deployed to production-hardened AWS infrastructure with CDK, CI/CD, Prometheus/Grafana monitoring, and CloudWatch logging. Built as a single-binary service for a solo trader with 47,856 lines of Rust and full deterministic replay capability.
 
 ## Core Value
 
@@ -79,19 +79,21 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 - v1.7 SourceCoordinator state machine for exclusive WS/REST switching with probe-based WS recovery
 - v1.7 End-to-end production verification: 3 venues live, ~5 ops/s computation, JSONL logs with venue attribution
 
+- v1.8 Cost model unit normalization: fees subtract in probability space (not dollar space), Kalshi cents-precision ceiling rounding
+- v1.8 Spread logger wired into CrossAssetEngine producing SpreadResult JSONL for active Polymarket-vs-options pairs
+- v1.8 Polymarket discovery filtering: bid-ask spread and minimum price thresholds skip illiquid/OTM contracts
+- v1.8 match-audit CLI validates instrument quality (strike, expiry, direction alignment) across 3 venues with moneyness scoring
+- v1.8 events.toml populated with 4 near-the-money BTC instrument mappings ($60K-$80K range, 3 venues each)
+- v1.8 cost-audit CLI decomposes 7 cost components per signal ranked by magnitude (mean, median, stddev, % of total)
+- v1.8 book-depth CLI scores order book quality with effective spread, fill ratio, depth levels, and composite quality metric
+- v1.8 Stats module: Pearson correlation, KS two-sample test, autocorrelation lag-1, effective sample size
+- v1.8 Cost model validated against exchange fee documentation: 9 parameters with source citations, sensitivity analysis ranking components by net-edge impact
+- v1.8 Venue-differentiated fees: Derive 0.04%+$0.50 vs Deribit 0.03%; on-chain gas and bridging costs in Polymarket leg
+- v1.8 go-no-go CLI: autocorrelation-corrected t-test, out-of-sample train/test split, PROCEED/DO NOT PROCEED/INSUFFICIENT DATA with CI and effective n
+
 ### Active
 
-## Current Milestone: v1.8 Signal Quality Validation
-
-**Goal:** Understand why all signals show negative edge, validate instrument matching quality, tune cost model, and determine if profitable cross-venue arb opportunities exist in current market structure.
-
-**Target features:**
-- Production signal data analysis (spread distributions, cost breakdowns, instrument pair quality)
-- Instrument matching quality audit (are paired contracts actually representing the same bet?)
-- Cost model validation and tuning against real market data
-- Polymarket book depth and liquidity analysis per instrument
-- Near-the-money strike coverage where liquidity actually lives
-- Spread logger fix for complete data capture
+(No active milestone — next milestone to be defined via `/gsd:new-milestone`)
 
 ### Out of Scope
 
@@ -119,22 +121,22 @@ Accurately detect and quantify real arbitrage opportunities between prediction m
 
 ## Context
 
-**Shipped v1.7 Prediction Market Signal Pipeline** (2026-03-09) with 40,582 LOC Rust + 499 LOC CDK TypeScript + 1,093 LOC Grafana provisioning across 43 phases (8 milestones).
-Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prometheus, statrs, comfy-table, tracing, strsim. Infrastructure: AWS CDK (TypeScript), GitLab CI, Docker, systemd, Prometheus, Grafana OSS, Amazon Managed Prometheus, CloudWatch.
+**Shipped v1.8 Signal Quality Validation** (2026-03-09) with 47,856 LOC Rust + 499 LOC CDK TypeScript + 1,093 LOC Grafana provisioning across 48 phases (9 milestones).
+Tech stack: Rust (2024 edition), tokio, rust_decimal, serde, axum, metrics/prometheus, statrs, comfy-table, tracing, strsim, linregress. Infrastructure: AWS CDK (TypeScript), GitLab CI, Docker, systemd, Prometheus, Grafana OSS, Amazon Managed Prometheus, CloudWatch.
 4 venues operational: Deribit (WebSocket + REST settlement + discovery), Polymarket (CLOB WebSocket with REST /midpoint fallback + Gamma API discovery), Kalshi (WebSocket + REST + discovery), Derive (WebSocket + REST discovery).
 SourceCoordinator manages Polymarket WS/REST mode switching with exclusive-mode guarantee, probe-based WS recovery, and Prometheus mode metrics.
 Venue-generic signal generation: ImpliedProbability carries source_venue, CrossAssetEngine uses dynamic venue iteration from cache, signals attributed to correct options venue.
 Dynamic subscription: SubscriptionManager with 4-venue reconciliation, watch channels to supervisors, Notify ordering, dry-run mode, and stale state cleanup across 5 engines.
-Automated event management: four-venue discovery with fuzzy matching, confidence-scored proposals, approved-mapping validation, expired event archival, and periodic background pipeline.
+Automated event management: four-venue discovery with fuzzy matching, OTM/illiquid filtering, confidence-scored proposals, approved-mapping validation, expired event archival, and periodic background pipeline.
 Settlement tracking: 3 venue resolution checkers with 4-tier polling cadence, startup backfill, and auto-settlement (Derive settlement deferred to future).
-Analysis tooling: `spread-analytics` CLI (distribution, hourly, venue-pair) and `signal-scoring` CLI (hit rate, Sharpe, PSR, drawdown, edge t-test) with E2E golden-value tests.
+Analysis tooling: 6 CLIs — `spread-analytics`, `signal-scoring`, `match-audit`, `cost-audit`, `book-depth`, `cost-validate` (with `--sensitivity`), and `go-no-go`. Autocorrelation-corrected statistical tests, train/test split, Wilson CIs, Sharpe/PSR, and structured go/no-go recommendations.
 Production infrastructure: CDK-managed AWS (VPC, EC2, IAM, EBS, Secrets Manager, CloudWatch, AMP), GitLab CI/CD pipeline (test, build, deploy via SSM), Prometheus sidecar + Grafana OSS with 4 dashboards and 3 alert rules.
 
-**System status:** Fully operational in production generating cross-asset arbitrage signals. 3 venues connected (Polymarket WS, Deribit, Derive), ~5 ops/s signal computation rate, JSONL signal logs with venue attribution. System runs unattended on AWS EC2 with Prometheus/Grafana monitoring, CloudWatch logging, and Secrets Manager credential injection.
+**System status:** Fully operational in production. Cost model corrected (probability-space normalization), 4 near-the-money BTC instrument mappings active, spread logger producing data. Go/no-go CLI ready to produce final recommendation from production signal_logs. System runs unattended on AWS EC2 with Prometheus/Grafana monitoring, CloudWatch logging, and Secrets Manager credential injection.
 
-**Next priority:** To be determined via `/gsd:new-milestone`.
+**Next priority:** Deploy updated code, run `go-no-go --last 30` on production signal_logs, then decide next milestone based on results. To be defined via `/gsd:new-milestone`.
 
-**Known tech debt:** Spread logger not producing output (spread_logs empty); all signals currently filtered (negative edge); 4 non-critical items from v1.6 (stdout_json not codified in user-data, Grafana open to 0.0.0.0/0, dashboard count wording, removed contact-points.yml). GitLab CI/CD minutes exhausted — deploy manually via SSM. See MILESTONES.md for full history.
+**Known tech debt:** pearson_correlation and ks_test_two_sample exported but not yet consumed by any CLI (foundation for future analysis). 4 non-critical items from v1.6 (stdout_json not codified in user-data, Grafana open to 0.0.0.0/0, dashboard count wording, removed contact-points.yml). GitLab CI/CD minutes exhausted — deploy manually via SSM. See MILESTONES.md for full history.
 
 ## Constraints
 
@@ -217,6 +219,16 @@ Production infrastructure: CDK-managed AWS (VPC, EC2, IAM, EBS, Secrets Manager,
 | Cancel-before-switch invariant in SourceCoordinator | NEVER run WS and REST simultaneously on same channel | v1.7 Validated -- no duplicate/conflicting prices |
 | Probe-based WS recovery with threshold | Temporary WS client counts messages before switching back | v1.7 Validated -- confirms stability before commit |
 | source_venue on ImpliedProbability (not lookup) | Venue travels with data through pipeline, no external lookup | v1.7 Validated -- clean data flow |
+| Dollar costs divided by target_notional before probability subtraction | Same unit space for raw_spread and cost adjustments | v1.8 Validated -- fixed -19.5 net_edge bug |
+| Cents-precision ceiling for Kalshi fees | (raw*100).ceil()/100 matches Kalshi's actual rounding | v1.8 Validated -- $0.02 not $1.00 at p=0.25 |
+| Polymarket bid-ask spread filtering in discovery | Skip illiquid/OTM contracts before approval | v1.8 Validated -- configurable thresholds |
+| Venue-differentiated fee rates (Derive vs Deribit) | Derive charges 0.04%+$0.50, not Deribit's 0.03% | v1.8 Validated -- exchange docs verified |
+| On-chain gas default $0.01 from PolygonScan data | Bridge cost defaults to zero (operator-dependent) | v1.8 Validated -- conservative defaults |
+| Perturbation sensitivity via finite difference not regression | Cost-to-edge relationship is exactly linear | v1.8 Validated -- simpler, correct |
+| Effective sample size clamped to minimum 2 | Valid t-distribution degrees of freedom | v1.8 Validated -- no degenerate statistics |
+| ACF correction returns raw n for negative autocorrelation | No overcorrection when series is anti-correlated | v1.8 Validated -- conservative approach |
+| Go/no-go decision gates on CI lower bound > 0 | Statistically significant positive edge required for Proceed | v1.8 Validated -- rigorous decision logic |
+| Exit codes 0/1/2 for Proceed/DoNotProceed/InsufficientData | Scriptable decision output | v1.8 Validated -- CI/CD integration ready |
 
 ---
-*Last updated: 2026-03-09 after v1.7 milestone completion*
+*Last updated: 2026-03-09 after v1.8 milestone completion*
