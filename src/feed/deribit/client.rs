@@ -105,34 +105,46 @@ impl DeribitClient {
         let subscription_channels = channels::build_subscription_channels(&self.instruments, self.config.book_depth_levels);
         let channel_count = subscription_channels.len();
 
-        // Send a single batch subscribe request (avoids per-channel rate limit issues)
-        let request_id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-        let subscribe_msg = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": "public/subscribe",
-            "params": {
-                "channels": subscription_channels
-            }
-        });
+        // Batch subscribe requests to stay within Deribit's 32KB message limit.
+        // Each channel name is ~30-40 bytes; 400 channels per batch stays well under.
+        const BATCH_SIZE: usize = 400;
+        let batches: Vec<&[String]> = subscription_channels.chunks(BATCH_SIZE).collect();
 
         tracing::info!(
             channels = channel_count,
-            request_id = request_id,
+            batches = batches.len(),
             "subscribing to Deribit channels"
         );
 
-        // Rate-limit the subscribe request (if rate limiter attached)
-        if let Some(ref rl) = self.rate_limiter {
-            rl.wait().await;
+        for (i, batch) in batches.iter().enumerate() {
+            let request_id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+            let subscribe_msg = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "public/subscribe",
+                "params": {
+                    "channels": batch
+                }
+            });
+
+            if let Some(ref rl) = self.rate_limiter {
+                rl.wait().await;
+            }
+            write
+                .send(Message::text(subscribe_msg.to_string()))
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = %e, batch = i, "failed to send subscribe request");
+                    anyhow::anyhow!("subscribe request failed: {}", e)
+                })?;
+
+            tracing::debug!(
+                batch = i + 1,
+                batch_channels = batch.len(),
+                request_id = request_id,
+                "sent subscription batch"
+            );
         }
-        write
-            .send(Message::text(subscribe_msg.to_string()))
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "failed to send subscribe request");
-                anyhow::anyhow!("subscribe request failed: {}", e)
-            })?;
 
         // Create the raw message channel
         let (tx, rx) = mpsc::channel::<RawMessage>(RAW_MESSAGE_BUFFER);
