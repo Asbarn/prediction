@@ -167,4 +167,4 @@ Plans:
 | 40 | 2/2 | Complete    | 2026-03-09 | - |
 | 41 | 1/1 | Complete    | 2026-03-09 | - |
 | 42 | 2/2 | Complete    | 2026-03-09 | - |
-| 43 | v1.7 Signal Pipeline | 0/TBD | Not started | - |
+| 43 | 1/2 | In Progress|  | - |

@@ -5,22 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Accurately detect and quantify real arbitrage opportunities between prediction market prices and options-implied probabilities -- with every false signal caught before it costs money.
-**Current focus:** v1.7 Prediction Market Signal Pipeline -- Phase 42
+**Current focus:** v1.7 Prediction Market Signal Pipeline -- Phase 43
 
 ## Current Position
 
-Phase: 42 of 43 (REST Polling Fallback & Source Coordination) -- COMPLETE
-Plan: 2 of 2 in current phase (42-02 complete)
-Status: Phase complete
-Last activity: 2026-03-09 -- Completed 42-02 (source coordinator)
+Phase: 43 of 43 (E2E Production Verification) -- IN PROGRESS
+Plan: 1 of 2 in current phase (43-01 complete)
+Status: Executing phase
+Last activity: 2026-03-09 -- Completed 43-01 (signal_logs volume mount)
 
-Progress (overall): 7 milestones shipped (v1.0-v1.6), 42 phases, 98 plans complete
-Progress (v1.7): [████░░░░░░] 30%
+Progress (overall): 7 milestones shipped (v1.0-v1.6), 42 phases, 99 plans complete
+Progress (v1.7): [████░░░░░░] 31%
 
 ## Accumulated Context
 
 ### Decisions
 
+- 43-01: Placed signal_logs mount between spread_logs and settlement_logs for consistent ordering
 - 42-02: 5-second grace period before WS-to-REST switch (allows supervisor self-recovery via backoff)
 - 42-02: WS probe uses separate temporary channel, never sends to snapshot_tx (isolation guarantee)
 - 42-01: Midpoint-only REST polling (no /book endpoint) per GitHub #180 stale ghost data issue
@@ -44,5 +45,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 42-02-PLAN.md
-Next action: Execute Phase 43
+Stopped at: Completed 43-01-PLAN.md
+Next action: Execute 43-02-PLAN.md
