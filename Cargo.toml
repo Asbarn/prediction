@@ -110,3 +110,7 @@ path = "src/bin/book_depth.rs"
 [[bin]]
 name = "cost-validate"
 path = "src/bin/cost_validate.rs"
+
+[[bin]]
+name = "go-no-go"
+path = "src/bin/go_no_go.rs"
