@@ -9,6 +9,7 @@ services:
     volumes:
       - /opt/prediction/data/config:/app/config
       - /opt/prediction/data/spread_logs:/app/spread_logs
+      - /opt/prediction/data/signal_logs:/app/signal_logs
       - /opt/prediction/data/settlement_logs:/app/settlement_logs
       - /opt/prediction/data/paper_trades:/app/paper_trades
       - /opt/prediction/data/state:/app/state

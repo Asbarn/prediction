@@ -192,7 +192,7 @@ export class PredictionStack extends cdk.Stack {
       'echo "/dev/xvdf /opt/prediction/data ext4 defaults,nofail 0 2" >> /etc/fstab',
       '',
       '# Create data subdirectories',
-      'mkdir -p /opt/prediction/data/{config,spread_logs,settlement_logs,paper_trades,state,logs}',
+      'mkdir -p /opt/prediction/data/{config,spread_logs,signal_logs,settlement_logs,paper_trades,state,logs}',
     );
 
     // User-data: install Docker, docker-compose, jq, CloudWatch agent, and bootstrap services
@@ -350,6 +350,7 @@ export class PredictionStack extends cdk.Stack {
       '    volumes:',
       '      - /opt/prediction/data/config:/app/config',
       '      - /opt/prediction/data/spread_logs:/app/spread_logs',
+      '      - /opt/prediction/data/signal_logs:/app/signal_logs',
       '      - /opt/prediction/data/settlement_logs:/app/settlement_logs',
       '      - /opt/prediction/data/paper_trades:/app/paper_trades',
       '      - /opt/prediction/data/state:/app/state',
