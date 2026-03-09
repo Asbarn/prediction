@@ -403,6 +403,7 @@ impl PricingEngine {
             near_expiry: false,
             iv_spread: iv_spread.max(0.0),
             options_book_depth: snapshot.depth_bids.len(),
+            source_venue: snapshot.venue,
         };
 
         // o. Send via try_send (non-blocking)
@@ -517,6 +518,7 @@ impl PricingEngine {
             near_expiry: true,
             iv_spread: 0.0,
             options_book_depth: 0,
+            source_venue: snapshot.venue,
         };
 
         if let Err(e) = probability_tx.try_send(implied_prob) {

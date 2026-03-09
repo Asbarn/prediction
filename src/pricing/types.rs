@@ -7,7 +7,7 @@
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{DualTimestamp, InstrumentId, Probability};
+use crate::types::{DualTimestamp, InstrumentId, Probability, Venue};
 
 // ---------------------------------------------------------------------------
 // Option type
@@ -180,4 +180,7 @@ pub struct ImpliedProbability {
     /// Number of book depth levels in the source Deribit snapshot.
     /// Zero for near-expiry (no snapshot depth used).
     pub options_book_depth: usize,
+
+    /// Source options venue that produced this probability.
+    pub source_venue: Venue,
 }

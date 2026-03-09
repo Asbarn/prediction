@@ -245,17 +245,18 @@ impl CrossAssetEngine {
         registry: &Arc<RwLock<EventRegistry>>,
         signal_tx: &mpsc::Sender<ArbSignal>,
     ) {
-        // 1. Look up event mapping for this Deribit instrument
+        // 1. Look up event mapping for this options instrument
         let reg = registry.read().await;
         let mapping = match reg.lookup_by_instrument(
-            Venue::Deribit,
+            prob.source_venue,
             &prob.instrument_id.to_string(),
         ) {
             Some(m) => m.clone(),
             None => {
                 tracing::debug!(
                     instrument = %prob.instrument_id,
-                    "unmapped Deribit instrument, skipping"
+                    source_venue = ?prob.source_venue,
+                    "unmapped options instrument, skipping"
                 );
                 metrics::counter!("arb_unmapped_instruments_total").increment(1);
                 return;
@@ -269,11 +270,13 @@ impl CrossAssetEngine {
         // 3. Cache latest probability
         self.latest_prob.insert(event_id.clone(), prob);
 
-        // 4. Try spread computation against each prediction market venue
-        for venue in [Venue::Polymarket, Venue::Kalshi] {
-            if self.latest_pred.contains_key(&(event_id.clone(), venue)) {
-                self.compute_and_emit(&event_id, venue, signal_tx).await;
-            }
+        // 4. Try spread computation against each cached prediction market venue
+        let pred_venues: Vec<Venue> = self.latest_pred.keys()
+            .filter(|(eid, _)| eid == &event_id)
+            .map(|(_, v)| *v)
+            .collect();
+        for venue in pred_venues {
+            self.compute_and_emit(&event_id, venue, signal_tx).await;
         }
     }
 
@@ -540,7 +543,7 @@ impl CrossAssetEngine {
                     fill_ratio: walk.fill_ratio(),
                 },
                 options_leg: LegInfo {
-                    venue: Venue::Deribit,
+                    venue: prob.source_venue,
                     instrument_id: prob.instrument_id.to_string(),
                     probability: options_prob,
                     executable_price: options_executable,
@@ -698,6 +701,7 @@ mod tests {
             near_expiry: false,
             iv_spread: 0.0,
             options_book_depth: 20,
+            source_venue: Venue::Deribit,
         }
     }
 
