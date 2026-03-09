@@ -2,8 +2,6 @@
 # Discovery appends new candidates with approved = false
 # User reviews and sets approved = true to activate
 
-events = []
-
 # Settlement source risk weights (predefined)
 [risk_weights]
 time_per_hour = 0.05       # Risk per hour of settlement time difference
@@ -26,6 +24,8 @@ polymarket_poll_interval_secs = 600  # Poll Polymarket every 10 minutes
 deribit_currencies = ["BTC"]         # Currencies to discover
 kalshi_series_tickers = ["KXBTC"]    # Kalshi series to monitor
 archive_retention_days = 30          # Days after expiry before archiving to events_archive.toml
+min_polymarket_price = 0.02          # Filter markets with bestBid below $0.02
+max_polymarket_spread = 0.10         # Filter markets with spread above 10 cents
 
 # Expiry warning thresholds
 [[expiry_thresholds]]
@@ -47,5 +47,87 @@ flags = ["pricing_character_change", "liquidity_warning", "elevated_settlement_r
 risk_inflation_factor = 2.0
 
 # --- Event Mappings ---
-# Discovery will auto-discover real instruments from all 3 venues
-# and append candidates with approved = false
+# Near-the-money BTC instrument mappings (BTC spot ~$68-69K on 2026-03-09)
+# Polymarket "reach/dip" contracts matched to Deribit + Derive options
+# Deribit expiry: 2026-03-27 (Friday), Polymarket end: 2026-04-01 (end of month)
+# Expiry gap: 5 days -- within 7-day tolerance (WARN expected, not ERROR)
+
+# BTC $65,000 dip (put) -- ~5% below spot, high PM liquidity (bestBid=0.684)
+[[events]]
+id = "BTC-65000-2026-03-31"
+asset = "BTC"
+strike = "65000"
+direction = "below"
+expiry = "2026-03-31"
+approved = true
+status = "active"
+
+[events.venues.polymarket]
+condition_id = "0x36912c9832f0fd104d734b579fb9b3a1b31bbdc946a67356723407e3bdc96dbc"
+token_id = "112493481455469093769281852159558847572704253342416714876781522096078968514094"
+
+[events.venues.deribit]
+instrument = "BTC-27MAR26-65000-P"
+
+[events.venues.derive]
+instrument = "BTC-20260327-65000-P"
+
+# BTC $75,000 reach (call) -- ~10% above spot, strong PM liquidity (bestBid=0.41)
+[[events]]
+id = "BTC-75000-2026-03-31"
+asset = "BTC"
+strike = "75000"
+direction = "above"
+expiry = "2026-03-31"
+approved = true
+status = "active"
+
+[events.venues.polymarket]
+condition_id = "0xd32f73b7d90cd18287e48b11ff855bee97543ad87ab38ef3fffde06504e5c2bd"
+token_id = "53871780365151386629226515608960369445542635482908110928489429430123093522377"
+
+[events.venues.deribit]
+instrument = "BTC-27MAR26-75000-C"
+
+[events.venues.derive]
+instrument = "BTC-20260327-75000-C"
+
+# BTC $80,000 reach (call) -- ~17% above spot, good PM liquidity (bestBid=0.20)
+[[events]]
+id = "BTC-80000-2026-03-31"
+asset = "BTC"
+strike = "80000"
+direction = "above"
+expiry = "2026-03-31"
+approved = true
+status = "active"
+
+[events.venues.polymarket]
+condition_id = "0x337e5c84b83679d5557acafcf78b5c5d4d932b9fcd7dfba7966249d64f0f0a0f"
+token_id = "89985317983195116196847912662733840736741033181969862249321821942712441807494"
+
+[events.venues.deribit]
+instrument = "BTC-27MAR26-80000-C"
+
+[events.venues.derive]
+instrument = "BTC-20260327-80000-C"
+
+# BTC $60,000 dip (put) -- ~12% below spot, good PM liquidity (bestBid=0.36)
+[[events]]
+id = "BTC-60000-2026-03-31"
+asset = "BTC"
+strike = "60000"
+direction = "below"
+expiry = "2026-03-31"
+approved = true
+status = "active"
+
+[events.venues.polymarket]
+condition_id = "0x4290a4aa43a0707f0f1193c73667074f2ef5ce8ab5d6fcdd4ca645bfe1528f03"
+token_id = "14043105760637709189447891018409043949145014678306461040633394405047072239189"
+
+[events.venues.deribit]
+instrument = "BTC-27MAR26-60000-P"
+
+[events.venues.derive]
+instrument = "BTC-20260327-60000-P"
