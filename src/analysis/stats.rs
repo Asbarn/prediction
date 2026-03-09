@@ -1,5 +1,6 @@
 use rust_decimal::Decimal;
 use serde::Serialize;
+use statrs::distribution::{ContinuousCDF, StudentsT};
 
 /// Arithmetic mean of Decimal values using full-precision Decimal arithmetic.
 /// Returns None if the slice is empty.
@@ -228,6 +229,97 @@ pub fn ks_test_two_sample(sample1: &[f64], sample2: &[f64]) -> Option<KsTestResu
         p_value,
         n1,
         n2,
+    })
+}
+
+/// Lag-1 autocorrelation coefficient for an f64 time series.
+///
+/// Returns None if fewer than 3 observations or if the series has zero variance.
+/// Formula: ACF(1) = sum((x_t - mean) * (x_{t+1} - mean)) / sum((x_t - mean)^2)
+pub fn autocorrelation_lag1(values: &[f64]) -> Option<f64> {
+    if values.len() < 3 {
+        return None;
+    }
+    let n = values.len() as f64;
+    let mean = values.iter().sum::<f64>() / n;
+
+    let denom: f64 = values.iter().map(|x| (x - mean).powi(2)).sum();
+    if denom == 0.0 {
+        return None;
+    }
+
+    let numer: f64 = values
+        .windows(2)
+        .map(|w| (w[0] - mean) * (w[1] - mean))
+        .sum();
+
+    Some(numer / denom)
+}
+
+/// Effective sample size corrected for serial correlation.
+///
+/// Formula: n_eff = n * (1 - rho) / (1 + rho).
+/// When rho <= 0 or n < 3, returns raw n. Minimum return value is 2.
+pub fn effective_sample_size(n: usize, rho: f64) -> usize {
+    if rho <= 0.0 || n < 3 {
+        return n;
+    }
+    let n_eff = (n as f64) * (1.0 - rho) / (1.0 + rho);
+    (n_eff.round() as usize).max(2)
+}
+
+/// Result of an autocorrelation-corrected one-sample t-test (H0: mean = 0).
+#[derive(Debug, Clone, Serialize)]
+pub struct CorrectedEdgeTestResult {
+    pub mean_edge: f64,
+    pub std_error: f64,
+    pub t_statistic: f64,
+    pub p_value: f64,
+    pub ci_95: (f64, f64),
+    pub raw_n: usize,
+    pub effective_n: usize,
+    pub autocorrelation: f64,
+}
+
+/// Autocorrelation-corrected one-sample t-test (H0: mean = 0).
+///
+/// Uses effective sample size for standard error divisor and degrees of freedom.
+/// Returns None if fewer than 3 values or zero standard deviation.
+pub fn compute_corrected_edge_test(values: &[f64]) -> Option<CorrectedEdgeTestResult> {
+    if values.len() < 3 {
+        return None;
+    }
+    let raw_n = values.len();
+    let mean = mean_f64(values)?;
+    let sd = stddev_f64(values)?;
+    if sd == 0.0 {
+        return None;
+    }
+
+    let rho = autocorrelation_lag1(values).unwrap_or(0.0);
+    let n_eff = effective_sample_size(raw_n, rho);
+    let n_eff_f = n_eff as f64;
+
+    let std_error = sd / n_eff_f.sqrt();
+    let t_stat = mean / std_error;
+    let df = n_eff_f - 1.0;
+
+    let t_dist = StudentsT::new(0.0, 1.0, df).ok()?;
+    let p_value = 2.0 * (1.0 - t_dist.cdf(t_stat.abs()));
+
+    // 95% CI using t critical value
+    let t_crit = t_dist.inverse_cdf(0.975);
+    let ci_95 = (mean - t_crit * std_error, mean + t_crit * std_error);
+
+    Some(CorrectedEdgeTestResult {
+        mean_edge: mean,
+        std_error,
+        t_statistic: t_stat,
+        p_value,
+        ci_95,
+        raw_n,
+        effective_n: n_eff,
+        autocorrelation: rho,
     })
 }
 
@@ -461,5 +553,86 @@ mod tests {
     fn ks_empty_returns_none() {
         assert!(ks_test_two_sample(&[], &[1.0, 2.0]).is_none());
         assert!(ks_test_two_sample(&[1.0, 2.0], &[]).is_none());
+    }
+
+    // -- Autocorrelation tests --
+
+    #[test]
+    fn acf_constant_series_returns_none() {
+        let vals = [5.0, 5.0, 5.0, 5.0, 5.0];
+        assert_eq!(autocorrelation_lag1(&vals), None);
+    }
+
+    #[test]
+    fn acf_alternating_series_negative() {
+        let vals = [1.0, -1.0, 1.0, -1.0, 1.0];
+        let rho = autocorrelation_lag1(&vals).unwrap();
+        assert!(
+            rho < 0.0,
+            "Alternating series should have negative autocorrelation, got {rho}"
+        );
+    }
+
+    #[test]
+    fn acf_trending_series_positive() {
+        let vals = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let rho = autocorrelation_lag1(&vals).unwrap();
+        assert!(
+            rho > 0.3,
+            "Trending series should have positive rho > 0.3, got {rho}"
+        );
+    }
+
+    #[test]
+    fn acf_too_few_returns_none() {
+        assert_eq!(autocorrelation_lag1(&[]), None);
+        assert_eq!(autocorrelation_lag1(&[1.0]), None);
+        assert_eq!(autocorrelation_lag1(&[1.0, 2.0]), None);
+    }
+
+    // -- Effective sample size tests --
+
+    #[test]
+    fn neff_with_positive_autocorrelation() {
+        let n_eff = effective_sample_size(100, 0.5);
+        // n_eff = 100 * 0.5 / 1.5 = 33.33 -> 33
+        assert!(
+            (n_eff as i64 - 33).abs() <= 1,
+            "Expected ~33, got {n_eff}"
+        );
+    }
+
+    #[test]
+    fn neff_with_zero_autocorrelation() {
+        let n_eff = effective_sample_size(100, 0.0);
+        assert_eq!(n_eff, 100);
+    }
+
+    #[test]
+    fn neff_with_negative_autocorrelation() {
+        let n_eff = effective_sample_size(100, -0.3);
+        assert_eq!(n_eff, 100, "Negative rho should return raw n");
+    }
+
+    // -- Corrected edge test tests --
+
+    #[test]
+    fn corrected_edge_test_autocorrelated_series() {
+        // A positively autocorrelated series with positive mean
+        let vals: Vec<f64> = (1..=20).map(|i| 0.5 + 0.01 * i as f64).collect();
+        let result = compute_corrected_edge_test(&vals).unwrap();
+        assert!(result.mean_edge > 0.0, "Mean should be positive");
+        assert!(
+            result.effective_n < result.raw_n,
+            "n_eff ({}) should be less than raw_n ({}) for autocorrelated data",
+            result.effective_n,
+            result.raw_n
+        );
+        assert!(result.autocorrelation > 0.0, "Should detect positive autocorrelation");
+    }
+
+    #[test]
+    fn corrected_edge_test_too_few_returns_none() {
+        assert!(compute_corrected_edge_test(&[1.0, 2.0]).is_none());
     }
 }
