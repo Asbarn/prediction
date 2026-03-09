@@ -98,3 +98,11 @@ path = "src/bin/signal_scoring.rs"
 [[bin]]
 name = "match-audit"
 path = "src/bin/match_audit.rs"
+
+[[bin]]
+name = "cost-audit"
+path = "src/bin/cost_audit.rs"
+
+[[bin]]
+name = "book-depth"
+path = "src/bin/book_depth.rs"
