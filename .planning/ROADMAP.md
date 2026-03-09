@@ -181,10 +181,10 @@ Plans:
   1. Signal analysis reports effective sample size (autocorrelation-corrected), not raw signal count, for all statistical tests
   2. Evaluation uses out-of-sample data that was not used during cost model tuning (explicit train/test split documented)
   3. Final go/no-go report states expected edge with confidence intervals, effective sample size, and a clear recommendation on whether to proceed to execution readiness
-**Plans**: 2 plans
+**Plans:** 2 plans
 Plans:
-- [ ] 48-01-PLAN.md -- TBD
-- [ ] 48-02-PLAN.md -- TBD
+- [ ] 48-01-PLAN.md -- Autocorrelation correction, effective sample size, and chronological train/test split
+- [ ] 48-02-PLAN.md -- Go/no-go analysis module and CLI with final recommendation report
 
 ## Progress
 
@@ -202,4 +202,4 @@ Plans:
 | 45 | 2/2 | Complete    | 2026-03-09 | - |
 | 46 | 2/2 | Complete    | 2026-03-09 | - |
 | 47 | 2/2 | Complete    | 2026-03-09 | - |
-| 48 | v1.8 Signal Quality | 0/TBD | Not started | - |
+| 48 | v1.8 Signal Quality | 0/2 | Not started | - |
