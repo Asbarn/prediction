@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 
 ## Current Position
 
-Phase: 40 of 43 (Polymarket WS Diagnosis and Data Watchdog)
-Plan: 1 of 2 in current phase
-Status: Executing
-Last activity: 2026-03-09 -- Completed 40-01 (Polymarket WS diagnosis and config)
+Phase: 40 of 43 (Polymarket WS Diagnosis and Data Watchdog) -- COMPLETE
+Plan: 2 of 2 in current phase (all plans complete)
+Status: Phase Complete
+Last activity: 2026-03-09 -- Completed 40-02 (Data inactivity watchdog)
 
-Progress (overall): 7 milestones shipped (v1.0-v1.6), 39 phases, 92 plans complete
-Progress (v1.7): [█░░░░░░░░░] 10%
+Progress (overall): 7 milestones shipped (v1.0-v1.6), 40 phases, 94 plans complete
+Progress (v1.7): [██░░░░░░░░] 15%
 
 ## Accumulated Context
 
@@ -23,6 +23,8 @@ Progress (v1.7): [█░░░░░░░░░] 10%
 
 - 40-01: 30s timeout in diagnostic test (vs 120s config default) for faster manual diagnosis
 - 40-01: Runtime Gamma API token_id lookup avoids stale placeholder IDs
+- 40-02: Timeout wraps only raw_rx.recv(), not entire select! -- cancellation/subscription arms stay responsive
+- 40-02: Backoff NOT reset on data inactivity timeout -- silent freeze is a failure condition
 - Decisions also logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -39,5 +41,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 40-01-PLAN.md
-Next action: Execute 40-02-PLAN.md
+Stopped at: Completed 40-02-PLAN.md (Phase 40 complete)
+Next action: Begin Phase 41

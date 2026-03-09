@@ -10,7 +10,7 @@ Requirements for Prediction Market Signal Pipeline. Each maps to roadmap phases.
 ### Polymarket Connectivity
 
 - [x] **POLY-01**: System diagnoses Polymarket WebSocket failure mode from EC2 (connection reset vs silent freeze vs geo-block)
-- [ ] **POLY-02**: Polymarket supervisor detects data inactivity (silent freeze) and triggers reconnection after configurable timeout
+- [x] **POLY-02**: Polymarket supervisor detects data inactivity (silent freeze) and triggers reconnection after configurable timeout
 - [x] **POLY-03**: Polymarket WebSocket feed connects and delivers order book data from production EC2 instance
 - [ ] **POLY-04**: REST polling fallback fetches Polymarket prices when WebSocket is unavailable, using existing reqwest/governor
 - [ ] **POLY-05**: Source coordinator switches between WebSocket and REST modes exclusively (no duplicate/conflicting prices)
@@ -51,7 +51,7 @@ Requirements for Prediction Market Signal Pipeline. Each maps to roadmap phases.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | POLY-01 | Phase 40 | Complete |
-| POLY-02 | Phase 40 | Pending |
+| POLY-02 | Phase 40 | Complete |
 | POLY-03 | Phase 40 | Complete |
 | POLY-04 | Phase 42 | Pending |
 | POLY-05 | Phase 42 | Pending |
