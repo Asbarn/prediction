@@ -13,6 +13,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 - v1.4 Analysis Tooling -- Phases 26-29 (shipped 2026-03-02) | [Full details](milestones/v1.4-ROADMAP.md)
 - v1.5 Derive.xyz Venue Integration -- Phases 30-33 (shipped 2026-03-06) | [Full details](milestones/v1.5-ROADMAP.md)
 - v1.6 Production Deployment -- Phases 34-39 (shipped 2026-03-09) | [Full details](milestones/v1.6-ROADMAP.md)
+- v1.7 Prediction Market Signal Pipeline -- Phases 40-43 (in progress) | [Full details](milestones/v1.7-ROADMAP.md)
 
 ## Phases
 
@@ -97,6 +98,13 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 
 </details>
 
+### v1.7 Prediction Market Signal Pipeline (In Progress)
+
+- [ ] **Phase 40: Polymarket WS Diagnosis and Data Watchdog** - Investigate WS failure from EC2, implement data inactivity detection
+- [ ] **Phase 41: Signal Engine Generalization** - Remove hardcoded venue references in CrossAssetEngine
+- [ ] **Phase 42: REST Polling Fallback and Source Coordination** - REST price polling with exclusive-mode WS/REST switching
+- [ ] **Phase 43: E2E Production Verification** - Prove signal pipeline on AWS EC2 with live data
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -108,3 +116,7 @@ Cross-venue arbitrage signal generator in Rust. Detects pricing discrepancies be
 | 26-29 | v1.4 Analysis Tooling | 7/7 | Complete | 2026-03-02 |
 | 30-33 | v1.5 Derive Integration | 10/10 | Complete | 2026-03-06 |
 | 34-39 | v1.6 Production Deployment | 12/12 | Complete | 2026-03-09 |
+| 40 | v1.7 Signal Pipeline | 0/TBD | Not started | - |
+| 41 | v1.7 Signal Pipeline | 0/TBD | Not started | - |
+| 42 | v1.7 Signal Pipeline | 0/TBD | Not started | - |
+| 43 | v1.7 Signal Pipeline | 0/TBD | Not started | - |

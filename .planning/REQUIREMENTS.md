@@ -50,22 +50,22 @@ Requirements for Prediction Market Signal Pipeline. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| POLY-01 | TBD | Pending |
-| POLY-02 | TBD | Pending |
-| POLY-03 | TBD | Pending |
-| POLY-04 | TBD | Pending |
-| POLY-05 | TBD | Pending |
-| SIG-01 | TBD | Pending |
-| SIG-02 | TBD | Pending |
-| SIG-03 | TBD | Pending |
-| VER-01 | TBD | Pending |
-| VER-02 | TBD | Pending |
+| POLY-01 | Phase 40 | Pending |
+| POLY-02 | Phase 40 | Pending |
+| POLY-03 | Phase 40 | Pending |
+| POLY-04 | Phase 42 | Pending |
+| POLY-05 | Phase 42 | Pending |
+| SIG-01 | Phase 41 | Pending |
+| SIG-02 | Phase 41 | Pending |
+| SIG-03 | Phase 41 | Pending |
+| VER-01 | Phase 43 | Pending |
+| VER-02 | Phase 43 | Pending |
 
 **Coverage:**
 - v1.7 requirements: 10 total
-- Mapped to phases: 0
-- Unmapped: 10
+- Mapped to phases: 10
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-09*
-*Last updated: 2026-03-09 after initial definition*
+*Last updated: 2026-03-09 after roadmap creation*
