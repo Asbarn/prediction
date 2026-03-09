@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 ## Current Position
 
 Phase: 48 of 48 (Statistical Validation and Go/No-Go)
-Plan: 1 of 2 in current phase
-Status: Executing phase 48
-Last activity: 2026-03-09 -- Completed 48-01 (Autocorrelation-corrected stats and train/test split)
+Plan: 2 of 2 in current phase
+Status: Phase 48 complete
+Last activity: 2026-03-09 -- Completed 48-02 (Go/no-go report and CLI)
 
-Progress (overall): 8 milestones shipped (v1.0-v1.7), 47 phases, 113 plans complete
+Progress (overall): 8 milestones shipped (v1.0-v1.7), 48 phases, 114 plans complete
 Progress (v1.8): [██████████] 100%
 
 ## Performance Metrics
@@ -62,6 +62,9 @@ Progress (v1.8): [██████████] 100%
 - v1.8/48-01: ACF lag-1 for [1,2,3,4,5] is exactly 0.4; test threshold >0.3 not >0.5
 - v1.8/48-01: effective_sample_size returns raw n for negative autocorrelation (no overcorrection)
 - v1.8/48-01: Minimum effective_n clamped to 2 for valid t-distribution degrees of freedom
+- v1.8/48-02: Decision gates on n_eff (InsufficientData), then CI lower bound > 0 (Proceed vs DoNotProceed)
+- v1.8/48-02: Exit codes 0=Proceed, 1=DoNotProceed, 2=InsufficientData for scripting
+- v1.8/48-02: Warnings for high ACF (>0.5), low n_eff, sparse data, missing training data
 - Decisions also logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -78,5 +81,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 48-01-PLAN.md (Autocorrelation-corrected stats and train/test split)
-Next action: Execute 48-02 (Go/No-Go report).
+Stopped at: Completed 48-02-PLAN.md (Go/no-go report and CLI)
+Next action: v1.8 milestone complete. Deploy and run go-no-go on production signal_logs.
