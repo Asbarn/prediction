@@ -1,4 +1,5 @@
 use rust_decimal::Decimal;
+use serde::Serialize;
 
 /// Arithmetic mean of Decimal values using full-precision Decimal arithmetic.
 /// Returns None if the slice is empty.
@@ -127,6 +128,107 @@ pub fn kurtosis_f64(values: &[f64]) -> Option<f64> {
     let excess = ((nf - 1.0) / ((nf - 2.0) * (nf - 3.0)))
         * ((nf + 1.0) * raw_kurt - 3.0 * (nf - 1.0));
     Some(excess)
+}
+
+/// Pearson product-moment correlation coefficient between two samples.
+///
+/// Returns `None` if fewer than 2 paired observations, or if either sample
+/// has zero variance (correlation undefined).
+pub fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
+    let n = x.len().min(y.len());
+    if n < 2 {
+        return None;
+    }
+
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    let mut sum_xx = 0.0;
+    let mut sum_yy = 0.0;
+    let mut sum_xy = 0.0;
+
+    for i in 0..n {
+        sum_x += x[i];
+        sum_y += y[i];
+        sum_xx += x[i] * x[i];
+        sum_yy += y[i] * y[i];
+        sum_xy += x[i] * y[i];
+    }
+
+    let nf = n as f64;
+    let var_x = sum_xx - sum_x * sum_x / nf;
+    let var_y = sum_yy - sum_y * sum_y / nf;
+
+    if var_x <= 0.0 || var_y <= 0.0 {
+        return None;
+    }
+
+    let cov = sum_xy - sum_x * sum_y / nf;
+    Some(cov / (var_x.sqrt() * var_y.sqrt()))
+}
+
+/// Result of a two-sample Kolmogorov-Smirnov test.
+#[derive(Debug, Clone, Serialize)]
+pub struct KsTestResult {
+    /// Maximum absolute difference between the two ECDFs.
+    pub statistic: f64,
+    /// Asymptotic p-value for the KS statistic.
+    pub p_value: f64,
+    /// Size of the first sample.
+    pub n1: usize,
+    /// Size of the second sample.
+    pub n2: usize,
+}
+
+/// Two-sample Kolmogorov-Smirnov test.
+///
+/// Returns `None` if either sample is empty. Computes the KS statistic
+/// (maximum ECDF difference) and an asymptotic p-value using
+/// `p = 2 * exp(-2 * n_eff * D^2)` where `n_eff = n1*n2 / (n1+n2)`.
+pub fn ks_test_two_sample(sample1: &[f64], sample2: &[f64]) -> Option<KsTestResult> {
+    if sample1.is_empty() || sample2.is_empty() {
+        return None;
+    }
+
+    let n1 = sample1.len();
+    let n2 = sample2.len();
+
+    let mut sorted1 = sample1.to_vec();
+    let mut sorted2 = sample2.to_vec();
+    sorted1.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted2.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut i = 0usize;
+    let mut j = 0usize;
+    let mut d_max: f64 = 0.0;
+
+    while i < n1 || j < n2 {
+        let v1 = if i < n1 { sorted1[i] } else { f64::INFINITY };
+        let v2 = if j < n2 { sorted2[j] } else { f64::INFINITY };
+
+        if v1 <= v2 {
+            i += 1;
+        }
+        if v2 <= v1 {
+            j += 1;
+        }
+
+        let ecdf1 = i as f64 / n1 as f64;
+        let ecdf2 = j as f64 / n2 as f64;
+        let d = (ecdf1 - ecdf2).abs();
+        if d > d_max {
+            d_max = d;
+        }
+    }
+
+    let n_eff = (n1 as f64 * n2 as f64) / (n1 + n2) as f64;
+    let p_value = (2.0 * (-2.0 * n_eff * d_max * d_max).exp()).clamp(0.0, 1.0);
+
+    Some(KsTestResult {
+        statistic: d_max,
+        p_value,
+        n1,
+        n2,
+    })
 }
 
 #[cfg(test)]
@@ -275,5 +377,89 @@ mod tests {
     fn kurtosis_zero_variance_returns_none() {
         let vals = [5.0, 5.0, 5.0, 5.0, 5.0];
         assert_eq!(kurtosis_f64(&vals), None);
+    }
+
+    // -- Pearson correlation tests --
+
+    #[test]
+    fn pearson_perfect_positive() {
+        let x = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = [2.0, 4.0, 6.0, 8.0, 10.0];
+        let r = pearson_correlation(&x, &y).unwrap();
+        assert!(
+            (r - 1.0).abs() < 1e-10,
+            "Expected r = 1.0, got {r}"
+        );
+    }
+
+    #[test]
+    fn pearson_perfect_negative() {
+        let x = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = [10.0, 8.0, 6.0, 4.0, 2.0];
+        let r = pearson_correlation(&x, &y).unwrap();
+        assert!(
+            (r - (-1.0)).abs() < 1e-10,
+            "Expected r = -1.0, got {r}"
+        );
+    }
+
+    #[test]
+    fn pearson_uncorrelated_returns_near_zero() {
+        let x = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = [2.0, 5.0, 1.0, 4.0, 3.0];
+        let r = pearson_correlation(&x, &y).unwrap();
+        assert!(
+            r.abs() < 0.5,
+            "Expected near-zero correlation, got {r}"
+        );
+    }
+
+    #[test]
+    fn pearson_too_few_returns_none() {
+        assert_eq!(pearson_correlation(&[], &[]), None);
+        assert_eq!(pearson_correlation(&[1.0], &[2.0]), None);
+    }
+
+    #[test]
+    fn pearson_zero_variance_returns_none() {
+        let x = [5.0, 5.0, 5.0];
+        let y = [1.0, 2.0, 3.0];
+        assert_eq!(pearson_correlation(&x, &y), None);
+    }
+
+    // -- KS test tests --
+
+    #[test]
+    fn ks_identical_samples() {
+        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = ks_test_two_sample(&data, &data).unwrap();
+        assert!(
+            result.statistic < 1e-10,
+            "Identical samples should have D near 0, got {}",
+            result.statistic
+        );
+        assert!(
+            result.p_value > 0.9,
+            "Identical samples should have high p-value, got {}",
+            result.p_value
+        );
+    }
+
+    #[test]
+    fn ks_completely_different() {
+        let a = [0.0, 0.0, 0.0, 0.0, 0.0];
+        let b = [1.0, 1.0, 1.0, 1.0, 1.0];
+        let result = ks_test_two_sample(&a, &b).unwrap();
+        assert!(
+            (result.statistic - 1.0).abs() < 1e-10,
+            "Completely different samples should have D = 1.0, got {}",
+            result.statistic
+        );
+    }
+
+    #[test]
+    fn ks_empty_returns_none() {
+        assert!(ks_test_two_sample(&[], &[1.0, 2.0]).is_none());
+        assert!(ks_test_two_sample(&[1.0, 2.0], &[]).is_none());
     }
 }
