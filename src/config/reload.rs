@@ -1,3 +1,5 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -59,6 +61,9 @@ impl ConfigReloader {
     ///
     /// Uses `notify_debouncer_mini` with 500ms debounce to avoid
     /// rapid-fire reloads from editor save patterns (tmp file + rename).
+    /// Additionally hashes raw file contents to skip reloads when files
+    /// haven't actually changed (Docker bind mounts can generate spurious
+    /// inotify events).
     fn watch_loop(config_dir: PathBuf, config_tx: watch::Sender<AppConfig>) {
         use notify_debouncer_mini::new_debouncer;
 
@@ -81,6 +86,9 @@ impl ConfigReloader {
 
         tracing::debug!(dir = %config_dir.display(), "config file watcher started");
 
+        // Track content hash to skip reloads when files haven't actually changed
+        let mut last_hash = Self::hash_config_files(&config_dir);
+
         loop {
             match rx.recv() {
                 Ok(Ok(events)) => {
@@ -90,8 +98,14 @@ impl ConfigReloader {
                             .map_or(false, |ext| ext == "toml")
                     });
                     if config_changed {
+                        let current_hash = Self::hash_config_files(&config_dir);
+                        if current_hash == last_hash {
+                            tracing::trace!("config files unchanged (spurious fs event), skipping reload");
+                            continue;
+                        }
                         match super::load_config(&config_dir) {
                             Ok(new_config) => {
+                                last_hash = current_hash;
                                 tracing::info!("config reloaded successfully");
                                 let _ = config_tx.send(new_config);
                             }
@@ -114,5 +128,17 @@ impl ConfigReloader {
                 }
             }
         }
+    }
+
+    /// Hash the contents of all config TOML files for change detection.
+    fn hash_config_files(config_dir: &PathBuf) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        for name in &["config.toml", "events.toml", "venues.toml"] {
+            match std::fs::read(config_dir.join(name)) {
+                Ok(bytes) => bytes.hash(&mut hasher),
+                Err(_) => 0u8.hash(&mut hasher),
+            }
+        }
+        hasher.finish()
     }
 }
