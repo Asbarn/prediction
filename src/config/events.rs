@@ -248,6 +248,16 @@ pub struct DiscoveryConfig {
     /// to events_archive.toml. Default 30 days.
     #[serde(default = "default_archive_retention_days")]
     pub archive_retention_days: u32,
+
+    /// Maximum bid-ask spread for Polymarket markets. Markets with spread
+    /// above this threshold are filtered out during discovery. Default 0.10 (10 cents).
+    #[serde(default = "default_max_polymarket_spread")]
+    pub max_polymarket_spread: f64,
+
+    /// Minimum best-bid price for Polymarket markets. Markets with bestBid
+    /// below this threshold are filtered out (phantom liquidity). Default 0.02 ($0.02).
+    #[serde(default = "default_min_polymarket_price")]
+    pub min_polymarket_price: f64,
 }
 
 impl DiscoveryConfig {
@@ -277,6 +287,8 @@ impl Default for DiscoveryConfig {
             expiry_tolerance_days: default_expiry_tolerance_days(),
             polymarket_event_slugs: default_polymarket_event_slugs(),
             archive_retention_days: default_archive_retention_days(),
+            max_polymarket_spread: default_max_polymarket_spread(),
+            min_polymarket_price: default_min_polymarket_price(),
         }
     }
 }
@@ -297,6 +309,8 @@ fn default_polymarket_event_slugs() -> Vec<String> {
     ]
 }
 fn default_archive_retention_days() -> u32 { 30 }
+fn default_max_polymarket_spread() -> f64 { 0.10 }
+fn default_min_polymarket_price() -> f64 { 0.02 }
 
 /// Expiry warning threshold configuration.
 ///

@@ -13,7 +13,7 @@ use std::str::FromStr;
 use anyhow::Context;
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use rust_decimal::Decimal;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use crate::config::{Direction, EventMapping};
 use crate::events::registry::EventRegistry;
@@ -403,6 +403,34 @@ fn extract_kalshi_asset(ticker: &str) -> Option<String> {
 // Polymarket discovery (limited -- deactivation monitoring only in v1)
 // ---------------------------------------------------------------------------
 
+/// Deserialize an optional f64 that may arrive as a JSON string, number, or null.
+///
+/// The Gamma API returns numeric fields like `bestBid`, `bestAsk`, `spread` as
+/// JSON strings (e.g., `"0.42"`). This deserializer handles string, number, and
+/// null/missing cases.
+fn deserialize_option_f64_from_string<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrFloat {
+        String(String),
+        Float(f64),
+        Null,
+    }
+
+    match Option::<StringOrFloat>::deserialize(deserializer)? {
+        Some(StringOrFloat::String(s)) if s.is_empty() => Ok(None),
+        Some(StringOrFloat::String(s)) => s
+            .parse::<f64>()
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        Some(StringOrFloat::Float(f)) => Ok(Some(f)),
+        Some(StringOrFloat::Null) | None => Ok(None),
+    }
+}
+
 /// Raw Polymarket market info from the Gamma API.
 ///
 /// In v1, Polymarket discovery is for monitoring deactivation/resolution of
@@ -420,6 +448,15 @@ pub struct PolymarketMarketInfo {
     #[serde(default)]
     pub tokens: Vec<PolymarketToken>,
     pub category: Option<String>,
+    /// Best bid price from Gamma API (market-level field).
+    #[serde(rename = "bestBid", default, deserialize_with = "deserialize_option_f64_from_string")]
+    pub best_bid: Option<f64>,
+    /// Best ask price from Gamma API (market-level field).
+    #[serde(rename = "bestAsk", default, deserialize_with = "deserialize_option_f64_from_string")]
+    pub best_ask: Option<f64>,
+    /// Bid-ask spread from Gamma API (market-level field).
+    #[serde(default, deserialize_with = "deserialize_option_f64_from_string")]
+    pub spread: Option<f64>,
 }
 
 /// Token info from Polymarket Gamma API.
@@ -548,6 +585,8 @@ pub async fn discover_polymarket_structured(
     gamma_api_url: &str,
     event_slugs: &[String],
     rate_limiter: Option<&VenueRateLimiter>,
+    min_polymarket_price: f64,
+    max_polymarket_spread: f64,
 ) -> anyhow::Result<Vec<DiscoveredInstrument>> {
     let mut all = Vec::new();
     let mut seen_conditions: HashSet<String> = HashSet::new();
@@ -576,6 +615,34 @@ pub async fn discover_polymarket_structured(
                 // Skip inactive/closed markets
                 if !market.active || market.closed {
                     continue;
+                }
+
+                // Filter by minimum bid price (skip phantom liquidity)
+                if let Some(bid) = market.best_bid {
+                    if bid < min_polymarket_price {
+                        tracing::debug!(
+                            condition_id = %market.condition_id,
+                            best_bid = bid,
+                            threshold = min_polymarket_price,
+                            "filtering Polymarket market: best_bid below minimum price"
+                        );
+                        metrics::counter!("polymarket_filtered_low_price").increment(1);
+                        continue;
+                    }
+                }
+
+                // Filter by maximum bid-ask spread
+                if let Some(s) = market.spread {
+                    if s > max_polymarket_spread {
+                        tracing::debug!(
+                            condition_id = %market.condition_id,
+                            spread = s,
+                            threshold = max_polymarket_spread,
+                            "filtering Polymarket market: spread above maximum"
+                        );
+                        metrics::counter!("polymarket_filtered_wide_spread").increment(1);
+                        continue;
+                    }
                 }
 
                 // Parse question for structured fields
@@ -2158,5 +2225,121 @@ mod tests {
         let polymarket = new[0].venues.polymarket.as_ref().unwrap();
         assert_eq!(polymarket.0, "0xabc123"); // condition_id
         assert_eq!(polymarket.1, "tok_yes_123"); // token_id from extra_venue_id
+    }
+
+    // --- Polymarket price/spread filtering tests ---
+
+    /// Helper to build a PolymarketMarketInfo with bid/spread fields for filter tests.
+    fn make_market_info(
+        best_bid: Option<f64>,
+        spread: Option<f64>,
+    ) -> PolymarketMarketInfo {
+        PolymarketMarketInfo {
+            condition_id: "0xtest".to_string(),
+            question: "Will Bitcoin reach $100,000 by December 31, 2025?".to_string(),
+            end_date_iso: Some("2025-12-31".to_string()),
+            active: true,
+            closed: false,
+            tokens: vec![PolymarketToken {
+                token_id: "tok1".to_string(),
+                outcome: "Yes".to_string(),
+            }],
+            category: Some("Crypto".to_string()),
+            best_bid,
+            best_ask: None,
+            spread,
+        }
+    }
+
+    /// Simulates the inline filtering logic from discover_polymarket_structured.
+    /// Returns true if the market passes the filters (not filtered out).
+    fn passes_polymarket_filters(
+        market: &PolymarketMarketInfo,
+        min_price: f64,
+        max_spread: f64,
+    ) -> bool {
+        if let Some(bid) = market.best_bid {
+            if bid < min_price {
+                return false;
+            }
+        }
+        if let Some(s) = market.spread {
+            if s > max_spread {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn filter_low_bid_rejected() {
+        let market = make_market_info(Some(0.005), Some(0.03));
+        assert!(
+            !passes_polymarket_filters(&market, 0.02, 0.10),
+            "best_bid 0.005 below min 0.02 should be filtered"
+        );
+    }
+
+    #[test]
+    fn filter_wide_spread_rejected() {
+        let market = make_market_info(Some(0.42), Some(0.15));
+        assert!(
+            !passes_polymarket_filters(&market, 0.02, 0.10),
+            "spread 0.15 above max 0.10 should be filtered"
+        );
+    }
+
+    #[test]
+    fn filter_good_market_passes() {
+        let market = make_market_info(Some(0.42), Some(0.02));
+        assert!(
+            passes_polymarket_filters(&market, 0.02, 0.10),
+            "bid 0.42 and spread 0.02 should pass"
+        );
+    }
+
+    #[test]
+    fn filter_none_bid_passes() {
+        let market = make_market_info(None, Some(0.05));
+        assert!(
+            passes_polymarket_filters(&market, 0.02, 0.10),
+            "None best_bid should not be filtered"
+        );
+    }
+
+    #[test]
+    fn deserialize_polymarket_market_info_with_bid_spread() {
+        let json = r#"{
+            "conditionId": "0xabc",
+            "question": "Will Bitcoin reach $100,000 by December 31, 2025?",
+            "endDateIso": "2025-12-31",
+            "active": true,
+            "closed": false,
+            "tokens": [{"token_id": "tok1", "outcome": "Yes"}],
+            "category": "Crypto",
+            "bestBid": "0.42",
+            "bestAsk": "0.45",
+            "spread": "0.03"
+        }"#;
+        let market: PolymarketMarketInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(market.best_bid, Some(0.42));
+        assert_eq!(market.best_ask, Some(0.45));
+        assert_eq!(market.spread, Some(0.03));
+    }
+
+    #[test]
+    fn deserialize_polymarket_market_info_without_bid_spread() {
+        let json = r#"{
+            "conditionId": "0xabc",
+            "question": "Will Bitcoin reach $100,000 by December 31, 2025?",
+            "endDateIso": "2025-12-31",
+            "active": true,
+            "closed": false,
+            "tokens": [{"token_id": "tok1", "outcome": "Yes"}]
+        }"#;
+        let market: PolymarketMarketInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(market.best_bid, None);
+        assert_eq!(market.best_ask, None);
+        assert_eq!(market.spread, None);
     }
 }

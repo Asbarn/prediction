@@ -372,6 +372,8 @@ impl ContractLifecycleManager {
                 &self.venues_config.polymarket.gamma_api_url,
                 &slugs,
                 polymarket_limiter,
+                self.discovery_config.min_polymarket_price,
+                self.discovery_config.max_polymarket_spread,
             )
             .await
             {
