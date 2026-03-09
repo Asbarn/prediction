@@ -11,7 +11,7 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 
 - [x] **FIX-01**: Cost model subtracts fees in the same unit space as raw spread (probability-space, not dollar-space)
 - [x] **FIX-02**: Kalshi taker fee calculation rounds to cents (not integers) via correct Decimal rounding
-- [ ] **FIX-03**: Spread logger produces SpreadResult JSONL entries for active Polymarket-vs-options pairs (not gated on Kalshi presence)
+- [x] **FIX-03**: Spread logger produces SpreadResult JSONL entries for active Polymarket-vs-options pairs (not gated on Kalshi presence)
 
 ### Instrument Quality
 
@@ -61,7 +61,7 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 |-------------|-------|--------|
 | FIX-01 | Phase 44 | Complete |
 | FIX-02 | Phase 44 | Complete |
-| FIX-03 | Phase 44 | Pending |
+| FIX-03 | Phase 44 | Complete |
 | INST-01 | Phase 45 | Pending |
 | INST-02 | Phase 45 | Pending |
 | INST-03 | Phase 45 | Pending |

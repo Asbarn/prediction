@@ -9,13 +9,13 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 
 ## Current Position
 
-Phase: 44 of 48 (Critical Bug Fixes and Data Pipeline Repair)
-Plan: 1 of 2 in current phase
-Status: Executing
-Last activity: 2026-03-09 -- Completed 44-01 (Cost Model Arithmetic Fixes)
+Phase: 44 of 48 (Critical Bug Fixes and Data Pipeline Repair) -- COMPLETE
+Plan: 2 of 2 in current phase (phase complete)
+Status: Phase 44 complete, ready for Phase 45
+Last activity: 2026-03-09 -- Completed 44-02 (Cross-Asset Spread Logger Integration)
 
-Progress (overall): 8 milestones shipped (v1.0-v1.7), 43 phases, 102 plans complete
-Progress (v1.8): [█░░░░░░░░░] 7%
+Progress (overall): 8 milestones shipped (v1.0-v1.7), 43 phases, 104 plans complete
+Progress (v1.8): [██░░░░░░░░] 13%
 
 ## Performance Metrics
 
@@ -42,6 +42,8 @@ Progress (v1.8): [█░░░░░░░░░] 7%
 - v1.8 research: One new dependency only (linregress = "0.5" for OLS regression)
 - v1.8/44-01: Cents-precision ceiling (raw*100).ceil()/100 matches Kalshi's actual rounding
 - v1.8/44-01: Dollar costs normalized by dividing by target_notional before probability-space subtraction
+- v1.8/44-02: Cross-asset SpreadPattern variants separate from Kalshi variants to isolate SpreadEngine behavior
+- v1.8/44-02: SpreadResult fee fields divided by target_notional for probability-space consistency
 - Decisions also logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -50,7 +52,7 @@ None.
 
 ### Blockers/Concerns
 
-- Spread logger not producing output (spread_logs empty) -- Phase 44 will fix
+- Spread logger not producing output (spread_logs empty) -- FIXED in 44-02
 - All signals show negative edge (-19.5) due to unit mismatch -- FIXED in 44-01
 - events.toml empty in production -- Phase 45 will populate
 - GitLab CI/CD minutes exhausted -- deploy manually via SSM
@@ -58,5 +60,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 44-01-PLAN.md (Cost Model Arithmetic Fixes)
-Next action: /gsd:execute-phase 44-02
+Stopped at: Completed 44-02-PLAN.md (Cross-Asset Spread Logger Integration) -- Phase 44 complete
+Next action: /gsd:execute-phase 45
