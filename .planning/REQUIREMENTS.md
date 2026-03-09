@@ -33,8 +33,8 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 
 ### Statistical Validation
 
-- [ ] **STAT-01**: Signal analysis accounts for autocorrelation (effective sample size, not raw count)
-- [ ] **STAT-02**: Out-of-sample validation separates training/tuning data from evaluation data
+- [x] **STAT-01**: Signal analysis accounts for autocorrelation (effective sample size, not raw count)
+- [x] **STAT-02**: Out-of-sample validation separates training/tuning data from evaluation data
 - [ ] **STAT-03**: Final go/no-go report with confidence intervals on expected edge after all fixes applied
 
 ## Future Requirements
@@ -71,8 +71,8 @@ Requirements for Signal Quality Validation milestone. Each maps to roadmap phase
 | COST-01 | Phase 47 | Complete |
 | COST-02 | Phase 47 | Complete |
 | COST-03 | Phase 47 | Complete |
-| STAT-01 | Phase 48 | Pending |
-| STAT-02 | Phase 48 | Pending |
+| STAT-01 | Phase 48 | Complete |
+| STAT-02 | Phase 48 | Complete |
 | STAT-03 | Phase 48 | Pending |
 
 **Coverage:**
