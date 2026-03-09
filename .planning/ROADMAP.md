@@ -137,6 +137,11 @@ Plans:
 **Goal**: Polymarket price data is available via REST polling when WebSocket is unreliable, with exclusive-mode switching
 **Depends on**: Phase 40, Phase 41
 **Requirements**: POLY-04, POLY-05
+**Plans**: 2 plans
+
+Plans:
+- [ ] 42-01-PLAN.md — REST poller module and config extensions (PolymarketRestPoller, /midpoint endpoint)
+- [ ] 42-02-PLAN.md — Source coordinator state machine and pipeline integration (exclusive WS/REST switching)
 
 ### Phase 43: End-to-End Production Verification
 **Goal**: Complete signal pipeline verified working on production EC2 with real market data
