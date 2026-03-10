@@ -32,11 +32,11 @@ COPY src/ src/
 RUN cargo build --release
 
 # ---- Runtime stage ----
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libssl3 \
+    libssl3t64 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -45,6 +45,11 @@ WORKDIR /app
 COPY --from=builder /build/target/release/prediction .
 COPY --from=builder /build/target/release/spread-analytics .
 COPY --from=builder /build/target/release/signal-scoring .
+COPY --from=builder /build/target/release/match-audit .
+COPY --from=builder /build/target/release/cost-audit .
+COPY --from=builder /build/target/release/book-depth .
+COPY --from=builder /build/target/release/cost-validate .
+COPY --from=builder /build/target/release/go-no-go .
 
 EXPOSE 9000 9001
 

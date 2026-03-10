@@ -1,6 +1,6 @@
 services:
   prediction:
-    image: 606103597377.dkr.ecr.us-east-1.amazonaws.com/prediction:latest
+    image: ${ECR_REGISTRY:-prediction}:latest
     env_file: .env
     stop_grace_period: 30s
     ports:

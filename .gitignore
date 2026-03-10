@@ -9,5 +9,10 @@ secrets/
 .idea/
 *.iml
 .kalshi.demo.env
+.planning/
+.claude/
+signal_logs/
+spread_logs/
 infra/cdk/node_modules/
 infra/cdk/cdk.out/
+infra/cdk/cdk.out.diff/

@@ -6,7 +6,7 @@ const app = new cdk.App();
 
 new PredictionStack(app, 'PredictionStack', {
   env: {
-    account: '606103597377',
+    account: process.env.CDK_DEFAULT_ACCOUNT!,
     region: 'us-east-1',
   },
   description: 'Prediction market arbitrage system infrastructure',

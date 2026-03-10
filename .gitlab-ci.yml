@@ -4,7 +4,7 @@ stages:
   - deploy
 
 variables:
-  ECR_REGISTRY: "606103597377.dkr.ecr.us-east-1.amazonaws.com"
+  ECR_REGISTRY: "${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
   ECR_REPOSITORY: "prediction"
   AWS_DEFAULT_REGION: "us-east-1"
 
